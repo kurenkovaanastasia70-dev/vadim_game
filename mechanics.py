@@ -122,10 +122,6 @@ def update_player_movement(game):
                     game.moving = True
             
             game.move_timer = current_time
-            if game.moving and game.player_direction in game.player_sprites:
-                frames = game.player_sprites[game.player_direction]
-                if frames:
-                    game.player_animation_frame = (game.player_animation_frame + 1) % len(frames)
         else:
             game.moving = False
     # Проверяем близость к компьютеру (зона взаимодействия, не «центр–центр»:
