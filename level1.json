@@ -1,0 +1,124 @@
+{
+  "background": "backgroung_lvl1.jpg",
+  "walls": [
+    {
+      "x": 0,
+      "y": 459,
+      "width": 178,
+      "height": 32,
+      "color": [
+        139,
+        90,
+        43
+      ],
+      "type": "horizontal"
+    },
+    {
+      "x": 294,
+      "y": 458,
+      "width": 202,
+      "height": 32,
+      "color": [
+        139,
+        90,
+        43
+      ],
+      "type": "horizontal"
+    },
+    {
+      "x": 492,
+      "y": 104,
+      "width": 32,
+      "height": 118,
+      "color": [
+        139,
+        90,
+        43
+      ],
+      "type": "vertical"
+    },
+    {
+      "x": 495,
+      "y": 344,
+      "width": 31,
+      "height": 420,
+      "color": [
+        139,
+        90,
+        43
+      ],
+      "type": "vertical"
+    }
+  ],
+  "hitboxes": [
+    {
+      "x": 13,
+      "y": 112,
+      "width": 84,
+      "height": 79
+    },
+    {
+      "x": 433,
+      "y": 107,
+      "width": 50,
+      "height": 50
+    },
+    {
+      "x": 403,
+      "y": 503,
+      "width": 84,
+      "height": 95
+    },
+    {
+      "x": 11,
+      "y": 191,
+      "width": 71,
+      "height": 180
+    },
+    {
+      "x": 12,
+      "y": 374,
+      "width": 65,
+      "height": 69
+    }
+  ],
+  "computer": {
+    "x": 381,
+    "y": 674,
+    "width": 80,
+    "height": 80
+  },
+  "ghost_spawns": [
+    {
+      "x": 100,
+      "y": 200
+    },
+    {
+      "x": 300,
+      "y": 400
+    }
+  ],
+  "rooms": [
+    {
+      "x": 0,
+      "y": 96,
+      "width": 480,
+      "height": 352,
+      "room_id": 0
+    },
+    {
+      "x": 480,
+      "y": 96,
+      "width": 512,
+      "height": 672,
+      "room_id": 1
+    },
+    {
+      "x": 0,
+      "y": 448,
+      "width": 448,
+      "height": 288,
+      "room_id": 2
+    }
+  ]
+}
