@@ -70,6 +70,8 @@ def update_player_movement(game):
     """
     Обновляет движение игрока с плавным перемещением и проверкой столкновений.
     """
+    if getattr(game, "journal_open", False):
+        return
     current_time = pygame.time.get_ticks()
     
     # Уменьшаем задержку для более плавного движения

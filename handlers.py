@@ -1,5 +1,6 @@
 import pygame
 import mechanics
+import draws
 from gamestate import GameState
 from constants import (
     SCREEN_WIDTH,
@@ -29,10 +30,17 @@ def handle_menu_events(game, event):
                     game.push_state(GameState.GAME)
             elif i==1:  # Настройки
                 game.push_state(GameState.SETTINGS)
-            elif i==2:  # Сохранить
+            elif i==2:  # Как играть
+                game.push_state(GameState.HOWTO)
+            elif i==3:  # Сохранить
                 game.push_state(GameState.SAVES)
-            elif i==3:  # Выход
+            elif i==4:  # Выход
                 game.running=False
+
+
+def handle_howto_events(game, event):
+    if game.howto_back_button.handle_event(event):
+        game.go_back()
 
 
 def handle_difficulty_events(game, event):
@@ -251,8 +259,24 @@ def handle_game_events(game, event):
             elif i == 1:  # Кнопка "Магазин"
                 game.push_state(GameState.SHOP)
 
+    if getattr(game, "journal_open", False) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        hit = draws.evidence_journal_hit_test(game, event.pos)
+        if hit in ("close", "outside"):
+            game.journal_open = False
+        elif hit in game.journal_evidence:
+            game.journal_evidence[hit] = not game.journal_evidence[hit]
+        return
+
     # Обработка нажатий и отпусканий клавиш для плавного движения
     if event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_j:
+            game.journal_open = not getattr(game, "journal_open", False)
+            return
+        if event.key == pygame.K_ESCAPE and getattr(game, "journal_open", False):
+            game.journal_open = False
+            return
+        if getattr(game, "journal_open", False):
+            return
         if event.key == pygame.K_F1:
             # Переключение отладочного режима для приведений
             game.ghost_manager.toggle_debug()
@@ -321,6 +345,8 @@ def handle_event(game):
         
         if game.state == GameState.MENU:
             handle_menu_events(game, event)
+        elif game.state == GameState.HOWTO:
+            handle_howto_events(game, event)
         elif game.state == GameState.SHOP:
             handle_shop_events(game, event)
         elif game.state == GameState.SETTINGS:

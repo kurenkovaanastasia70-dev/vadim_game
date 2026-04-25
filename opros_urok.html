@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Опрос по уроку: игра и журнал улик</title>
+  <style>
+    :root { font-family: "Segoe UI", Tahoma, sans-serif; }
+    body { max-width: 40rem; margin: 1.5rem auto; padding: 0 1rem; line-height: 1.45; color: #1a1a1a; }
+    h1 { font-size: 1.35rem; margin-bottom: 0.5rem; }
+    p.hint { color: #555; font-size: 0.95rem; margin-top: 0; }
+    fieldset { border: 1px solid #ccc; border-radius: 6px; margin: 1rem 0; padding: 0.75rem 1rem; }
+    legend { font-weight: 600; }
+    label { display: block; margin: 0.35rem 0; cursor: pointer; }
+    textarea { width: 100%; min-height: 4.5rem; box-sizing: border-box; }
+    .actions { margin-top: 1.5rem; }
+    button { padding: 0.5rem 1.2rem; font-size: 1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Опрос по уроку (igра vadim_game)</h1>
+  <p class="hint">Отметь варианты или напиши короткий ответ. Результаты можно сохранить через «Печать → PDF» в браузере. Про конфиг-файлы вопросы для урока программирования: в готовой игре игрок этот файл не открывает — только сцену и журнал.</p>
+
+  <form id="opros" onsubmit="return false;">
+    <fieldset>
+      <legend>1. (для курса) Зачем настройкам призраков удобен отдельный конфиг-файл в проекте, а не всё в коде?</legend>
+      <label><input type="radio" name="q1" value="a" /> Чтобы не перекомпилировать при каждом изменении баланса</label>
+      <label><input type="radio" name="q1" value="b" /> Чтобы игра стала 3D</label>
+      <label><input type="radio" name="q1" value="c" /> Чтобы убрать pygame из проекта</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Секции с именами вида <code>ghost_…</code> в том конфиге задают…</legend>
+      <label><input type="radio" name="q2" value="a" /> Только уровни карты</label>
+      <label><input type="radio" name="q2" value="b" /> Профили призраков (способности и «улики»)</label>
+      <label><input type="radio" name="q2" value="c" /> Список покупок в магазине</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. Какие три признака стоят в журнале улик (по приборам в игре)?</legend>
+      <label><input type="checkbox" name="q3" value="amp" /> amp / ЭМП</label>
+      <label><input type="checkbox" name="q3" value="ultraviolet" /> ultraviolet / УФ</label>
+      <label><input type="checkbox" name="q3" value="can_fly" /> can_fly (отвлекающий)</label>
+      <label><input type="checkbox" name="q3" value="radio" /> radio / радио</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>4. Клавиша открытия журнала улик в игре</legend>
+      <label><input type="radio" name="q4" value="a" /> F1</label>
+      <label><input type="radio" name="q4" value="b" /> J</label>
+      <label><input type="radio" name="q4" value="c" /> Tab</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>5. Что происходит с подсказками в журнале, если отметить больше признаков?</legend>
+      <label><input type="radio" name="q5" value="a" /> Список подходящих типов обычно сужается (остаются совпадения)</label>
+      <label><input type="radio" name="q5" value="b" /> Игра сразу завершается</label>
+      <label><input type="radio" name="q5" value="c" /> Список кандидатов перестаёт обновляться</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>6. Где в главном меню открывается краткая инструкция «Как играть»?</legend>
+      <label><input type="radio" name="q6" value="a" /> Кнопка «Сохранить»</label>
+      <label><input type="radio" name="q6" value="b" /> Кнопка «Как играть»</label>
+      <label><input type="radio" name="q6" value="c" /> Кнопка «Выход»</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>7. Клавиша для радио (по подсказке в HUD)</legend>
+      <label><input type="radio" name="q7" value="a" /> E</label>
+      <label><input type="radio" name="q7" value="b" /> R</label>
+      <label><input type="radio" name="q7" value="c" /> T</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>8. Файл <code>levels_index.json</code> в проекте отвечает за…</legend>
+      <label><input type="radio" name="q8" value="a" /> Реестр уровней и пути к картам</label>
+      <label><input type="radio" name="q8" value="b" /> Только музыку в меню</label>
+      <label><input type="radio" name="q8" value="c" /> Только настройки громкости</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>9. (для курса) Секция <code>ghost_default</code> в конфиге с профилями — это</legend>
+      <label><input type="radio" name="q9" value="a" /> База, от которой собирается полный профиль другого типа</label>
+      <label><input type="radio" name="q9" value="b" /> Отдельный уровень сложности</label>
+      <label><input type="radio" name="q9" value="c" /> Файл сохранения</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>10. Как вручную закрыть журнал, кроме кнопки «Закрыть»?</legend>
+      <label><input type="radio" name="q10" value="a" /> Пробел</label>
+      <label><input type="radio" name="q10" value="b" /> Esc или J, или клик вне панели (по задумке урока)</label>
+      <label><input type="radio" name="q10" value="c" /> Только Alt+F4</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>11. Как тебе объём за один урок (1–5)?</legend>
+      <label><input type="radio" name="q11" value="1" /> 1 — слишком мало</label>
+      <label><input type="radio" name="q11" value="2" /> 2</label>
+      <label><input type="radio" name="q11" value="3" /> 3</label>
+      <label><input type="radio" name="q11" value="4" /> 4</label>
+      <label><input type="radio" name="q11" value="5" /> 5 — слишком много</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>12. Один пример: что тебе было непонятно или что хочется добавить в игру в следующий раз?</legend>
+      <textarea name="q12" placeholder="Свой ответ…"></textarea>
+    </fieldset>
+
+    <div class="actions">
+      <button type="button" onclick="window.print()">Сохранить / печать</button>
+    </div>
+  </form>
+</body>
+</html>
