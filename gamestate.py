@@ -5,3 +5,4 @@ class GameState:
     SETTINGS = "settings" # Настройки
     DIFF = "diff"
     SAVES = "saves"
+    HOWTO = "howto"      # Как играть

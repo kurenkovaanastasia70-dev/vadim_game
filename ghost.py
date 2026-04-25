@@ -103,6 +103,40 @@ class GhostAbilitiesConfig:
         return random.choice(names) if names else "default"
 
 
+# Улики, которые в игре реально проверяются приборами (ЭМП, УФ, радио). ghostorb в данных профиля есть, но
+# отдельного объекта «шар» в сцене нет — в журнал не выводим, чтобы не вводить в заблуждение.
+EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio")
+
+
+def filter_profiles_by_evidence(abilities_config, marked):
+    """
+    Оставляет типы призраков, у которых все отмеченные улики совпадают (True в профиле).
+    marked: dict ключ -> bool; учитываются только ключи со значением True.
+    """
+    out = []
+    for name in abilities_config.profiles:
+        if name == "default":
+            continue
+        prof = abilities_config.get_profile(name)
+        ok = True
+        for k in EVIDENCE_PROFILE_KEYS:
+            if marked.get(k) and not prof.get(k):
+                ok = False
+                break
+        if ok:
+            out.append(name)
+    return sorted(out)
+
+
+# В ghost_abilities.ini полно описаны ghost_1…ghost_7; ghost_8… — заготовки «Тип N», не показывать в журнале.
+JOURNAL_LIST_PROFILE_IDS = frozenset({"1", "2", "3", "4", "5", "6", "7"})
+
+
+def filter_journal_suspects(abilities_config, marked):
+    """Как filter_profiles_by_evidence, но только для типов из INI с полноценной таблицей (1–7)."""
+    return [n for n in filter_profiles_by_evidence(abilities_config, marked) if n in JOURNAL_LIST_PROFILE_IDS]
+
+
 class Node:
     """Узел для A* алгоритма"""
     def __init__(self, x, y, g_cost=0, h_cost=0, parent=None):

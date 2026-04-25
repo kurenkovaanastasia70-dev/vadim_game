@@ -27,7 +27,7 @@ import draws
 import handlers
 import mechanics
 import assets
-from ghost import GhostManager
+from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
 from inventory_system import InventoryManager
 import level_config
 
@@ -64,9 +64,14 @@ class Game:
         self.menu_buttons = [
             PinButton(200, 250, self.pin_images.get("pin_1"), "Начать игру"),
             PinButton(600, 180, self.pin_images.get("pin_2"), "Настройки"),
+            PinButton(400, 320, self.pin_images.get("pin_2"), "Как играть"),
             PinButton(150, 450, self.pin_images.get("pin_3"), "Сохранить"),
             PinButton(650, 400, self.pin_images.get("pin_1"), "Выход")
         ]
+        self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
+        # Журнал улик: ЭМП / УФ / радио и флаг панели
+        self.journal_open = False
+        self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
         
         # Создание кнопок для магазина
         self.shop_buttons = [
@@ -331,6 +336,8 @@ class Game:
                 self.computer = self.computer_closed
                 self.near_computer = False
             print(f"Уровень загружен: {level_file_path}")
+            self.journal_open = False
+            self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self._create_vignette_texture()
             self.update_camera()
@@ -557,6 +564,8 @@ class Game:
         self.player_level = 1
         self.reset_inventory()
         self.reset_player_position()
+        self.journal_open = False
+        self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
     
         
     def buy_item(self, item_name, cost):
@@ -746,6 +755,8 @@ class Game:
             draws.draw_difficulty(self)
         elif self.state == GameState.SAVES:
             draws.draw_saves(self)
+        elif self.state == GameState.HOWTO:
+            draws.draw_howto(self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:
             # Полупрозрачный фон

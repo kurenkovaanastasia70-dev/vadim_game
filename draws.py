@@ -15,28 +15,332 @@ from constants import (
 import assets
 import mechanics
 from inventory_system import ItemType
+from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
+
+# Три прибора в игре — три галки. Поле ghostorb в профиле призрака остаётся для будущих фич, не для журнала.
+JOURNAL_EVIDENCE_HELP = [
+    (
+        "amp",
+        "ЭМП-метр  [E]",
+        "Пики шкалы 2–4 — отметь, если поймал. Снизу останутся типы, у которых в данных предусмотрен сильный ЭМП.",
+    ),
+    (
+        "ultraviolet",
+        "УФ-фонарь  [T]",
+        "Следы в УФ: галка, если увидел. Сужает список по типам с такой же уликой.",
+    ),
+    (
+        "radio",
+        "Радиоприёмник  [R]",
+        "Ответ или голос с радио: галка, если слышал. Снимай галку, если радио «молчит» в таком раунде.",
+    ),
+]
+
+
+def _wrap_lines(font, text, max_width):
+    """Разбивает строку на подстроки, чтобы ширина не превышала max_width (по словам)."""
+    words = text.split()
+    if not words:
+        return [""]
+    lines = []
+    line = words[0]
+    for w in words[1:]:
+        t = f"{line} {w}"
+        if font.size(t)[0] <= max_width:
+            line = t
+        else:
+            lines.append(line)
+            line = w
+    lines.append(line)
+    return lines
+
+
+def _journal_panel_rect():
+    w = min(640, max(400, SCREEN_WIDTH - 32))
+    h = min(520, max(380, SCREEN_HEIGHT - 20))
+    return pygame.Rect((SCREEN_WIDTH - w) // 2, (SCREEN_HEIGHT - h) // 2, w, h)
+
+
+def _journal_content_width(panel):
+    return panel.w - 28 * 2
+
+
+JOURNAL_ROW_H = 62
+JOURNAL_CB_SIZE = 24
+
+
+def _journal_checkboxes_y0(inner):
+    """Верхний край первого чекбокса (две фиксированные строки вступления под заголовком)."""
+    return inner.y + 78
+
+
+def _journal_close_rect(panel):
+    """Одна и та же геометрия кнопки «Закрыть» для hit-test и отрисовки."""
+    f = pygame.font.Font(None, 22)
+    label = f.render("Закрыть  ·  J / Esc  ·  снаружи", True, (235, 238, 245))
+    pad_x, pad_y = 12, 8
+    w = min(label.get_width() + pad_x * 2, max(0, panel.w - 12))
+    h = max(34, label.get_height() + pad_y * 2)
+    r = pygame.Rect(panel.centerx - w // 2, panel.bottom - h - 6, w, h)
+    # не вылезать за края панели
+    m = 6
+    if r.left < panel.left + m:
+        r.x = panel.left + m
+    if r.right > panel.right - m:
+        r.x = panel.right - m - r.w
+    return r, label
+
+
+def journal_get_checkbox_rects(panel):
+    """Прямоугольники чекбоксов в экранных координатах."""
+    inner = panel.inflate(-28, -28)
+    y0 = _journal_checkboxes_y0(inner)
+    out = {}
+    for i, (key, _h, _s) in enumerate(JOURNAL_EVIDENCE_HELP):
+        out[key] = pygame.Rect(inner.x, y0 + i * JOURNAL_ROW_H, JOURNAL_CB_SIZE, JOURNAL_CB_SIZE)
+    return out
+
+
+def evidence_journal_hit_test(game, pos):
+    panel = _journal_panel_rect()
+    if not panel.collidepoint(pos):
+        return "outside"
+    close, _ = _journal_close_rect(panel)
+    if close.collidepoint(pos):
+        return "close"
+    for key, r in journal_get_checkbox_rects(panel).items():
+        if r.collidepoint(pos):
+            return key
+    return None
+
+
+def draw_howto(game):
+    game.screen.fill((18, 20, 28))
+    pad_x = 24
+    margin = 20
+    body_rect = pygame.Rect(
+        margin,
+        50,
+        SCREEN_WIDTH - margin * 2,
+        SCREEN_HEIGHT - 58,
+    )
+    glass = pygame.Surface((body_rect.w, body_rect.h), pygame.SRCALPHA)
+    glass.fill((32, 36, 48, 232))
+    game.screen.blit(glass, body_rect.topleft)
+    pygame.draw.rect(game.screen, (100, 115, 150), body_rect, 1, border_radius=8)
+
+    game.howto_back_button.draw(game.screen)
+
+    title_f = pygame.font.Font(None, 38)
+    h_f = pygame.font.Font(None, 25)
+    b_f = pygame.font.Font(None, 21)
+    sm = pygame.font.Font(None, 19)
+    title = title_f.render("Как играть", True, (230, 235, 255))
+    game.screen.blit(title, (body_rect.centerx - title.get_width() // 2, body_rect.y + 10))
+
+    content_w = body_rect.w - 36
+    x0 = body_rect.x + 18
+    y = body_rect.y + 50
+    dim = (200, 205, 215)
+
+    # Таблица: клавиша — действие
+    table_title = h_f.render("Клавиши (в игре, после покупок)", True, (160, 200, 255))
+    game.screen.blit(table_title, (x0, y))
+    y += 30
+    rows = [
+        ("R", "Радио — вопрос духу (нужен предмет в магазине)"),
+        ("E", "ЭМП — шкала активности рядом: пики — признак, отмечаешь в журнале"),
+        ("T", "Ультрафиолет — подсветка следов, отмечаешь, если поймал"),
+        ("J", "Журнал — что уже видел; игра сравнивает с известными типами призраков"),
+        ("1 — 7", "Слоты инвентаря внизу: выбрать купленный предмет"),
+    ]
+    for k, desc in rows:
+        game.screen.blit(sm.render(k, True, (120, 220, 200)), (x0, y))
+        for line in _wrap_lines(b_f, desc, content_w - 100):
+            game.screen.blit(b_f.render(line, True, dim), (x0 + 100, y))
+            y += 22
+        y += 6
+
+    y += 8
+    sections = [
+        (
+            "С чего начать",
+            "В главном меню выбери слот и «Новая игра» или пустой слот → сложность. В миссии: "
+            "сначала найди **компьютер** (иконка, часто у края карты) и купи **фонарик** — иначе комнаты в тумане. "
+            "Потом **ЭМП, УФ, радио** — иначе не проверить улику для журнала. Деньги — слева вверху.",
+        ),
+        (
+            "Как сужается расследование",
+            "Каждому из семи **известных** типов духов сопоставлен свой набор: ЭМП, УФ, радио (то, что ловит приборами). "
+            "Журнал (J) оставляет в списке только тех, у кого **все твои галки** согласуются с «их» признаками.",
+        ),
+        (
+            "Список кандидатов",
+            "В сценарии раунда участвуют **семь** полно настроенных существ. Остальные варианты в базе (если появятся) "
+            "в твоём расследовании не мешают — их не увидишь в этом списке.",
+        ),
+        (
+            "Опасность и сейв",
+            "Касание призрака = минус жизнь. **Меню** (справа вверху) — выход с сохранением в слот.",
+        ),
+    ]
+
+    for head, body in sections:
+        if y > body_rect.bottom - 30:
+            break
+        s = h_f.render(head, True, (170, 200, 255))
+        game.screen.blit(s, (x0, y))
+        y += 28
+        for line in _wrap_lines(b_f, body.replace("**", ""), content_w):
+            if y > body_rect.bottom - 24:
+                break
+            game.screen.blit(b_f.render(line, True, dim), (x0, y))
+            y += 24
+        y += 10
+
+    if y < body_rect.bottom - 20:
+        game.screen.blit(
+            sm.render("Имена внизу журнала — «Молчаливый», «Берсерк» и т.д. — смысл смотри по поведению в катке.", True, (130, 135, 150)),
+            (x0, min(y, body_rect.bottom - 22)),
+        )
+
+
+def draw_evidence_journal_overlay(game):
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 175))
+    game.screen.blit(overlay, (0, 0))
+
+    panel = _journal_panel_rect()
+    pygame.draw.rect(game.screen, (28, 30, 42), panel, border_radius=10)
+    pygame.draw.rect(game.screen, (130, 140, 170), panel, 2, border_radius=10)
+
+    inner = panel.inflate(-28, -28)
+    cw = inner.w
+
+    title_f = pygame.font.Font(None, 30)
+    sub_f = pygame.font.Font(None, 20)
+    game.screen.blit(title_f.render("Журнал улик", True, WHITE), (inner.x, inner.y))
+    game.screen.blit(
+        sub_f.render("1) Галка = я уже увидел эту улику в катке.", True, (180, 190, 210)), (inner.x, inner.y + 28)
+    )
+    game.screen.blit(
+        sub_f.render("2) Снизу — кто ещё подходит из семи вариантов в этом сценарии (лишние роли в игре не мешают).", True, (180, 190, 210)),
+        (inner.x, inner.y + 50),
+    )
+
+    cfg = game.ghost_manager.abilities_config
+    marked = {k: game.journal_evidence.get(k, False) for k in EVIDENCE_PROFILE_KEYS}
+    candidates = filter_journal_suspects(cfg, marked)
+
+    box_f = pygame.font.Font(None, 20)
+    small_f = pygame.font.Font(None, 17)
+    names_f = pygame.font.Font(None, 19)
+    row0 = _journal_checkboxes_y0(inner)
+    tx = inner.x + 32
+
+    for i, (key, h_text, s_text) in enumerate(JOURNAL_EVIDENCE_HELP):
+        row_y = row0 + i * JOURNAL_ROW_H
+        cb = pygame.Rect(inner.x, row_y, JOURNAL_CB_SIZE, JOURNAL_CB_SIZE)
+        on = game.journal_evidence.get(key, False)
+        pygame.draw.rect(game.screen, (48, 50, 64) if not on else (38, 100, 52), cb, border_radius=4)
+        pygame.draw.rect(game.screen, (220, 225, 235), cb, 2, border_radius=4)
+        if on:
+            _tick = box_f.render("✓", True, WHITE)
+            game.screen.blit(_tick, _tick.get_rect(center=cb.center))
+        game.screen.blit(box_f.render(h_text, True, (240, 242, 248)), (tx, row_y))
+        help_w = max(0, cw - 40)
+        hy = row_y + 22
+        for li, wline in enumerate(_wrap_lines(small_f, s_text, help_w)):
+            if li >= 2 or hy + 18 > panel.bottom - 100:
+                break
+            game.screen.blit(small_f.render(wline, True, (150, 160, 178)), (tx, hy))
+            hy += 19
+
+    list_top = row0 + len(JOURNAL_EVIDENCE_HELP) * JOURNAL_ROW_H + 10
+    sep = pygame.Rect(inner.x, list_top - 2, inner.w, 1)
+    pygame.draw.rect(game.screen, (90, 95, 115), sep)
+
+    n_all = len(JOURNAL_LIST_PROFILE_IDS)
+    cnt_f = pygame.font.Font(None, 20)
+    stat_text = (
+        f"Осталось вариантов: {len(candidates)} из {n_all} "
+        "(по трём приборам: ЭМП, УФ, радио — тип остаётся, если сходятся твои галки и «его» сочетание)."
+    )
+    sty = list_top
+    for sline in _wrap_lines(cnt_f, stat_text, cw):
+        game.screen.blit(cnt_f.render(sline, True, (205, 215, 225)), (inner.x, sty))
+        sty += 22
+
+    name_top = sty + 6
+    line_h = 20
+    _pre_close, _ = _journal_close_rect(panel)
+    list_bottom = _pre_close.top - 8
+    if list_bottom < name_top + 40:
+        list_bottom = name_top + 40
+    list_w = inner.w
+
+    y = name_top
+    overflowed = False
+    for idx, name in enumerate(candidates):
+        if overflowed or y + line_h > list_bottom:
+            break
+        prof = cfg.get_profile(name)
+        disp = (prof.get("display_name") or "").strip() or f"Тип {name}"
+        wlines = _wrap_lines(names_f, f"·  {disp}  (класс {name}; выбрано по уликам)", list_w)
+        for wl in wlines:
+            if y + line_h > list_bottom:
+                rest = max(0, len(candidates) - idx)
+                game.screen.blit(
+                    small_f.render(
+                        f"…дальше не влезло (ещё ~{rest}). Сузи галками.",
+                        True,
+                        (170, 175, 195),
+                    ),
+                    (inner.x, min(y, list_bottom - line_h)),
+                )
+                overflowed = True
+                break
+            game.screen.blit(names_f.render(wl, True, (230, 232, 240)), (inner.x, y))
+            y += line_h
+        if overflowed:
+            break
+        y += 2
+
+    if not candidates and any(marked.values()):
+        game.screen.blit(
+            small_f.render("Ни один из семи вариантов не подходит под отмеченное — сними лишние галки.", True, (255, 170, 170)),
+            (inner.x, name_top),
+        )
+
+    close_rect, close_surf = _journal_close_rect(panel)
+    pygame.draw.rect(game.screen, (42, 44, 58), close_rect, border_radius=5)
+    pygame.draw.rect(game.screen, (200, 210, 230), close_rect, 1, border_radius=5)
+    game.screen.blit(close_surf, close_surf.get_rect(center=close_rect.center))
+
 
 def draw_menu(game):
     # Рисуем пробковую доску как фон (загружена один раз при инициализации)
-    if hasattr(game, 'cork_board_bg') and game.cork_board_bg:
+    if hasattr(game, "cork_board_bg") and game.cork_board_bg:
         game.screen.blit(game.cork_board_bg, (0, 0))
     else:
         game.screen.fill(DARK_GRAY)
-    
+
     font = pygame.font.Font(None, 72)
 
     title = font.render("Приключенческая игра", True, BLACK)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH//2, 100))
+    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
     game.screen.blit(title, title_rect)
 
     font_small = pygame.font.Font(None, 36)
     subtitle = font_small.render("выбирете действие", True, BLACK)
-    subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH//2, 160))
+    subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 160))
     game.screen.blit(subtitle, subtitle_rect)
-    
+
     # Рисуем пины вместо обычных кнопок
     for button in game.menu_buttons:
         button.draw(game.screen)
+
+
 def _shop_desc_surface(text, max_width, color):
     """Одна строка описания; при нехватке места уменьшаем шрифт или обрезаем."""
     for size in (28, 26, 24, 22, 20):
@@ -397,7 +701,7 @@ def draw_game(game):
     game.screen.blit(level_info, (50, 50))
     hp_info = info_font.render(f"Жизни: {game.player_hp}", True, WHITE)
     game.screen.blit(hp_info, (50, 80))
-    controls_info = info_font.render("R: радио  E: ЭМП  T: УФ-следы", True, WHITE)
+    controls_info = info_font.render("J: журнал  R: радио  E: ЭМП  T: УФ", True, WHITE)
     game.screen.blit(controls_info, (50, 230))
     uv_state = info_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, WHITE)
     game.screen.blit(uv_state, (50, 254))
@@ -423,3 +727,6 @@ def draw_game(game):
         # Кнопки диалога
         for button in game.save_prompt_buttons:
             button.draw(game.screen)
+
+    if getattr(game, "journal_open", False) and not game.show_save_prompt:
+        draw_evidence_journal_overlay(game)
