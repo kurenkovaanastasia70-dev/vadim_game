@@ -2,7 +2,6 @@ import pygame
 from constants import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
-    SHOP_RIGHT_COLUMN_X,
     WHITE,
     BLACK,
     GRAY,
@@ -17,7 +16,7 @@ import mechanics
 from inventory_system import ItemType
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
 
-# Три прибора в игре — три галки. Поле ghostorb в профиле призрака остаётся для будущих фич, не для журнала.
+# Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
 JOURNAL_EVIDENCE_HELP = [
     (
         "amp",
@@ -33,6 +32,16 @@ JOURNAL_EVIDENCE_HELP = [
         "radio",
         "Радиоприёмник  [R]",
         "Ответ или голос с радио: галка, если слышал. Снимай галку, если радио «молчит» в таком раунде.",
+    ),
+    (
+        "can_walk",
+        "Ходит по полу",
+        "Отмечай, если призрак явно перемещается пешком: следы, обход стен, движение по комнатам без полёта.",
+    ),
+    (
+        "can_fly",
+        "Летает",
+        "Отмечай, если призрак держится над полом или проходит путь как летающий тип. Это уже есть в конфиге.",
     ),
 ]
 
@@ -65,7 +74,7 @@ def _journal_content_width(panel):
     return panel.w - 28 * 2
 
 
-JOURNAL_ROW_H = 62
+JOURNAL_ROW_H = 54
 JOURNAL_CB_SIZE = 24
 
 
@@ -112,6 +121,22 @@ def evidence_journal_hit_test(game, pos):
         if r.collidepoint(pos):
             return key
     return None
+
+
+def _draw_journal_checkbox(screen, rect, checked):
+    fill = (34, 37, 49)
+    border = (122, 132, 156)
+    if checked:
+        fill = (32, 84, 58)
+        border = (96, 215, 148)
+    pygame.draw.rect(screen, fill, rect, border_radius=5)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=5)
+    if checked:
+        a = (rect.left + 6, rect.centery)
+        b = (rect.left + 10, rect.bottom - 7)
+        c = (rect.right - 5, rect.top + 7)
+        pygame.draw.line(screen, (238, 255, 244), a, b, 3)
+        pygame.draw.line(screen, (238, 255, 244), b, c, 3)
 
 
 def draw_howto(game):
@@ -236,17 +261,15 @@ def draw_evidence_journal_overlay(game):
     small_f = pygame.font.Font(None, 17)
     names_f = pygame.font.Font(None, 19)
     row0 = _journal_checkboxes_y0(inner)
-    tx = inner.x + 32
+    tx = inner.x + 34
 
     for i, (key, h_text, s_text) in enumerate(JOURNAL_EVIDENCE_HELP):
         row_y = row0 + i * JOURNAL_ROW_H
         cb = pygame.Rect(inner.x, row_y, JOURNAL_CB_SIZE, JOURNAL_CB_SIZE)
         on = game.journal_evidence.get(key, False)
-        pygame.draw.rect(game.screen, (48, 50, 64) if not on else (38, 100, 52), cb, border_radius=4)
-        pygame.draw.rect(game.screen, (220, 225, 235), cb, 2, border_radius=4)
-        if on:
-            _tick = box_f.render("✓", True, WHITE)
-            game.screen.blit(_tick, _tick.get_rect(center=cb.center))
+        row_bg = pygame.Rect(inner.x - 8, row_y - 6, inner.w + 16, JOURNAL_ROW_H - 4)
+        pygame.draw.rect(game.screen, (34, 37, 50) if not on else (28, 55, 45), row_bg, border_radius=7)
+        _draw_journal_checkbox(game.screen, cb, on)
         game.screen.blit(box_f.render(h_text, True, (240, 242, 248)), (tx, row_y))
         help_w = max(0, cw - 40)
         hy = row_y + 22
@@ -264,7 +287,7 @@ def draw_evidence_journal_overlay(game):
     cnt_f = pygame.font.Font(None, 20)
     stat_text = (
         f"Осталось вариантов: {len(candidates)} из {n_all} "
-        "(по трём приборам: ЭМП, УФ, радио — тип остаётся, если сходятся твои галки и «его» сочетание)."
+        "(по отмеченным уликам и признакам из ghost_abilities.ini — тип остаётся, если сходятся твои галки и его профиль)."
     )
     sty = list_top
     for sline in _wrap_lines(cnt_f, stat_text, cw):
@@ -340,83 +363,104 @@ def draw_menu(game):
     for button in game.menu_buttons:
         button.draw(game.screen)
 
-
-def _shop_desc_surface(text, max_width, color):
-    """Одна строка описания; при нехватке места уменьшаем шрифт или обрезаем."""
-    for size in (28, 26, 24, 22, 20):
-        f = pygame.font.Font(None, size)
-        surf = f.render(text, True, color)
-        if surf.get_width() <= max_width:
-            return surf
-    f = pygame.font.Font(None, 20)
-    ell = "…"
-    t = text
-    while len(t) > 8 and f.size(t + ell)[0] > max_width:
-        t = t[:-1]
-    return f.render(t + ell, True, color)
-
-
 def draw_shop(game):
-    """
-    Отрисовывает экран магазина.
-    
-    Этот метод рисует:
-    - Фон магазина
-    - Заголовок "МАГАЗИН"
-    - Информацию о деньгах игрока
-    - Все кнопки магазина
-    - Описания товаров
-    """
-    # Заполняем экран темно-серым цветом
-    game.screen.fill(DARK_GRAY)
-    
-    # Создаем шрифт для заголовка магазина
-    font = pygame.font.Font(None, 48)
-    
-    # Создаем и отображаем заголовок
-    title = font.render("МАГАЗИН", True, WHITE)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH//2, 50))
-    game.screen.blit(title, title_rect)
-    
-    font_money = pygame.font.Font(None, 32)
-    money_text = font_money.render(f"Деньги: {game.player_money}", True, WHITE)
-    game.screen.blit(money_text, (50, 20))
-    
-    # Отрисовываем все кнопки магазина
-    for button in game.shop_buttons:
-        button.draw(game.screen)
-    
-    # Описания строго справа от своей кнопки (индекс = shop_buttons), без налезания на кнопку
-    shop_descriptions = {
-        1: "Фонарик — освещает тёмные углы (50 монет)",
-        2: "Красная пыль — магический компонент (30 монет)",
-        3: "Соль — защита от духов (20 монет)",
-        4: "Проектор — зона, куда призрак не заходит (80 монет)",
-        5: "Аккумулятор — питание проектора (40 монет)",
-        6: "Крест — временно прогоняет призрака (60 монет)",
-        7: "Кровь — восстановление жизней (35 монет)",
-        8: "Радио — подсказка о призраке (65 монет)",
-        9: "ЭМП — уровень активности рядом (70 монет)",
-        10: "УФ фонарь — следы на полу (60 монет)",
-    }
-    gap = 14
-    # Левая колонка (кнопки 1–7): описание не заходит в зону правых кнопок (иначе текст рисуется поверх них).
-    desc_split = SHOP_RIGHT_COLUMN_X - 8
-    for btn_index, desc in shop_descriptions.items():
-        if btn_index >= len(game.shop_buttons):
-            continue
-        btn = game.shop_buttons[btn_index]
-        if btn_index <= 7:
-            max_w = max(80, desc_split - btn.rect.right - gap)
+    game.screen.fill((24, 26, 34))
+
+    title_f = pygame.font.Font(None, 46)
+    money_f = pygame.font.Font(None, 30)
+    name_f = pygame.font.Font(None, 25)
+    body_f = pygame.font.Font(None, 19)
+    small_f = pygame.font.Font(None, 18)
+    btn_f = pygame.font.Font(None, 22)
+
+    title = title_f.render("МАГАЗИН", True, (238, 242, 248))
+    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 48)))
+
+    money_box = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
+    pygame.draw.rect(game.screen, (36, 42, 54), money_box, border_radius=8)
+    pygame.draw.rect(game.screen, (88, 104, 130), money_box, 1, border_radius=8)
+    money = money_f.render(f"$ {game.player_money}", True, (240, 226, 150))
+    game.screen.blit(money, money.get_rect(center=money_box.center))
+
+    back = game.shop_buttons[0]
+    back_hover = back.rect.collidepoint(pygame.mouse.get_pos())
+    pygame.draw.rect(game.screen, (126, 48, 52) if not back_hover else (166, 66, 70), back.rect, border_radius=7)
+    pygame.draw.rect(game.screen, (235, 190, 190), back.rect, 1, border_radius=7)
+    back_text = btn_f.render(back.text, True, (248, 248, 248))
+    game.screen.blit(back_text, back_text.get_rect(center=back.rect.center))
+
+    shop_items = [
+        (1, "Фонарик", "фонарик", 50, "Базовый свет для тёмных комнат.", None),
+        (2, "Красная пыль", "красная пыль", 30, "Расходник для защиты и ловушек.", ItemType.RED_DUST),
+        (3, "Соль", "соль", 20, "Оставляет защитную зону на полу.", ItemType.SALT),
+        (4, "Проектор", "проектор", 80, "Ставит область, куда призрак не заходит.", None),
+        (5, "Аккумулятор", "аккумулятор", 40, "Питание для проектора.", ItemType.BATTERY),
+        (6, "Крест", "крест", 60, "Короткая защита от призрака.", ItemType.CROSS),
+        (7, "Кровь", "кровь", 35, "Восстанавливает запас жизней.", ItemType.BLOOD),
+        (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", None),
+        (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
+        (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
+    ]
+
+    card_w, card_h = 430, 82
+    col_x = [62, 570]
+    row_y = [112, 214, 316, 418, 520]
+    mouse = pygame.mouse.get_pos()
+
+    for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
+        col = 0 if pos < 5 else 1
+        row = pos if pos < 5 else pos - 5
+        card = pygame.Rect(col_x[col], row_y[row], card_w, card_h)
+        bought = bool(game.inventory.get(inv_key, False))
+        count = game.inventory_manager.item_counts.get(count_type, 0) if count_type else 0
+
+        pygame.draw.rect(game.screen, (32, 36, 48), card, border_radius=8)
+        pygame.draw.rect(game.screen, (84, 94, 116), card, 1, border_radius=8)
+
+        icon_rect = pygame.Rect(card.x + 14, card.y + 16, 50, 50)
+        pygame.draw.rect(game.screen, (45, 52, 68), icon_rect, border_radius=7)
+        img = game.inventory_images.get(inv_key)
+        if img:
+            game.screen.blit(pygame.transform.smoothscale(img, (42, 42)), (icon_rect.x + 4, icon_rect.y + 4))
         else:
-            max_w = max(80, SCREEN_WIDTH - btn.rect.right - gap - 10)
-        desc_surface = _shop_desc_surface(desc, max_w, WHITE)
-        pos = desc_surface.get_rect(midleft=(btn.rect.right + gap, btn.rect.centery))
-        if btn_index <= 7 and pos.right > desc_split:
-            pos.right = desc_split
-        elif pos.right > SCREEN_WIDTH - 8:
-            pos.right = SCREEN_WIDTH - 8
-        game.screen.blit(desc_surface, pos)
+            fallback = name_f.render(name[:1], True, (224, 228, 236))
+            game.screen.blit(fallback, fallback.get_rect(center=icon_rect.center))
+
+        x = icon_rect.right + 14
+        game.screen.blit(name_f.render(name, True, (238, 242, 248)), (x, card.y + 12))
+        for i, line in enumerate(_wrap_lines(body_f, desc, 210)):
+            if i >= 2:
+                break
+            game.screen.blit(body_f.render(line, True, (160, 170, 188)), (x, card.y + 38 + i * 18))
+
+        price_surf = small_f.render(f"{price} монет", True, (238, 214, 130))
+        game.screen.blit(price_surf, (card.right - 128, card.y + 12))
+
+        if count_type:
+            status = f"Есть: {count}"
+            status_color = (175, 215, 190) if count else (148, 156, 172)
+        else:
+            status = "Куплено" if bought else "Не куплено"
+            status_color = (175, 215, 190) if bought else (148, 156, 172)
+        status_surf = small_f.render(status, True, status_color)
+        game.screen.blit(status_surf, (card.right - 128, card.y + 34))
+
+        btn = game.shop_buttons[btn_index]
+        hover = btn.rect.collidepoint(mouse)
+        can_buy = game.player_money >= price
+        if not count_type and bought:
+            btn_color = (64, 72, 86)
+            label = "Есть"
+        elif can_buy:
+            btn_color = (52, 126, 82) if not hover else (66, 160, 104)
+            label = "Купить"
+        else:
+            btn_color = (78, 78, 88)
+            label = "Мало $"
+        pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=7)
+        pygame.draw.rect(game.screen, (178, 190, 206), btn.rect, 1, border_radius=7)
+        label_surf = btn_f.render(label, True, (246, 248, 250))
+        game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
 
 def draw_settings(game):
     """
