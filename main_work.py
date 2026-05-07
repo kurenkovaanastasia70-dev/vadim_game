@@ -71,7 +71,8 @@ class Game:
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
         # Журнал улик: ЭМП / УФ / радио и флаг панели
         self.journal_open = False
-        self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
+        self.journal_evidence = self.default_journal_evidence()
+        self.loaded_journal_evidence = None
         
         # Создание кнопок для магазина
         self.shop_buttons = [
@@ -260,6 +261,14 @@ class Game:
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
 
+    def default_journal_evidence(self):
+        return {k: False for k in EVIDENCE_PROFILE_KEYS}
+
+    def normalize_journal_evidence(self, value):
+        if not isinstance(value, dict):
+            return self.default_journal_evidence()
+        return {k: bool(value.get(k, False)) for k in EVIDENCE_PROFILE_KEYS}
+
     def use_radio(self):
         """Спросить у призрака через радиоприемник."""
         if not self.inventory.get("радио", False):
@@ -337,7 +346,11 @@ class Game:
                 self.near_computer = False
             print(f"Уровень загружен: {level_file_path}")
             self.journal_open = False
-            self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
+            if self.loaded_journal_evidence is not None:
+                self.journal_evidence = self.loaded_journal_evidence
+                self.loaded_journal_evidence = None
+            else:
+                self.journal_evidence = self.default_journal_evidence()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self._create_vignette_texture()
             self.update_camera()
@@ -565,7 +578,8 @@ class Game:
         self.reset_inventory()
         self.reset_player_position()
         self.journal_open = False
-        self.journal_evidence = {k: False for k in EVIDENCE_PROFILE_KEYS}
+        self.journal_evidence = self.default_journal_evidence()
+        self.loaded_journal_evidence = None
     
         
     def buy_item(self, item_name, cost):
@@ -599,6 +613,7 @@ class Game:
             "money": self.player_money,
             "inventory": self.inventory.copy(),
             "item_counts": item_counts_serial,
+            "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected
         }
@@ -617,6 +632,8 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            self.journal_evidence = self.normalize_journal_evidence(save_data.get("journal_evidence"))
+            self.loaded_journal_evidence = self.journal_evidence.copy()
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)
             if saved_inventory:
@@ -794,4 +811,3 @@ class Game:
 if __name__ == "__main__":
     game = Game()
     game.run()
-    
