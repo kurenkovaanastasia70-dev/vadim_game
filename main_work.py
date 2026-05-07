@@ -10,8 +10,6 @@ from constants import (
     FPS,
     TILE_SIZE,
     MAP_SCALE,
-    SHOP_RIGHT_COLUMN_X,
-    SHOP_RIGHT_BUTTON_WIDTH,
     WHITE,
     BLACK,
     GRAY,
@@ -76,17 +74,17 @@ class Game:
         
         # Создание кнопок для магазина
         self.shop_buttons = [
-            Button(50, 50, 150, 40, "Назад", RED),
-            Button(50, 100, 200, 40, "Купить фонарик", GREEN),
-            Button(50, 150, 200, 40, "Купить красную пыль", BLUE),
-            Button(50, 200, 200, 40, "Купить соль", GRAY),
-            Button(50, 250, 200, 40, "Купить проектор", GREEN),
-            Button(50, 300, 200, 40, "Купить аккумулятор", GREEN),
-            Button(50, 350, 200, 40, "Купить крест", GREEN),
-            Button(50, 400, 200, 40, "Купить кровь", GREEN),
-            Button(SHOP_RIGHT_COLUMN_X, 92, SHOP_RIGHT_BUTTON_WIDTH, 40, "Купить радио", BLUE),
-            Button(SHOP_RIGHT_COLUMN_X, 172, SHOP_RIGHT_BUTTON_WIDTH, 40, "Купить ЭМП", BLUE),
-            Button(SHOP_RIGHT_COLUMN_X, 252, SHOP_RIGHT_BUTTON_WIDTH, 40, "Купить УФ фонарь", BLUE),
+            Button(36, 28, 120, 36, "Назад", RED),
+            Button(286, 156, 116, 32, "Купить", GREEN),
+            Button(286, 258, 116, 32, "Купить", BLUE),
+            Button(286, 360, 116, 32, "Купить", GRAY),
+            Button(286, 462, 116, 32, "Купить", GREEN),
+            Button(286, 564, 116, 32, "Купить", GREEN),
+            Button(794, 156, 116, 32, "Купить", GREEN),
+            Button(794, 258, 116, 32, "Купить", GREEN),
+            Button(794, 360, 116, 32, "Купить", BLUE),
+            Button(794, 462, 116, 32, "Купить", BLUE),
+            Button(794, 564, 116, 32, "Купить", BLUE),
         ]
         
         # Создание кнопок для настроек

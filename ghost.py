@@ -103,9 +103,9 @@ class GhostAbilitiesConfig:
         return random.choice(names) if names else "default"
 
 
-# Улики, которые в игре реально проверяются приборами (ЭМП, УФ, радио). ghostorb в данных профиля есть, но
+# Улики и наблюдаемые признаки, которые уже есть в ghost_abilities.ini. ghostorb в данных профиля есть, но
 # отдельного объекта «шар» в сцене нет — в журнал не выводим, чтобы не вводить в заблуждение.
-EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio")
+EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio", "can_walk", "can_fly")
 
 
 def filter_profiles_by_evidence(abilities_config, marked):
