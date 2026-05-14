@@ -76,6 +76,9 @@ def _journal_content_width(panel):
 
 JOURNAL_ROW_H = 54
 JOURNAL_CB_SIZE = 24
+EVIDENCE_STATE_UNKNOWN = "unknown"
+EVIDENCE_STATE_CONFIRMED = "confirmed"
+EVIDENCE_STATE_EXCLUDED = "excluded"
 
 
 def _journal_checkboxes_y0(inner):
@@ -88,16 +91,40 @@ def _journal_close_rect(panel):
     f = pygame.font.Font(None, 22)
     label = f.render("Закрыть  ·  J / Esc  ·  снаружи", True, (235, 238, 245))
     pad_x, pad_y = 12, 8
-    w = min(label.get_width() + pad_x * 2, max(0, panel.w - 12))
+    w = min(label.get_width() + pad_x * 2, max(0, panel.w - 188))
     h = max(34, label.get_height() + pad_y * 2)
-    r = pygame.Rect(panel.centerx - w // 2, panel.bottom - h - 6, w, h)
-    # не вылезать за края панели
+    r = pygame.Rect(panel.left + 10, panel.bottom - h - 6, w, h)
+    # не вылезать за края панели и оставлять место под reset справа
     m = 6
     if r.left < panel.left + m:
         r.x = panel.left + m
-    if r.right > panel.right - m:
-        r.x = panel.right - m - r.w
+    right_limit = panel.right - 178
+    if r.right > right_limit:
+        r.x = max(panel.left + m, right_limit - r.w)
     return r, label
+
+
+def _journal_reset_rect(panel):
+    f = pygame.font.Font(None, 21)
+    label = f.render("Сбросить догадки", True, (245, 230, 230))
+    pad_x, pad_y = 10, 8
+    w = label.get_width() + pad_x * 2
+    h = max(34, label.get_height() + pad_y * 2)
+    x = panel.right - w - 14
+    y = panel.bottom - h - 8
+    return pygame.Rect(x, y, w, h), label
+
+
+def _journal_confirm_reset_rect(panel):
+    f = pygame.font.Font(None, 21)
+    label = f.render("Подтвердить", True, (255, 242, 242))
+    pad_x, pad_y = 10, 8
+    w = label.get_width() + pad_x * 2
+    h = max(34, label.get_height() + pad_y * 2)
+    reset_rect, _ = _journal_reset_rect(panel)
+    x = reset_rect.x - w - 8
+    y = reset_rect.y
+    return pygame.Rect(x, y, w, h), label
 
 
 def journal_get_checkbox_rects(panel):
@@ -117,26 +144,39 @@ def evidence_journal_hit_test(game, pos):
     close, _ = _journal_close_rect(panel)
     if close.collidepoint(pos):
         return "close"
+    reset_rect, _ = _journal_reset_rect(panel)
+    if reset_rect.collidepoint(pos):
+        return "reset"
+    if getattr(game, "journal_reset_confirm", False):
+        confirm_rect, _ = _journal_confirm_reset_rect(panel)
+        if confirm_rect.collidepoint(pos):
+            return "confirm_reset"
     for key, r in journal_get_checkbox_rects(panel).items():
         if r.collidepoint(pos):
             return key
     return None
 
 
-def _draw_journal_checkbox(screen, rect, checked):
+def _draw_journal_checkbox(screen, rect, state):
     fill = (34, 37, 49)
     border = (122, 132, 156)
-    if checked:
+    if state == EVIDENCE_STATE_CONFIRMED:
         fill = (32, 84, 58)
         border = (96, 215, 148)
+    elif state == EVIDENCE_STATE_EXCLUDED:
+        fill = (84, 42, 42)
+        border = (236, 125, 125)
     pygame.draw.rect(screen, fill, rect, border_radius=5)
     pygame.draw.rect(screen, border, rect, 2, border_radius=5)
-    if checked:
+    if state == EVIDENCE_STATE_CONFIRMED:
         a = (rect.left + 6, rect.centery)
         b = (rect.left + 10, rect.bottom - 7)
         c = (rect.right - 5, rect.top + 7)
         pygame.draw.line(screen, (238, 255, 244), a, b, 3)
         pygame.draw.line(screen, (238, 255, 244), b, c, 3)
+    elif state == EVIDENCE_STATE_EXCLUDED:
+        pygame.draw.line(screen, (255, 226, 226), (rect.left + 6, rect.top + 6), (rect.right - 6, rect.bottom - 6), 3)
+        pygame.draw.line(screen, (255, 226, 226), (rect.right - 6, rect.top + 6), (rect.left + 6, rect.bottom - 6), 3)
 
 
 def draw_howto(game):
@@ -245,16 +285,18 @@ def draw_evidence_journal_overlay(game):
     title_f = pygame.font.Font(None, 30)
     sub_f = pygame.font.Font(None, 20)
     game.screen.blit(title_f.render("Журнал улик", True, WHITE), (inner.x, inner.y))
-    game.screen.blit(
-        sub_f.render("1) Галка = я уже увидел эту улику в катке.", True, (180, 190, 210)), (inner.x, inner.y + 28)
-    )
-    game.screen.blit(
-        sub_f.render("2) Снизу — кто ещё подходит из семи вариантов в этом сценарии (лишние роли в игре не мешают).", True, (180, 190, 210)),
-        (inner.x, inner.y + 50),
-    )
+    intro_lines = [
+        "ЛКМ: неизвестно -> видел -> исключено.",
+        "Список снизу считает и подтверждения, и исключения.",
+    ]
+    iy = inner.y + 28
+    for intro in intro_lines:
+        for line in _wrap_lines(sub_f, intro, cw):
+            game.screen.blit(sub_f.render(line, True, (180, 190, 210)), (inner.x, iy))
+            iy += 21
 
     cfg = game.ghost_manager.abilities_config
-    marked = {k: game.journal_evidence.get(k, False) for k in EVIDENCE_PROFILE_KEYS}
+    marked = {k: game.journal_evidence.get(k, EVIDENCE_STATE_UNKNOWN) for k in EVIDENCE_PROFILE_KEYS}
     candidates = filter_journal_suspects(cfg, marked)
 
     box_f = pygame.font.Font(None, 20)
@@ -266,11 +308,27 @@ def draw_evidence_journal_overlay(game):
     for i, (key, h_text, s_text) in enumerate(JOURNAL_EVIDENCE_HELP):
         row_y = row0 + i * JOURNAL_ROW_H
         cb = pygame.Rect(inner.x, row_y, JOURNAL_CB_SIZE, JOURNAL_CB_SIZE)
-        on = game.journal_evidence.get(key, False)
+        state = game.journal_evidence.get(key, EVIDENCE_STATE_UNKNOWN)
         row_bg = pygame.Rect(inner.x - 8, row_y - 6, inner.w + 16, JOURNAL_ROW_H - 4)
-        pygame.draw.rect(game.screen, (34, 37, 50) if not on else (28, 55, 45), row_bg, border_radius=7)
-        _draw_journal_checkbox(game.screen, cb, on)
+        if state == EVIDENCE_STATE_CONFIRMED:
+            row_color = (28, 55, 45)
+        elif state == EVIDENCE_STATE_EXCLUDED:
+            row_color = (68, 38, 40)
+        else:
+            row_color = (34, 37, 50)
+        pygame.draw.rect(game.screen, row_color, row_bg, border_radius=7)
+        _draw_journal_checkbox(game.screen, cb, state)
         game.screen.blit(box_f.render(h_text, True, (240, 242, 248)), (tx, row_y))
+        state_text = "не отмечено"
+        state_color = (170, 175, 190)
+        if state == EVIDENCE_STATE_CONFIRMED:
+            state_text = "видел"
+            state_color = (150, 235, 190)
+        elif state == EVIDENCE_STATE_EXCLUDED:
+            state_text = "исключено"
+            state_color = (245, 170, 170)
+        badge = small_f.render(state_text, True, state_color)
+        game.screen.blit(badge, (inner.right - badge.get_width(), row_y + 2))
         help_w = max(0, cw - 40)
         hy = row_y + 22
         for li, wline in enumerate(_wrap_lines(small_f, s_text, help_w)):
@@ -285,10 +343,7 @@ def draw_evidence_journal_overlay(game):
 
     n_all = len(JOURNAL_LIST_PROFILE_IDS)
     cnt_f = pygame.font.Font(None, 20)
-    stat_text = (
-        f"Осталось вариантов: {len(candidates)} из {n_all} "
-        "(по отмеченным уликам и признакам из ghost_abilities.ini — тип остаётся, если сходятся твои галки и его профиль)."
-    )
+    stat_text = f"Осталось вариантов: {len(candidates)} из {n_all}."
     sty = list_top
     for sline in _wrap_lines(cnt_f, stat_text, cw):
         game.screen.blit(cnt_f.render(sline, True, (205, 215, 225)), (inner.x, sty))
@@ -328,6 +383,31 @@ def draw_evidence_journal_overlay(game):
         if overflowed:
             break
         y += 2
+
+    confirm_mode = getattr(game, "journal_reset_confirm", False)
+    reset_rect, reset_label = _journal_reset_rect(panel)
+    pygame.draw.rect(game.screen, (96, 42, 46), reset_rect, border_radius=8)
+    pygame.draw.rect(game.screen, (196, 110, 118), reset_rect, 1, border_radius=8)
+    game.screen.blit(
+        reset_label,
+        (
+            reset_rect.centerx - reset_label.get_width() // 2,
+            reset_rect.centery - reset_label.get_height() // 2,
+        ),
+    )
+    if confirm_mode:
+        confirm_rect, confirm_label = _journal_confirm_reset_rect(panel)
+        pygame.draw.rect(game.screen, (122, 54, 54), confirm_rect, border_radius=8)
+        pygame.draw.rect(game.screen, (236, 168, 168), confirm_rect, 1, border_radius=8)
+        game.screen.blit(
+            confirm_label,
+            (
+                confirm_rect.centerx - confirm_label.get_width() // 2,
+                confirm_rect.centery - confirm_label.get_height() // 2,
+            ),
+        )
+        hint = small_f.render("Сброс удалит все отметки.", True, (235, 190, 190))
+        game.screen.blit(hint, (inner.x, reset_rect.y + 10))
 
     if not candidates and any(marked.values()):
         game.screen.blit(
