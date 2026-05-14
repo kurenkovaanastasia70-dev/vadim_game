@@ -31,6 +31,11 @@ import level_config
 
 pygame.init()
 
+EVIDENCE_UNKNOWN = "unknown"
+EVIDENCE_CONFIRMED = "confirmed"
+EVIDENCE_EXCLUDED = "excluded"
+EVIDENCE_STATES = (EVIDENCE_UNKNOWN, EVIDENCE_CONFIRMED, EVIDENCE_EXCLUDED)
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
@@ -69,7 +74,9 @@ class Game:
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
         # Журнал улик: ЭМП / УФ / радио и флаг панели
         self.journal_open = False
+        self.journal_reset_confirm = False
         self.journal_evidence = self.default_journal_evidence()
+        self.discovered_evidence = self.default_discovered_evidence()
         self.loaded_journal_evidence = None
         
         # Создание кнопок для магазина
@@ -260,12 +267,49 @@ class Game:
         self.info_until = pygame.time.get_ticks() + duration_ms
 
     def default_journal_evidence(self):
-        return {k: False for k in EVIDENCE_PROFILE_KEYS}
+        return {k: EVIDENCE_UNKNOWN for k in EVIDENCE_PROFILE_KEYS}
+
+    def default_discovered_evidence(self):
+        return set()
+
+    def _refresh_discovered_evidence(self):
+        self.discovered_evidence = {
+            k for k in EVIDENCE_PROFILE_KEYS if self.journal_evidence.get(k) == EVIDENCE_CONFIRMED
+        }
 
     def normalize_journal_evidence(self, value):
         if not isinstance(value, dict):
             return self.default_journal_evidence()
-        return {k: bool(value.get(k, False)) for k in EVIDENCE_PROFILE_KEYS}
+        normalized = {}
+        for k in EVIDENCE_PROFILE_KEYS:
+            raw = value.get(k, EVIDENCE_UNKNOWN)
+            if raw is True:
+                state = EVIDENCE_CONFIRMED
+            elif raw is False:
+                state = EVIDENCE_UNKNOWN
+            elif raw in EVIDENCE_STATES:
+                state = raw
+            else:
+                state = EVIDENCE_UNKNOWN
+            normalized[k] = state
+        return normalized
+
+    def cycle_journal_evidence_state(self, key):
+        if key not in self.journal_evidence:
+            return
+        cur = self.journal_evidence.get(key, EVIDENCE_UNKNOWN)
+        if cur == EVIDENCE_UNKNOWN:
+            nxt = EVIDENCE_CONFIRMED
+        elif cur == EVIDENCE_CONFIRMED:
+            nxt = EVIDENCE_EXCLUDED
+        else:
+            nxt = EVIDENCE_UNKNOWN
+        self.journal_evidence[key] = nxt
+        self._refresh_discovered_evidence()
+
+    def reset_journal_evidence(self):
+        self.journal_evidence = self.default_journal_evidence()
+        self._refresh_discovered_evidence()
 
     def use_radio(self):
         """Спросить у призрака через радиоприемник."""
@@ -344,11 +388,13 @@ class Game:
                 self.near_computer = False
             print(f"Уровень загружен: {level_file_path}")
             self.journal_open = False
+            self.journal_reset_confirm = False
             if self.loaded_journal_evidence is not None:
                 self.journal_evidence = self.loaded_journal_evidence
                 self.loaded_journal_evidence = None
             else:
                 self.journal_evidence = self.default_journal_evidence()
+            self._refresh_discovered_evidence()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self._create_vignette_texture()
             self.update_camera()
@@ -576,7 +622,8 @@ class Game:
         self.reset_inventory()
         self.reset_player_position()
         self.journal_open = False
-        self.journal_evidence = self.default_journal_evidence()
+        self.journal_reset_confirm = False
+        self.reset_journal_evidence()
         self.loaded_journal_evidence = None
     
         
@@ -612,6 +659,7 @@ class Game:
             "inventory": self.inventory.copy(),
             "item_counts": item_counts_serial,
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
+            "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected
         }
@@ -631,6 +679,12 @@ class Game:
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
             self.journal_evidence = self.normalize_journal_evidence(save_data.get("journal_evidence"))
+            saved_discovered = save_data.get("discovered_evidence")
+            if isinstance(saved_discovered, list):
+                self.discovered_evidence = {k for k in saved_discovered if k in EVIDENCE_PROFILE_KEYS}
+            else:
+                self.discovered_evidence = self.default_discovered_evidence()
+            self._refresh_discovered_evidence()
             self.loaded_journal_evidence = self.journal_evidence.copy()
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)

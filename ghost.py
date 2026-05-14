@@ -110,8 +110,11 @@ EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio", "can_walk", "can_fly")
 
 def filter_profiles_by_evidence(abilities_config, marked):
     """
-    Оставляет типы призраков, у которых все отмеченные улики совпадают (True в профиле).
-    marked: dict ключ -> bool; учитываются только ключи со значением True.
+    Фильтрует типы призраков по состоянию улик.
+    marked: dict ключ -> bool|str.
+      - True / "confirmed"  -> улика должна быть True в профиле.
+      - False / "unknown"   -> улика не влияет.
+      - "excluded"          -> улика должна быть False в профиле.
     """
     out = []
     for name in abilities_config.profiles:
@@ -120,7 +123,16 @@ def filter_profiles_by_evidence(abilities_config, marked):
         prof = abilities_config.get_profile(name)
         ok = True
         for k in EVIDENCE_PROFILE_KEYS:
-            if marked.get(k) and not prof.get(k):
+            state = marked.get(k, "unknown")
+            if state is True:
+                state = "confirmed"
+            elif state is False:
+                state = "unknown"
+
+            if state == "confirmed" and not prof.get(k):
+                ok = False
+                break
+            if state == "excluded" and prof.get(k):
                 ok = False
                 break
         if ok:

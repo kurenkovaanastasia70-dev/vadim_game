@@ -263,17 +263,28 @@ def handle_game_events(game, event):
         hit = draws.evidence_journal_hit_test(game, event.pos)
         if hit in ("close", "outside"):
             game.journal_open = False
+            game.journal_reset_confirm = False
+        elif hit == "reset":
+            game.journal_reset_confirm = not getattr(game, "journal_reset_confirm", False)
+        elif hit == "confirm_reset":
+            game.reset_journal_evidence()
+            game.journal_reset_confirm = False
+            game._show_game_info("Догадки в журнале сброшены.", 1200)
         elif hit in game.journal_evidence:
-            game.journal_evidence[hit] = not game.journal_evidence[hit]
+            game.cycle_journal_evidence_state(hit)
+            game.journal_reset_confirm = False
         return
 
     # Обработка нажатий и отпусканий клавиш для плавного движения
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_j:
             game.journal_open = not getattr(game, "journal_open", False)
+            if not game.journal_open:
+                game.journal_reset_confirm = False
             return
         if event.key == pygame.K_ESCAPE and getattr(game, "journal_open", False):
             game.journal_open = False
+            game.journal_reset_confirm = False
             return
         if getattr(game, "journal_open", False):
             return
