@@ -69,6 +69,7 @@ class LocalAchievementTableProvider(AchievementTableProvider):
 
     def load_rows(self) -> List[Dict]:
         if not os.path.exists(self.csv_path):
+            print(f"[progression] подтянулась таблица достижений: встроенный fallback (файл не найден: {self.csv_path})")
             return DEFAULT_ACHIEVEMENTS_TABLE.copy()
 
         rows = []
@@ -87,7 +88,11 @@ class LocalAchievementTableProvider(AchievementTableProvider):
                         "reward": int(row.get("reward", "0") or 0),
                     }
                 )
-        return rows or DEFAULT_ACHIEVEMENTS_TABLE.copy()
+        if rows:
+            print(f"[progression] подтянулась таблица достижений: local csv ({self.csv_path}), строк: {len(rows)}")
+            return rows
+        print(f"[progression] подтянулась таблица достижений: встроенный fallback (пустой local csv: {self.csv_path})")
+        return DEFAULT_ACHIEVEMENTS_TABLE.copy()
 
 
 class GoogleSheetsAchievementTableProvider(AchievementTableProvider):
@@ -99,12 +104,14 @@ class GoogleSheetsAchievementTableProvider(AchievementTableProvider):
 
     def load_rows(self) -> List[Dict]:
         if not self.csv_export_url:
+            print("[progression] URL Google Sheets не задан, использую локальную таблицу")
             return self.fallback_provider.load_rows()
 
         try:
             with urlopen(self.csv_export_url, timeout=5) as response:
                 body = response.read().decode("utf-8")
         except (URLError, TimeoutError, ValueError):
+            print(f"[progression] не удалось загрузить Google Sheets ({self.csv_export_url}), использую локальную таблицу")
             return self.fallback_provider.load_rows()
 
         rows = []
@@ -127,7 +134,11 @@ class GoogleSheetsAchievementTableProvider(AchievementTableProvider):
                     "reward": reward,
                 }
             )
-        return rows or self.fallback_provider.load_rows()
+        if rows:
+            print(f"[progression] подтянулась таблица достижений: google sheets ({self.csv_export_url}), строк: {len(rows)}")
+            return rows
+        print(f"[progression] Google Sheets пустая ({self.csv_export_url}), использую локальную таблицу")
+        return self.fallback_provider.load_rows()
 
 
 @dataclass

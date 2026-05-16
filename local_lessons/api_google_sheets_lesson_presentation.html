@@ -1,0 +1,193 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Урок: API и Google Sheets для игры</title>
+  <style>
+    :root {
+      --bg:#f2efe8; --card:#fffaf1; --line:#c9bda6; --text:#2f261c; --muted:#6b5b49; --accent:#2f7d57; --accent2:#2a6f97;
+    }
+    *{box-sizing:border-box} body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{position:sticky;top:0;background:rgba(242,239,232,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;justify-content:space-between;align-items:center}
+    h1,h2,h3{margin:0}.sub{color:var(--muted);margin-top:4px}
+    main{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 64px)}
+    nav{border-right:1px solid var(--line);padding:14px;background:#ece5d7}
+    nav button{display:block;width:100%;text-align:left;margin:6px 0;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff7ea;cursor:pointer}
+    nav button.active{border-color:var(--accent);background:#e6f4ec}
+    .slides{padding:20px}
+    .slide{display:none;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;min-height:580px}
+    .slide.active{display:block}
+    .badge{display:inline-block;background:#e6f4ec;color:#134a2f;border:1px solid #8ebba2;padding:4px 8px;border-radius:999px;font-weight:700;margin-bottom:10px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px}
+    p,li{line-height:1.45;color:var(--muted)}
+    ul{margin-top:8px}
+    pre{background:#f8f4ec;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto}
+    code{font-family:Consolas,"Courier New",monospace}
+    .footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+    .btn{border:1px solid var(--line);background:#fff2da;border-radius:8px;padding:9px 12px;cursor:pointer}
+    .progress{width:180px;height:8px;background:#e0d8c7;border-radius:999px;overflow:hidden}
+    .bar{height:100%;width:0;background:var(--accent)}
+    @media (max-width: 900px){main{grid-template-columns:1fr}nav{border-right:0;border-bottom:1px solid var(--line)}.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Урок: API и Google Sheets для игры</h1>
+      <div class="sub">60 минут, 7 класс, с практикой в проекте</div>
+    </div>
+    <div>
+      <div class="progress"><div id="bar" class="bar"></div></div>
+      <div id="counter" class="sub">1 / 10</div>
+    </div>
+  </header>
+  <main>
+    <nav id="nav"></nav>
+    <section class="slides">
+      <article class="slide active" data-title="Старт">
+        <span class="badge">0-5 мин</span>
+        <h2>Зачем игре API</h2>
+        <p>API позволяет менять контент (задачи, ачивки, тексты) без изменений кода игры и без новой сборки.</p>
+        <div class="grid">
+          <div class="card"><h3>Без API</h3><p>Каждая правка = редактирование файлов проекта и новый релиз.</p></div>
+          <div class="card"><h3>С API</h3><p>Таблица обновляется, игра при старте подтягивает свежие данные.</p></div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Термины API">
+        <span class="badge">5-12 мин</span>
+        <h2>Основные термины</h2>
+        <ul>
+          <li><b>Client</b>: игра, которая запрашивает данные.</li>
+          <li><b>Server</b>: сервис Google, который отдаёт ответ.</li>
+          <li><b>Endpoint</b>: URL точки доступа.</li>
+          <li><b>Request</b>: запрос (обычно GET).</li>
+          <li><b>Response</b>: ответ (CSV/JSON).</li>
+          <li><b>Status code</b>: 200, 404, 500.</li>
+        </ul>
+      </article>
+
+      <article class="slide" data-title="Как идёт запрос">
+        <span class="badge">12-18 мин</span>
+        <h2>Путь данных по шагам</h2>
+        <ol>
+          <li>Игра читает URL таблицы из переменной окружения.</li>
+          <li>Отправляет HTTP GET.</li>
+          <li>Получает CSV-строки.</li>
+          <li>Парсит колонки в объекты ачивок.</li>
+          <li>Валидирует числа: <code>target</code>, <code>reward</code>.</li>
+          <li>Передаёт данные в менеджер прогресса.</li>
+        </ol>
+      </article>
+
+      <article class="slide" data-title="Google Sheets">
+        <span class="badge">18-28 мин</span>
+        <h2>Подготовка таблицы</h2>
+        <p>Колонки должны быть строго такими:</p>
+        <pre><code>id,title,description,event_key,target,reward</code></pre>
+        <p>Export URL:</p>
+        <pre><code>https://docs.google.com/spreadsheets/d/&lt;ID&gt;/export?format=csv&amp;gid=&lt;GID&gt;</code></pre>
+      </article>
+
+      <article class="slide" data-title="Fallback">
+        <span class="badge">28-36 мин</span>
+        <h2>Почему нужен fallback</h2>
+        <div class="grid">
+          <div class="card"><h3>Риск</h3><p>Нет сети, ошибка Google, таблица пустая.</p></div>
+          <div class="card"><h3>Решение</h3><p>Если онлайн-таблица не загрузилась, игра использует локальный CSV.</p></div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Безопасность">
+        <span class="badge">36-43 мин</span>
+        <h2>Безопасность API</h2>
+        <ul>
+          <li>Для урока: только публичный read-only CSV.</li>
+          <li>Не хранить приватные ключи в репозитории.</li>
+          <li>Для приватных данных нужен backend-сервер.</li>
+        </ul>
+      </article>
+
+      <article class="slide" data-title="Практика">
+        <span class="badge">43-50 мин</span>
+        <h2>Практика ученика</h2>
+        <ol>
+          <li>Добавить новую ачивку в Google Sheet.</li>
+          <li>Запустить игру с переменной окружения.</li>
+          <li>Проверить лог: <code>подтянулась таблица достижений: ...</code></li>
+        </ol>
+        <pre><code>$env:GOOGLE_SHEETS_ACHIEVEMENTS_CSV_URL="https://docs.google.com/spreadsheets/d/&lt;ID&gt;/export?format=csv&amp;gid=&lt;GID&gt;"
+python main_work.py</code></pre>
+      </article>
+
+      <article class="slide" data-title="Ошибки">
+        <span class="badge">50-56 мин</span>
+        <h2>Частые ошибки и диагностика</h2>
+        <ul>
+          <li>Неверный <code>gid</code> листа.</li>
+          <li>Лист не опубликован в интернет.</li>
+          <li>Нечисловые значения в <code>target</code>/<code>reward</code>.</li>
+        </ul>
+      </article>
+
+      <article class="slide" data-title="Квиз">
+        <span class="badge">56-59 мин</span>
+        <h2>Короткий квиз</h2>
+        <div class="card">
+          <p>Почему игра должна иметь fallback на локальный CSV?</p>
+          <p><b>Ответ:</b> чтобы работать даже при проблемах с интернетом/таблицей.</p>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Финиш">
+        <span class="badge">59-60 мин</span>
+        <h2>Итог урока</h2>
+        <ul>
+          <li>Поняли API и схему client-server.</li>
+          <li>Сделали Google Sheet как внешний источник данных.</li>
+          <li>Научились подключать CSV в игру через URL.</li>
+        </ul>
+      </article>
+
+      <div class="footer">
+        <button class="btn" onclick="prevSlide()">Назад</button>
+        <button class="btn" onclick="nextSlide()">Вперёд</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const nav = document.getElementById('nav');
+    const bar = document.getElementById('bar');
+    const counter = document.getElementById('counter');
+    let idx = 0;
+
+    slides.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.textContent = `${i + 1}. ${s.dataset.title}`;
+      b.onclick = () => go(i);
+      nav.appendChild(b);
+    });
+
+    function render() {
+      slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+      [...nav.children].forEach((b, i) => b.classList.toggle('active', i === idx));
+      counter.textContent = `${idx + 1} / ${slides.length}`;
+      bar.style.width = `${((idx + 1) / slides.length) * 100}%`;
+    }
+    function go(i) { idx = Math.max(0, Math.min(slides.length - 1, i)); render(); }
+    function nextSlide() { go(idx + 1); }
+    function prevSlide() { go(idx - 1); }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') nextSlide();
+      if (e.key === 'ArrowLeft') prevSlide();
+    });
+
+    render();
+  </script>
+</body>
+</html>
