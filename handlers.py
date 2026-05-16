@@ -129,6 +129,7 @@ def handle_shop_events(game, event):
                     game.inventory["красная пыль"] = True
                     from inventory_system import ItemType
                     game.inventory_manager.increase_count(ItemType.RED_DUST)
+                    game.progress_event("buy_item", 1)
                     print("Куплена красная пыль!")
                 else:
                     print("Недостаточно денег!")
@@ -138,6 +139,7 @@ def handle_shop_events(game, event):
                     game.inventory["соль"] = True
                     from inventory_system import ItemType
                     game.inventory_manager.increase_count(ItemType.SALT)
+                    game.progress_event("buy_item", 1)
                     print("Куплена соль!")
                 else:
                     print("Недостаточно денег!")
@@ -152,6 +154,7 @@ def handle_shop_events(game, event):
                     game.inventory["аккумулятор"] = True
                     from inventory_system import ItemType
                     game.inventory_manager.increase_count(ItemType.BATTERY)
+                    game.progress_event("buy_item", 1)
                     print("Куплен аккумулятор!")
                 else:
                     print("Недостаточно денег!")
@@ -161,6 +164,7 @@ def handle_shop_events(game, event):
                     game.inventory["крест"] = True
                     from inventory_system import ItemType
                     game.inventory_manager.increase_count(ItemType.CROSS)
+                    game.progress_event("buy_item", 1)
                     print("Куплен крест!")
                 else:
                     print("Недостаточно денег!")
@@ -170,6 +174,7 @@ def handle_shop_events(game, event):
                     game.inventory["кровь"] = True
                     from inventory_system import ItemType
                     game.inventory_manager.increase_count(ItemType.BLOOD)
+                    game.progress_event("buy_item", 1)
                     print("Куплена кровь!")
                 else:
                     print("Недостаточно денег!")

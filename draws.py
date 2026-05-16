@@ -829,6 +829,24 @@ def draw_game(game):
     game.screen.blit(controls_info, (50, 230))
     uv_state = info_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, WHITE)
     game.screen.blit(uv_state, (50, 254))
+    # Мини-панель заданий и ачивок
+    panel_x, panel_y, panel_w, panel_h = 50, 285, 430, 140
+    panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    pygame.draw.rect(game.screen, (20, 20, 20), panel_rect)
+    pygame.draw.rect(game.screen, WHITE, panel_rect, 2)
+    panel_title_font = pygame.font.Font(None, 24)
+    panel_row_font = pygame.font.Font(None, 21)
+    game.screen.blit(panel_title_font.render("Задания и ачивки", True, WHITE), (panel_x + 10, panel_y + 8))
+    y = panel_y + 34
+    for task in getattr(game, "tasks", [])[:3]:
+        status = "готово" if task.get("done") else f"{task.get('progress', 0)}/{task.get('target', 0)}"
+        row = f"- {task.get('title', task.get('id'))}: {status}"
+        game.screen.blit(panel_row_font.render(row, True, WHITE), (panel_x + 10, y))
+        y += 24
+    unlocked = sum(1 for a in getattr(game, "achievements_table", []) if a.get("unlocked"))
+    total = len(getattr(game, "achievements_table", []))
+    ach_row = f"Ачивки: {unlocked}/{total}"
+    game.screen.blit(panel_row_font.render(ach_row, True, WHITE), (panel_x + 10, y + 2))
         
     if game.show_save_prompt:
         # Полупрозрачный фон

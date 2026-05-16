@@ -28,6 +28,11 @@ import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
 from inventory_system import InventoryManager
 import level_config
+from progression import (
+    GoogleSheetsAchievementTableProvider,
+    LocalAchievementTableProvider,
+    TaskAchievementManager,
+)
 
 pygame.init()
 
@@ -112,6 +117,13 @@ class Game:
         self.player_level = 1
         self.player_hp = 5
         self.hit_invincible_until = 0
+        local_ach_provider = LocalAchievementTableProvider(
+            os.path.join("local_lessons", "achievements_catalog.csv")
+        )
+        sheets_url = os.getenv("GOOGLE_SHEETS_ACHIEVEMENTS_CSV_URL", "").strip()
+        ach_provider = GoogleSheetsAchievementTableProvider(sheets_url, local_ach_provider)
+        self.progress_manager = TaskAchievementManager(self, ach_provider)
+        self.tasks, self.achievements_table = self.progress_manager.new_state()
 
         self.level_background_colors = [
             (0, 0, 0),     # базовый темный фон
@@ -625,6 +637,7 @@ class Game:
         self.journal_reset_confirm = False
         self.reset_journal_evidence()
         self.loaded_journal_evidence = None
+        self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
     def buy_item(self, item_name, cost):
@@ -633,8 +646,14 @@ class Game:
         if self.player_money >= cost and not self.inventory[item_name]:
             self.player_money -= cost
             self.inventory[item_name] = True
+            self.progress_event("buy_item", 1)
             return True
         return False
+
+    def progress_event(self, event_key, value=1):
+        result = self.progress_manager.progress_event(event_key, value)
+        if result.messages:
+            self._show_game_info(result.messages[0], 1500)
 
     def load_saves(self):
         try:
@@ -661,7 +680,9 @@ class Game:
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
-            "difficulty_selected": self.difficulty_selected
+            "difficulty_selected": self.difficulty_selected,
+            "tasks": self.tasks,
+            "achievements_table": self.achievements_table,
         }
         self.saves[f"slot{slot}"] = save_data
         with open(self.save_file, 'w', encoding ='utf-8') as f:
@@ -709,6 +730,10 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.CROSS] = 0
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
                 self.inventory_manager.item_counts[ItemType.SALT] = 0
+            self.tasks, self.achievements_table = self.progress_manager.normalize_state(
+                save_data.get("tasks"),
+                save_data.get("achievements_table"),
+            )
             
             return True
         return False
@@ -810,6 +835,7 @@ class Game:
                 if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
+                    self.progress_event("take_hit", 1)
             else:
                 self.moving = False
                 for key in self.keys_pressed:
