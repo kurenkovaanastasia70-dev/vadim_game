@@ -762,73 +762,141 @@ def draw_game(game):
         clipped_overlay = game._create_clipped_vignette_overlay()
         game.screen.blit(clipped_overlay, (0, 0))
     
-    # Инвентарь поверх затемнения (геометрия — mechanics.inventory_slot_screen)
+    mouse_pos = pygame.mouse.get_pos()
     purchased_items = [item for item in game.inventory_items if game.inventory[item]]
-
-    label_map = {
-        "фонарик": "фон.",
-        "красная пыль": "пыль",
-        "соль": "соль",
-        "проектор": "проектор",
-        "аккумулятор": "акк.",
-        "крест": "крест",
-        "кровь": "кровь",
-        "радио": "радио",
-        "эмп": "эмп",
-        "уф фонарь": "уф",
+    consumable_name_to_count = {
+        "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
+        "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
+        "крест": game.inventory_manager.get_count(ItemType.CROSS),
+        "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
+        "соль": game.inventory_manager.get_count(ItemType.SALT),
     }
 
-    for i, item in enumerate(purchased_items):
-        circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
-
-        pygame.draw.circle(game.screen, GRAY, (circle_x, inventory_y), circle_radius)
-        pygame.draw.circle(game.screen, DARK_GRAY, (circle_x, inventory_y), circle_radius, 3)
-        
-        if item in game.inventory_images:
-            img = game.inventory_images[item]
-            img_rect = img.get_rect(center=(circle_x, inventory_y))
-            game.screen.blit(img, img_rect)
-        
-        item_font = pygame.font.Font(None, 16)
-        item_text = item_font.render(label_map.get(item, item), True, WHITE)
-        item_rect = item_text.get_rect(midtop=(circle_x, inventory_y + circle_radius + 3))
-        game.screen.blit(item_text, item_rect)
-    
-    # Отображение количества расходных предметов
-    count_font = pygame.font.Font(None, 22)
-    battery_count = game.inventory_manager.get_count(ItemType.BATTERY)
-    blood_count = game.inventory_manager.get_count(ItemType.BLOOD)
-    cross_count = game.inventory_manager.get_count(ItemType.CROSS)
-    dust_count = game.inventory_manager.get_count(ItemType.RED_DUST)
-    salt_count = game.inventory_manager.get_count(ItemType.SALT)
-    
-    count_text = count_font.render(f"Аккумуляторы: {battery_count}", True, WHITE)
-    game.screen.blit(count_text, (50, 110))
-    blood_text = count_font.render(f"Кровь: {blood_count}", True, WHITE)
-    game.screen.blit(blood_text, (50, 132))
-    cross_text = count_font.render(f"Кресты: {cross_count}", True, WHITE)
-    game.screen.blit(cross_text, (50, 154))
-    dust_text = count_font.render(f"Пыль: {dust_count}", True, WHITE)
-    game.screen.blit(dust_text, (50, 176))
-    salt_text = count_font.render(f"Соль: {salt_count}", True, WHITE)
-    game.screen.blit(salt_text, (50, 198))
-    
     # Кнопки меню и магазина
     for button in game.game_buttons:
         button.draw(game.screen)
-    
-    # Информация об игроке
-    info_font = pygame.font.Font(None, 24)
-    money_info = info_font.render(f"Деньги: {game.player_money}", True, WHITE)
-    game.screen.blit(money_info, (50, 20))
-    level_info = info_font.render(f"Уровень: {game.player_level}", True, WHITE)
-    game.screen.blit(level_info, (50, 50))
-    hp_info = info_font.render(f"Жизни: {game.player_hp}", True, WHITE)
-    game.screen.blit(hp_info, (50, 80))
-    controls_info = info_font.render("J: журнал  R: радио  E: ЭМП  T: УФ", True, WHITE)
-    game.screen.blit(controls_info, (50, 230))
-    uv_state = info_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, WHITE)
-    game.screen.blit(uv_state, (50, 254))
+
+    # Единый левый HUD-блок
+    hud_x, hud_y, hud_w, hud_h = 24, 16, 340, 140
+    hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
+    hud_bg.fill((236, 228, 210, 212))
+    game.screen.blit(hud_bg, (hud_x, hud_y))
+    pygame.draw.rect(game.screen, (95, 77, 56), (hud_x, hud_y, hud_w, hud_h), 2)
+
+    title_font = pygame.font.Font(None, 25)
+    row_font = pygame.font.Font(None, 24)
+    game.screen.blit(title_font.render("HUD", True, (44, 37, 30)), (hud_x + 10, hud_y + 8))
+    game.screen.blit(row_font.render(f"Деньги: {game.player_money}", True, (44, 37, 30)), (hud_x + 10, hud_y + 36))
+    game.screen.blit(row_font.render(f"Уровень: {game.player_level}", True, (44, 37, 30)), (hud_x + 10, hud_y + 58))
+    game.screen.blit(row_font.render(f"Жизни: {game.player_hp}", True, (44, 37, 30)), (hud_x + 10, hud_y + 80))
+    game.screen.blit(
+        row_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, (44, 37, 30)),
+        (hud_x + 175, hud_y + 80),
+    )
+    controls_font = pygame.font.Font(None, 22)
+    game.screen.blit(
+        controls_font.render("J журнал | R радио | E ЭМП | T УФ", True, (65, 52, 38)),
+        (hud_x + 10, hud_y + 110),
+    )
+
+    # Выпадающий инвентарь по наведению
+    inv_header_rect = pygame.Rect(hud_x, hud_y + hud_h + 8, 250, 34)
+    inv_hover = inv_header_rect.collidepoint(mouse_pos)
+    inv_header_bg = pygame.Surface((inv_header_rect.w, inv_header_rect.h), pygame.SRCALPHA)
+    inv_header_bg.fill((236, 228, 210, 210))
+    game.screen.blit(inv_header_bg, inv_header_rect.topleft)
+    pygame.draw.rect(game.screen, (95, 77, 56), inv_header_rect, 2)
+    inv_font = pygame.font.Font(None, 24)
+    inv_title = f"Инвентарь ({len(purchased_items)})"
+    inv_hint = "v" if inv_hover else ">"
+    game.screen.blit(inv_font.render(f"{inv_hint} {inv_title}", True, (44, 37, 30)), (inv_header_rect.x + 8, inv_header_rect.y + 8))
+
+    if inv_hover:
+        inv_rows = []
+        for item in purchased_items:
+            qty = consumable_name_to_count.get(item)
+            if qty is None:
+                inv_rows.append((item, ""))
+            else:
+                inv_rows.append((item, f"x{qty}"))
+        drop_h = min(260, 12 + max(1, len(inv_rows)) * 24)
+        drop_rect = pygame.Rect(inv_header_rect.x, inv_header_rect.bottom + 6, 340, drop_h)
+        drop_bg = pygame.Surface((drop_rect.w, drop_rect.h), pygame.SRCALPHA)
+        drop_bg.fill((245, 239, 226, 225))
+        game.screen.blit(drop_bg, drop_rect.topleft)
+        pygame.draw.rect(game.screen, (95, 77, 56), drop_rect, 2)
+        row_font = pygame.font.Font(None, 23)
+        if inv_rows:
+            for i, (item_name, qty_text) in enumerate(inv_rows[:10]):
+                row_y = drop_rect.y + 7 + i * 24
+                row_rect = pygame.Rect(drop_rect.x + 4, row_y - 1, drop_rect.w - 8, 22)
+                if i % 2 == 0:
+                    pygame.draw.rect(game.screen, (234, 225, 209), row_rect)
+                icon = game.inventory_images.get(item_name)
+                if icon:
+                    icon_small = pygame.transform.smoothscale(icon, (18, 18))
+                    game.screen.blit(icon_small, (drop_rect.x + 8, row_y + 1))
+                game.screen.blit(row_font.render(item_name, True, (48, 39, 30)), (drop_rect.x + 32, row_y + 1))
+                if qty_text:
+                    qty_surf = row_font.render(qty_text, True, (103, 76, 42))
+                    game.screen.blit(qty_surf, (drop_rect.right - qty_surf.get_width() - 10, row_y + 1))
+        else:
+            game.screen.blit(row_font.render("- пусто", True, (60, 50, 40)), (drop_rect.x + 10, drop_rect.y + 8))
+
+    # Компактная панель прогресса + раскрытие ачивок по наведению
+    panel_w, panel_h = 320, 92
+    panel_x = SCREEN_WIDTH - panel_w - 20
+    panel_y = 150
+    panel_bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    panel_bg.fill((236, 228, 210, 205))
+    game.screen.blit(panel_bg, (panel_x, panel_y))
+    pygame.draw.rect(game.screen, (95, 77, 56), (panel_x, panel_y, panel_w, panel_h), 2)
+
+    panel_font = pygame.font.Font(None, 22)
+    y = panel_y + 8
+    active_tasks = [t for t in getattr(game, "tasks", []) if not t.get("done")]
+    for task in active_tasks[:2]:
+        status = f"{task.get('progress', 0)}/{task.get('target', 0)}"
+        short_title = str(task.get("title", task.get("id", "")))[:22]
+        row = f"{short_title}: {status}"
+        game.screen.blit(panel_font.render(row, True, (44, 37, 30)), (panel_x + 8, y))
+        y += 22
+
+    unlocked = sum(1 for a in getattr(game, "achievements_table", []) if a.get("unlocked"))
+    total = len(getattr(game, "achievements_table", []))
+    ach_row = f"Ачивки {unlocked}/{total} (наведи)"
+    ach_text_surface = panel_font.render(ach_row, True, (44, 37, 30))
+    ach_text_pos = (panel_x + 8, panel_y + panel_h - 24)
+    game.screen.blit(ach_text_surface, ach_text_pos)
+    ach_hover_rect = pygame.Rect(ach_text_pos[0], ach_text_pos[1], ach_text_surface.get_width(), ach_text_surface.get_height())
+
+    achievement_rows = []
+    for ach in getattr(game, "achievements_table", []):
+        mark = "[x]" if ach.get("unlocked") else "[ ]"
+        title = str(ach.get("title", ach.get("id", "")))
+        achievement_rows.append(f"{mark} {title}")
+    popup_h = min(250, 12 + max(1, len(achievement_rows)) * 22)
+    popup_rect = pygame.Rect(panel_x, panel_y + panel_h + 6, 360, popup_h)
+    show_ach_popup = ach_hover_rect.collidepoint(mouse_pos) or popup_rect.collidepoint(mouse_pos)
+
+    if show_ach_popup:
+        popup_bg = pygame.Surface((popup_rect.w, popup_rect.h), pygame.SRCALPHA)
+        popup_bg.fill((245, 239, 226, 225))
+        game.screen.blit(popup_bg, popup_rect.topleft)
+        pygame.draw.rect(game.screen, (95, 77, 56), popup_rect, 2)
+        popup_font = pygame.font.Font(None, 21)
+        max_text_w = popup_rect.w - 18
+        if achievement_rows:
+            for i, row in enumerate(achievement_rows[:10]):
+                row_y = popup_rect.y + 7 + i * 22
+                if i % 2 == 0:
+                    pygame.draw.rect(game.screen, (234, 225, 209), (popup_rect.x + 4, row_y - 1, popup_rect.w - 8, 21))
+                text = row
+                while popup_font.size(text)[0] > max_text_w and len(text) > 4:
+                    text = text[:-4] + "..."
+                game.screen.blit(popup_font.render(text, True, (44, 37, 30)), (popup_rect.x + 8, row_y))
+        else:
+            game.screen.blit(popup_font.render("Нет ачивок", True, (60, 50, 40)), (popup_rect.x + 8, popup_rect.y + 8))
         
     if game.show_save_prompt:
         # Полупрозрачный фон

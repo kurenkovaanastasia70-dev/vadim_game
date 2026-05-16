@@ -62,6 +62,8 @@ class Radio(Item):
     def use(self, game):
         ok, text = game.ghost_manager.ask_radio(game.player_rect)
         game._show_game_info(text, 1800 if ok else 1200)
+        if ok:
+            game.progress_event("radio_answer", 1)
         return True
 
 
@@ -453,6 +455,8 @@ class InventoryManager:
             placed = item.create_placed_instance(x, y)
             self.placed_items.append(placed)
             self.decrease_count(self.selected_item_type)
+            if self.selected_item_type == ItemType.SALT:
+                self.game.progress_event("use_salt", 1)
             self.cancel_placement()
             return True
         
