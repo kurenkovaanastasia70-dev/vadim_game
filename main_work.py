@@ -448,7 +448,29 @@ class Game:
         return overlay
 
     def _create_room_visibility_overlay(self):
-        return self._create_clipped_vignette_overlay()
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((15, 12, 35, 210))
+
+        player_room = None
+        if self.level_data and "rooms" in self.level_data:
+            for room_data in self.level_data["rooms"]:
+                room_rect = pygame.Rect(
+                    room_data["x"],
+                    room_data["y"],
+                    room_data["width"],
+                    room_data["height"],
+                )
+                if room_rect.collidepoint(self.player_rect.center):
+                    player_room = room_rect
+                    break
+
+        if player_room:
+            screen_room = player_room.move(-self.camera_x, -self.camera_y)
+            pygame.draw.rect(overlay, (0, 0, 0, 0), screen_room)
+        else:
+            return self._create_clipped_vignette_overlay()
+
+        return overlay
 
     def load_level_by_id(self, level_id):
         """

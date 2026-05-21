@@ -254,7 +254,8 @@ def load_ghost_sprite():
             ghost_img = ghost_img.convert_alpha()
         
         # Масштабируем до размера персонажа
-        ghost_img = pygame.transform.scale(ghost_img, (TILE_SIZE, TILE_SIZE))
+        ghost_size = int(TILE_SIZE * MAP_SCALE)
+        ghost_img = pygame.transform.scale(ghost_img, (ghost_size, ghost_size))
         print("[OK] Приведение загружено")
         return ghost_img
     except Exception as e:
