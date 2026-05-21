@@ -226,9 +226,7 @@ def load_player_sprites():
         for i in range(frame_count):
             try:
                 path = f"sprite_parts/player_{direction}_{i+1}.png"
-                sprite = pygame.image.load(path).convert()  # сначала convert
-                sprite.set_colorkey((255, 255, 255))        # делаем белый прозрачным
-                sprite = sprite.convert_alpha()             # теперь можно снова включить альфу
+                sprite = pygame.image.load(path).convert_alpha()
                 px = int(TILE_SIZE * MAP_SCALE)
                 sprite = pygame.transform.scale(sprite, (px, px))
                 player_sprites[direction].append(sprite)
@@ -326,4 +324,3 @@ def load_pin_images():
             pin_images[f"pin_{i}"] = None
     
     return pin_images
-

@@ -612,6 +612,26 @@ def draw_saves(game):
     sel_surface = status_font.render(selected_text, True, WHITE)
     game.screen.blit(sel_surface, (50, 340))
 
+def draw_game_over(game):
+    game.screen.fill((18, 12, 16))
+
+    title_font = pygame.font.Font(None, 72)
+    body_font = pygame.font.Font(None, 30)
+    hint_font = pygame.font.Font(None, 24)
+
+    title = title_font.render("Игра окончена", True, (235, 72, 72))
+    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 120)))
+
+    body = body_font.render("HP закончились. Можно начать заново или вернуться в меню.", True, (235, 230, 225))
+    game.screen.blit(body, body.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 58)))
+
+    hint = hint_font.render("Enter - заново, Esc - в меню", True, (170, 164, 158))
+    game.screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 22)))
+
+    for button in game.game_over_buttons:
+        button.draw(game.screen)
+
+
 def draw_game(game):
     """
     Отрисовывает игровой экран.
