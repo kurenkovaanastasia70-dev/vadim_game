@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>90 минут: bugfix в Pygame - GAME_OVER и тяжёлая виньетка</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #171a21;
+      --panel: #232836;
+      --panel-2: #2c3345;
+      --text: #eef2f8;
+      --muted: #aeb8c8;
+      --line: #465065;
+      --accent: #68d391;
+      --accent-2: #7cc7ff;
+      --warn: #ffd166;
+      --bad: #ff8f8f;
+      --code: #10131a;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 22px;
+      background: rgba(23, 26, 33, 0.96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.15; }
+    h1 { font-size: 24px; }
+    h2 { font-size: 30px; margin-bottom: 12px; }
+    h3 { font-size: 20px; margin: 18px 0 8px; color: var(--accent-2); }
+    p { color: var(--muted); line-height: 1.55; }
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 7px;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover { border-color: var(--accent-2); }
+    button.primary { background: #245a3e; border-color: #3c9667; }
+    button.ghost { background: transparent; }
+    main {
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      min-height: calc(100vh - 70px);
+    }
+    nav {
+      position: sticky;
+      top: 68px;
+      height: calc(100vh - 68px);
+      overflow: auto;
+      padding: 18px;
+      border-right: 1px solid var(--line);
+      background: #1c202a;
+    }
+    nav button {
+      display: block;
+      width: 100%;
+      margin-bottom: 8px;
+      text-align: left;
+      padding: 10px 12px;
+    }
+    nav button.active {
+      border-color: var(--accent);
+      background: #203c31;
+    }
+    .slides {
+      padding: 28px;
+      max-width: 1120px;
+    }
+    .slide {
+      display: none;
+      min-height: 620px;
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .slide.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .card {
+      padding: 16px;
+      background: #1d222e;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .minute {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 5px 9px;
+      color: #07120d;
+      background: var(--accent);
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .tag {
+      display: inline-block;
+      margin: 4px 5px 4px 0;
+      padding: 5px 8px;
+      background: #32394b;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    pre {
+      margin: 12px 0;
+      padding: 14px;
+      overflow: auto;
+      background: var(--code);
+      border: 1px solid #32384a;
+      border-radius: 7px;
+    }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 14px; }
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      padding: 12px;
+      resize: vertical;
+      color: var(--text);
+      background: #151923;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      font: 15px Consolas, "Courier New", monospace;
+    }
+    .quiz button {
+      display: block;
+      width: 100%;
+      margin: 8px 0;
+      text-align: left;
+    }
+    .quiz button.correct { border-color: var(--accent); background: #1f4b35; }
+    .quiz button.wrong { border-color: var(--bad); background: #513030; }
+    .answer {
+      display: none;
+      margin-top: 10px;
+      padding: 12px;
+      background: #192331;
+      border-left: 4px solid var(--accent-2);
+      color: var(--muted);
+    }
+    .answer.open { display: block; }
+    .checklist label {
+      display: block;
+      margin: 9px 0;
+      color: var(--muted);
+    }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .progress {
+      width: 210px;
+      height: 10px;
+      background: #303648;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+    }
+    .note { color: var(--warn); }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>90 минут: bugfix в Pygame - GAME_OVER и тяжёлая виньетка</h1>
+      <p id="subtitle">Интерактивное занятие: как найти причину бага, сделать узкий фикс, не трогать лишнюю разработку и проверить регрессию.</p>
+    </div>
+    <div>
+      <div class="progress" title="Прогресс"><div id="bar" class="bar"></div></div>
+      <div id="counter">1 / 18</div>
+    </div>
+  </header>
+
+  <main>
+    <nav id="nav"></nav>
+    <section class="slides">
+      <article class="slide active" data-title="Старт">
+        <span class="minute">0-5 мин</span>
+        <h2>Что сегодня исправляем</h2>
+        <p>У нас есть два бага в игре: при 0 HP игра не заканчивается, а при загрузке уровня создаётся огромная неиспользуемая texture surface. Цель урока - исправить оба бага в отдельной ветке и оставить понятный план проверки.</p>
+        <div class="grid">
+          <div class="card">
+            <h3>Фикс 1</h3>
+            <p>Добавить состояние проигрыша: `GameState.GAME_OVER`, экран, кнопки, обработку `Enter` и `Esc`.</p>
+            <span class="tag">state machine</span><span class="tag">game loop</span>
+          </div>
+          <div class="card">
+            <h3>Фикс 2</h3>
+            <p>Убрать создание `pygame.Surface((10240, 10240), SRCALPHA)`, потому что результат не используется при отрисовке.</p>
+            <span class="tag">performance</span><span class="tag">memory</span>
+          </div>
+        </div>
+        <div class="quiz" data-correct="1">
+          <h3>Вопрос</h3>
+          <p>Почему мы не чиним в этом уроке загрузчик уровней?</p>
+          <button>Потому что загрузчик уровней не важен.</button>
+          <button>Потому что это отдельная зона разработки, и её не нужно смешивать с текущим bugfix.</button>
+          <button>Потому что Python не умеет валидировать JSON.</button>
+          <div class="answer">Верно: хороший bugfix имеет границы. Мы исправляем два подтверждённых дефекта и не смешиваем их с другой разработкой.</div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Bugfix-мышление">
+        <span class="minute">5-12 мин</span>
+        <h2>Bugfix - это маленькое расследование</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Симптом</h3>
+            <p>То, что видит игрок или разработчик: игра продолжается с 0 HP, уровень долго грузится.</p>
+          </div>
+          <div class="card">
+            <h3>Причина</h3>
+            <p>Конкретное место в коде: нет перехода в новое состояние, создаётся большая unused surface.</p>
+          </div>
+          <div class="card">
+            <h3>Фикс</h3>
+            <p>Минимальное изменение, которое устраняет причину и не меняет поведение соседних систем.</p>
+          </div>
+          <div class="card">
+            <h3>Регрессия</h3>
+            <p>Проверка, что баг ушёл, а старые сценарии остались рабочими.</p>
+          </div>
+        </div>
+        <h3>Задание на 3 минуты</h3>
+        <textarea placeholder="Запиши два симптома и две предполагаемые причины:
+1. Симптом:
+   Причина:
+2. Симптом:
+   Причина:"></textarea>
+      </article>
+
+      <article class="slide" data-title="Как находить баги">
+        <span class="minute">теория</span>
+        <h2>Как баги вообще обнаруживают</h2>
+        <p>Баг редко появляется как готовая строка в списке задач. Обычно есть сигнал, который нужно превратить в воспроизводимый сценарий.</p>
+        <div class="grid">
+          <div class="card">
+            <h3>Игровое наблюдение</h3>
+            <p>Разработчик или тестировщик играет и замечает странность: персонаж живёт с 0 HP, экран моргает, предмет исчезает.</p>
+          </div>
+          <div class="card">
+            <h3>Логи и метрики</h3>
+            <p>FPS проседает, загрузка стала дольше, память растёт, в консоли повторяются ошибки или debug-сообщения.</p>
+          </div>
+          <div class="card">
+            <h3>Код-ревью</h3>
+            <p>Баг можно найти без запуска: например, видно, что функция создаёт результат, но никто его не использует.</p>
+          </div>
+          <div class="card">
+            <h3>Регрессия</h3>
+            <p>Раньше работало, после изменения сломалось. Тут важны маленькие коммиты и понятный diff.</p>
+          </div>
+        </div>
+        <h3>Практика</h3>
+        <textarea placeholder="Для каждого сигнала напиши, как его проверить:
+1. Игрок говорит: игра зависает при старте уровня.
+2. В магазине предмет куплен, но в инвентаре нет иконки.
+3. После загрузки сохранения пропал размещённый проектор."></textarea>
+      </article>
+
+      <article class="slide" data-title="Воспроизведение">
+        <span class="minute">теория</span>
+        <h2>Правило хорошего bug report</h2>
+        <p>Перед исправлением нужно записать воспроизведение. Если баг нельзя повторить, его трудно проверить после фикса.</p>
+        <pre><code>Название: при 0 HP игра не переходит в проигрыш
+
+Шаги:
+1. Запустить игру.
+2. Начать новую игру.
+3. Дать приведению коснуться игрока несколько раз.
+4. Дождаться HP = 0.
+
+Ожидание:
+Игра показывает экран проигрыша.
+
+Факт:
+Игрок остаётся в активной игре с 0 HP.</code></pre>
+        <div class="quiz" data-correct="0">
+          <h3>Вопрос</h3>
+          <p>Что самое важное в bug report для разработчика?</p>
+          <button>Шаги, ожидание и фактический результат.</button>
+          <button>Максимально эмоциональное описание.</button>
+          <button>Список всех файлов проекта.</button>
+          <div class="answer">Да. Разработчику нужен воспроизводимый сценарий и понятная разница между ожиданием и фактом.</div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Ветка">
+        <span class="minute">12-16 мин</span>
+        <h2>Работаем в отдельной ветке</h2>
+        <p>Bugfix лучше делать в отдельной ветке, чтобы можно было посмотреть diff, протестировать и не смешать изменения с другой работой.</p>
+        <pre><code>git branch --show-current
+git status --short
+git switch -c bugfix_game_over_vignette</code></pre>
+        <p class="note">Если в рабочем дереве уже есть чужие изменения, мы их не сбрасываем. Просто не трогаем несвязанные файлы.</p>
+        <div class="quiz" data-correct="2">
+          <h3>Вопрос</h3>
+          <p>Что делать, если `git status` показывает несвязанные изменения пользователя?</p>
+          <button>Сделать `git reset --hard`, чтобы было чисто.</button>
+          <button>Переписать все файлы, чтобы изменения исчезли.</button>
+          <button>Не трогать их и работать только с файлами текущей задачи.</button>
+          <div class="answer">Правильно: чужие изменения нельзя откатывать без прямой просьбы.</div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="HP: диагностика">
+        <span class="minute">16-25 мин</span>
+        <h2>Диагностика бага с 0 HP</h2>
+        <p>Ищем место, где HP уменьшается, и смотрим, что происходит после этого.</p>
+        <pre><code># полезные поиски
+Select-String -Path main_work.py -Pattern "player_hp"
+Select-String -Path *.py -Pattern "GAME_OVER"
+Select-String -Path main_work.py -Pattern "check_player_collision"</code></pre>
+        <div class="card">
+          <h3>Наблюдение</h3>
+          <p>В коде есть `self.player_hp = max(0, self.player_hp - 1)`, но нет перехода в состояние проигрыша. Значит, причина не в столкновении, а в незавершённой state machine.</p>
+        </div>
+        <h3>Задание</h3>
+        <textarea placeholder="Ответь:
+1. В каком файле уменьшается HP?
+2. Почему max(0, hp - 1) не решает баг проигрыша?
+3. Какое состояние нужно добавить?"></textarea>
+      </article>
+
+      <article class="slide" data-title="State machine">
+        <span class="minute">25-33 мин</span>
+        <h2>Почему нужен `GAME_OVER`, а не просто флаг</h2>
+        <p>В проекте уже есть `GameState`: меню, игра, магазин, настройки, сохранения. Экран проигрыша - такое же состояние интерфейса, поэтому он должен жить в той же модели.</p>
+        <pre><code>class GameState:
+    MENU = "menu"
+    GAME = "game"
+    SHOP = "shop"
+    SETTINGS = "settings"
+    DIFF = "diff"
+    SAVES = "saves"
+    HOWTO = "howto"
+    GAME_OVER = "game_over"</code></pre>
+        <div class="quiz" data-correct="0">
+          <h3>Вопрос</h3>
+          <p>Почему `GAME_OVER` лучше, чем отдельный `is_dead = True`?</p>
+          <button>Потому что существующая архитектура уже маршрутизирует отрисовку и события через `GameState`.</button>
+          <button>Потому что в Python нельзя создавать boolean-поля.</button>
+          <button>Потому что так меньше файлов в проекте.</button>
+          <div class="answer">Да. Мы не добавляем параллельную модель состояния, а расширяем уже существующую.</div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Фикс HP">
+        <span class="minute">33-45 мин</span>
+        <h2>Код фикса: переход в проигрыш</h2>
+        <p>После получения урона проверяем HP. Если он стал `0`, чистим временные состояния и переводим игру в `GAME_OVER`.</p>
+        <pre><code>def enter_game_over(self):
+    self.moving = False
+    self.show_save_prompt = False
+    self.info_message = None
+    self.info_until = 0
+    self.journal_open = False
+    self.journal_reset_confirm = False
+    self.inventory_manager.cancel_placement()
+    for key in self.keys_pressed:
+        self.keys_pressed[key] = False
+    self.set_state(GameState.GAME_OVER)</code></pre>
+        <pre><code>if self.player_hp &lt;= 0:
+    self.enter_game_over()
+    draws.draw_game_over(self)
+    pygame.display.flip()
+    return</code></pre>
+        <p class="note">Важно сделать `return`, чтобы текущий кадр не продолжил отрисовку игрового состояния после перехода.</p>
+      </article>
+
+      <article class="slide" data-title="Экран и события">
+        <span class="minute">45-55 мин</span>
+        <h2>Отрисовка и обработка экрана проигрыша</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>`draws.py`</h3>
+            <p>Добавляем `draw_game_over(game)`: заголовок, пояснение, подсказки, кнопки.</p>
+          </div>
+          <div class="card">
+            <h3>`handlers.py`</h3>
+            <p>Добавляем `handle_game_over_events(game, event)`: `Enter` запускает новую игру, `Esc` возвращает в меню.</p>
+          </div>
+        </div>
+        <pre><code>elif game.state == GameState.GAME_OVER:
+    handle_game_over_events(game, event)</code></pre>
+        <pre><code>elif self.state == GameState.GAME_OVER:
+    self.moving = False
+    draws.draw_game_over(self)</code></pre>
+        <h3>Практика</h3>
+        <textarea placeholder="Напиши, какие 3 временных состояния обязательно нужно остановить при смерти игрока."></textarea>
+      </article>
+
+      <article class="slide" data-title="Виньетка: диагностика">
+        <span class="minute">55-63 мин</span>
+        <h2>Диагностика тяжёлой виньетки</h2>
+        <p>Ищем создание больших поверхностей и проверяем, используется ли результат.</p>
+        <pre><code>Select-String -Path *.py -Pattern "vignette_texture"
+Select-String -Path main_work.py -Pattern "10240"
+Select-String -Path draws.py -Pattern "_create_room_visibility_overlay|_create_clipped_vignette_overlay"</code></pre>
+        <div class="card">
+          <h3>Наблюдение</h3>
+          <p>`_create_vignette_texture()` создаёт surface 10240x10240, но `draws.py` использует другие функции оверлея. Значит, тяжёлая texture не участвует в кадре.</p>
+        </div>
+        <div class="quiz" data-correct="1">
+          <h3>Вопрос</h3>
+          <p>Что первым делом проверить при подозрении на лишнюю тяжёлую работу?</p>
+          <button>Можно ли переписать всё на C++.</button>
+          <button>Используется ли результат вычисления вообще.</button>
+          <button>Можно ли увеличить FPS в `constants.py`.</button>
+          <div class="answer">Верно. Если результат не используется, лучший фикс - убрать работу, а не ускорять её.</div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Фикс виньетки">
+        <span class="minute">63-70 мин</span>
+        <h2>Код фикса: убрать ненужную работу</h2>
+        <p>При успешной загрузке уровня больше не создаём тяжёлую texture. Старую функцию оставляем безопасной, чтобы остаточные вызовы не выделяли память.</p>
+        <pre><code># было
+self._create_vignette_texture()
+
+# стало
+self.vignette_texture = None</code></pre>
+        <pre><code>def _create_vignette_texture(self):
+    self.vignette_texture = None
+    return</code></pre>
+        <p class="note">Более глубокий рефакторинг можно сделать позже: удалить мёртвый код полностью или заменить его настоящим кешем экранного размера. Для узкого bugfix достаточно убрать дорогой вызов.</p>
+        <h3>Задание</h3>
+        <textarea placeholder="Объясни своими словами:
+1. Почему surface 10240x10240 опасна?
+2. Почему no-op здесь допустим?
+3. Какой следующий рефакторинг можно сделать позже?"></textarea>
+      </article>
+
+      <article class="slide" data-title="Регрессия">
+        <span class="minute">70-78 мин</span>
+        <h2>Чек-лист регрессии</h2>
+        <p>После bugfix важно проверить не только новый сценарий, но и соседнее поведение.</p>
+        <div class="checklist">
+          <label><input type="checkbox"> `python -m compileall -q .` проходит.</label>
+          <label><input type="checkbox"> Игра запускается через `python main_work.py`.</label>
+          <label><input type="checkbox"> Новая игра открывает уровень.</label>
+          <label><input type="checkbox"> При 0 HP появляется экран проигрыша.</label>
+          <label><input type="checkbox"> `Enter` на экране проигрыша начинает новую игру.</label>
+          <label><input type="checkbox"> `Esc` на экране проигрыша возвращает в меню.</label>
+          <label><input type="checkbox"> Загрузка уровня не подвисает на создании 10240x10240 surface.</label>
+        </div>
+        <h3>Задание на 5 минут</h3>
+        <textarea placeholder="Добавь сюда ещё 3 проверки, которые ты бы сделал перед коммитом."></textarea>
+      </article>
+
+      <article class="slide" data-title="Виды тестов">
+        <span class="minute">теория</span>
+        <h2>Какие виды тестов бывают</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Smoke test</h3>
+            <p>Самая короткая проверка: проект запускается, главное меню открывается, новая игра стартует. Цель - понять, что сборка не мёртвая.</p>
+          </div>
+          <div class="card">
+            <h3>Regression test</h3>
+            <p>Проверяет, что старое поведение не сломалось после фикса. Например, меню, магазин и сохранения всё ещё работают.</p>
+          </div>
+          <div class="card">
+            <h3>Unit test</h3>
+            <p>Проверяет маленькую функцию отдельно: нормализацию сохранения, расчёт прогресса, фильтрацию призраков по уликам.</p>
+          </div>
+          <div class="card">
+            <h3>Integration test</h3>
+            <p>Проверяет связку модулей: загрузка сохранения + уровень + инвентарь + состояние игры.</p>
+          </div>
+          <div class="card">
+            <h3>Manual playtest</h3>
+            <p>Человек проходит сценарий руками. Для Pygame-проекта это часто самый быстрый способ проверить UX и визуальные баги.</p>
+          </div>
+          <div class="card">
+            <h3>Performance test</h3>
+            <p>Замеряет FPS, время загрузки, память. Наш баг с 10240x10240 surface относится именно сюда.</p>
+          </div>
+        </div>
+        <h3>Задание</h3>
+        <textarea placeholder="Подбери тип теста:
+1. Проверить, что игра запускается.
+2. Проверить, что после 0 HP появляется GAME_OVER.
+3. Проверить, что уровень стал грузиться быстрее.
+4. Проверить функцию normalize_journal_evidence()."></textarea>
+      </article>
+
+      <article class="slide" data-title="Тест-пирамида">
+        <span class="minute">теория</span>
+        <h2>Тест-пирамида для небольшой игры</h2>
+        <p>Не все тесты должны быть автоматическими. В игре есть логика, которую удобно тестировать кодом, и есть визуальное поведение, которое быстрее проверять руками.</p>
+        <pre><code>Много:
+  unit tests для чистой логики
+  compile/lint checks
+
+Средне:
+  integration checks для сохранений, уровней, прогресса
+
+Мало, но обязательно:
+  manual playtest ключевых сценариев
+  performance smoke на загрузку уровня
+</code></pre>
+        <p class="note">Для этого проекта хорошая первая автоматизация - `python -m compileall -q .` плюс маленькие unit-тесты для функций без Pygame-окна.</p>
+      </article>
+
+      <article class="slide" data-title="Review diff">
+        <span class="minute">78-83 мин</span>
+        <h2>Как читать diff после bugfix</h2>
+        <p>Diff должен подтверждать границы задачи. Мы ожидаем изменения только в файлах состояния, игрового цикла, отрисовки, обработчиков и учебных материалах.</p>
+        <pre><code>git diff --stat -- gamestate.py main_work.py handlers.py draws.py
+git diff -- gamestate.py main_work.py handlers.py draws.py</code></pre>
+        <div class="grid">
+          <div class="card">
+            <h3>Хороший сигнал</h3>
+            <p>Изменений мало, они связаны с двумя багами, compile-check проходит.</p>
+          </div>
+          <div class="card">
+            <h3>Плохой сигнал</h3>
+            <p>В diff внезапно появились ассеты, уровни, unrelated refactor или форматирование всего проекта.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="slide" data-title="Углубление">
+        <span class="minute">83-88 мин</span>
+        <h2>Глубже: типы багов в игровых проектах</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>State bug</h3>
+            <p>Состояние изменилось не полностью: HP стал 0, но режим игры остался `GAME`.</p>
+          </div>
+          <div class="card">
+            <h3>Performance bug</h3>
+            <p>Код делает дорогую работу, которая не нужна игроку или кадру.</p>
+          </div>
+          <div class="card">
+            <h3>Persistence bug</h3>
+            <p>Данные в игре меняются, но не попадают в сохранение или некорректно восстанавливаются.</p>
+          </div>
+          <div class="card">
+            <h3>UI bug</h3>
+            <p>Состояние есть, но игрок не понимает, что произошло или как продолжить.</p>
+          </div>
+        </div>
+        <p class="note">Следующий хороший bugfix для этого проекта - сохранение размещённых предметов. Но его лучше делать отдельной веткой и отдельным уроком.</p>
+      </article>
+
+      <article class="slide" data-title="Финальное задание">
+        <span class="minute">88-90 мин</span>
+        <h2>Финальное задание</h2>
+        <p>Заполни мини-отчёт по bugfix. Такой отчёт можно перенести в pull request или DEVELOPMENT_PLAN.</p>
+        <textarea placeholder="Bugfix: GAME_OVER + heavy vignette
+
+Симптом 1:
+Причина 1:
+Фикс 1:
+Проверки 1:
+
+Симптом 2:
+Причина 2:
+Фикс 2:
+Проверки 2:
+
+Что не трогали специально:
+Оставшиеся риски:"></textarea>
+      </article>
+
+      <article class="slide" data-title="Шпаргалка">
+        <span class="minute">после занятия</span>
+        <h2>Шпаргалка команд и файлов</h2>
+        <pre><code># ветка
+git branch --show-current
+git switch -c bugfix_game_over_vignette
+
+# поиск
+Select-String -Path main_work.py -Pattern "player_hp"
+Select-String -Path *.py -Pattern "vignette_texture"
+
+# проверка
+python -m compileall -q .
+git diff --stat
+git status --short
+</code></pre>
+        <h3>Файлы фикса</h3>
+        <ul>
+          <li>`gamestate.py` - новое состояние `GAME_OVER`.</li>
+          <li>`main_work.py` - переход при 0 HP и удаление тяжёлой texture work.</li>
+          <li>`handlers.py` - события экрана проигрыша.</li>
+          <li>`draws.py` - отрисовка экрана проигрыша.</li>
+          <li>`local_lessons/bugfix_plan.md` - план баг-фикса без пункта про уровни.</li>
+        </ul>
+      </article>
+
+      <div class="footer">
+        <button class="ghost" onclick="prevSlide()">Назад</button>
+        <button class="primary" onclick="nextSlide()">Дальше</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const nav = document.getElementById("nav");
+    const bar = document.getElementById("bar");
+    const counter = document.getElementById("counter");
+    let index = 0;
+
+    slides.forEach((slide, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = `${i + 1}. ${slide.dataset.title}`;
+      btn.onclick = () => showSlide(i);
+      nav.appendChild(btn);
+    });
+
+    function showSlide(i) {
+      index = Math.max(0, Math.min(i, slides.length - 1));
+      slides.forEach((slide, n) => slide.classList.toggle("active", n === index));
+      Array.from(nav.children).forEach((btn, n) => btn.classList.toggle("active", n === index));
+      counter.textContent = `${index + 1} / ${slides.length}`;
+      bar.style.width = `${((index + 1) / slides.length) * 100}%`;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function nextSlide() { showSlide(index + 1); }
+    function prevSlide() { showSlide(index - 1); }
+
+    document.querySelectorAll(".quiz").forEach((quiz) => {
+      const correct = Number(quiz.dataset.correct);
+      const buttons = Array.from(quiz.querySelectorAll("button"));
+      const answer = quiz.querySelector(".answer");
+      buttons.forEach((button, i) => {
+        button.addEventListener("click", () => {
+          buttons.forEach((b) => b.classList.remove("correct", "wrong"));
+          button.classList.add(i === correct ? "correct" : "wrong");
+          if (answer) answer.classList.add("open");
+        });
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight") nextSlide();
+      if (event.key === "ArrowLeft") prevSlide();
+    });
+
+    showSlide(0);
+  </script>
+</body>
+</html>

@@ -12,6 +12,8 @@ from enum import Enum
 from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
 import heapq
 
+GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
+
 
 def _to_bool(value, default=False):
     if value is None:
@@ -189,9 +191,9 @@ class AStar:
                 continue
             
             # Проверяем коллизии со стенами И хитбоксами
-            # Используем размер приведения (TILE_SIZE) для проверки коллизий
-            test_rect = pygame.Rect(new_x - TILE_SIZE//2, new_y - TILE_SIZE//2, 
-                                  TILE_SIZE, TILE_SIZE)
+            # Используем размер приведения для проверки коллизий
+            test_rect = pygame.Rect(new_x - GHOST_SIZE // 2, new_y - GHOST_SIZE // 2,
+                                  GHOST_SIZE, GHOST_SIZE)
             collision = False
             
             # Проверяем стены
@@ -312,7 +314,7 @@ class Ghost:
     def __init__(self, x, y, ghost_sprite, rooms, home_room_id=0, abilities=None, ghost_kind="default"):
         self.x = x
         self.y = y
-        self.rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
+        self.rect = pygame.Rect(x, y, GHOST_SIZE, GHOST_SIZE)
         self.sprite = ghost_sprite
         self.rooms = rooms
         self.home_room_id = home_room_id
@@ -406,7 +408,7 @@ class Ghost:
         try:
             while True:
                 # Конвертируем кадр в RGBA и масштабируем до размера призрака
-                frame = gif.convert("RGBA").resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+                frame = gif.convert("RGBA").resize((GHOST_SIZE, GHOST_SIZE), Image.Resampling.LANCZOS)
                 
                 # Конвертируем PIL Image в Pygame Surface
                 pygame_surface = pygame.image.fromstring(frame.tobytes(), frame.size, frame.mode)

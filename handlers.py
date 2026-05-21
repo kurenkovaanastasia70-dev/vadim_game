@@ -354,6 +354,25 @@ def handle_game_events(game, event):
             circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
             if ((mouse_pos[0] - circle_x) ** 2 + (mouse_pos[1] - inventory_y) ** 2) <= circle_radius ** 2:
                 game.inventory_manager.use_item_by_index(i)
+
+
+def handle_game_over_events(game, event):
+    for i, button in enumerate(game.game_over_buttons):
+        if button.handle_event(event):
+            if i == 0:
+                game.reset_for_new_game()
+                game.set_state(GameState.GAME, reset_stack=True)
+            elif i == 1:
+                game.set_state(GameState.MENU, reset_stack=True)
+
+    if event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_RETURN:
+            game.reset_for_new_game()
+            game.set_state(GameState.GAME, reset_stack=True)
+        elif event.key == pygame.K_ESCAPE:
+            game.set_state(GameState.MENU, reset_stack=True)
+
+
 def handle_event(game):
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -373,3 +392,5 @@ def handle_event(game):
             handle_difficulty_events(game, event)
         elif game.state == GameState.SAVES:
             handle_saves_events(game, event)
+        elif game.state == GameState.GAME_OVER:
+            handle_game_over_events(game, event)

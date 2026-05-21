@@ -112,6 +112,10 @@ class Game:
             Button(SCREEN_WIDTH - 150, 50, 100, 40, "Меню", RED),
             Button(SCREEN_WIDTH - 150, 100, 100, 40, "Магазин", BLUE)
         ]
+        self.game_over_buttons = [
+            Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 40, 240, 46, "Заново", GREEN),
+            Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 100, 240, 46, "В меню", RED),
+        ]
 
         self.player_money = 100
         self.player_level = 1
@@ -408,173 +412,66 @@ class Game:
                 self.journal_evidence = self.default_journal_evidence()
             self._refresh_discovered_evidence()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
-            self._create_vignette_texture()
+            self.vignette_texture = None
             self.update_camera()
         else:
             print(f"Не удалось загрузить уровень: {level_file_path}")
-            self._create_vignette_texture()  # Эффект затемнения всегда при входе в уровень
+            self.vignette_texture = None  # Эффект затемнения всегда при входе в уровень
             self.update_camera()
     
     def _create_vignette_texture(self):
-        """Создаёт текстуру затемнения: центр прозрачный (видно игру), края — благородная тёмная дымка."""
-        size = 10240
-        s = pygame.Surface((size, size), pygame.SRCALPHA)
-        cx, cy = size // 2, size // 2
-        visible_radius = 120   # Небольшой круг вокруг игрока
-        falloff_radius = 220   # Плавный переход к полной дымке
-        
-        # Благородный глубокий тёмно-синий/фиолетовый оттенок вместо серой пыли
-        # Создаёт атмосферу таинственности
-        fog_color = (15, 12, 35)  # Глубокий индиго
-        
-        for x in range(0, size, 4):
-            for y in range(0, size, 4):
-                d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
-                if d < visible_radius:
-                    alpha = 0
-                elif d < falloff_radius:
-                    t = (d - visible_radius) / (falloff_radius - visible_radius)
-                    alpha = min(230, int(230 * (t ** 1.2)))  # Чуть менее непрозрачно
-                else:
-                    alpha = 230  # Не полностью непрозрачно для атмосферы
-                s.fill((fog_color[0], fog_color[1], fog_color[2], alpha), (x, y, 4, 4))
-        self.vignette_texture = s
-    
+        self.vignette_texture = None
+
     def _create_clipped_vignette_overlay(self):
-        """Создаёт оверлей с кругом видимости, обрезанным по границам комнаты."""
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        
         fog_r, fog_g, fog_b = 15, 12, 35
         max_alpha = 220
-        
-        # Заполняем весь экран туманом
         overlay.fill((fog_r, fog_g, fog_b, max_alpha))
-        
-        # Определяем текущую комнату игрока
-        player_room = None
-        if hasattr(self, 'level_data') and self.level_data and 'rooms' in self.level_data:
-            for room_data in self.level_data['rooms']:
-                room_rect = pygame.Rect(room_data['x'], room_data['y'], 
-                                        room_data['width'], room_data['height'])
-                if room_rect.collidepoint(self.player_rect.centerx, self.player_rect.centery):
-                    player_room = room_rect
-                    break
-        
-        # Параметры круга видимости
+
         player_cx = self.player_rect.centerx - self.camera_x
         player_cy = self.player_rect.centery - self.camera_y
         visible_radius = 120
         falloff_radius = 200
-        
-        # Рисуем круг видимости с градиентом, но только внутри комнаты
+
         for y in range(0, SCREEN_HEIGHT, 3):
             for x in range(0, SCREEN_WIDTH, 3):
-                # Проверяем, находится ли пиксель внутри комнаты
-                world_x = x + self.camera_x
-                world_y = y + self.camera_y
-                in_room = player_room is None or player_room.collidepoint(world_x, world_y)
-                
-                if not in_room:
-                    # За пределами комнаты — полный туман
-                    continue
-                
-                # Расстояние до игрока
                 d = ((x - player_cx) ** 2 + (y - player_cy) ** 2) ** 0.5
-                
                 if d < visible_radius:
-                    # Полностью видимая зона
                     alpha = 0
                 elif d < falloff_radius:
-                    # Градиентная зона
                     t = (d - visible_radius) / (falloff_radius - visible_radius)
                     alpha = int(max_alpha * (t ** 1.5))
                 else:
-                    # За пределами круга внутри комнаты — туман
                     continue
-                
-                # Рисуем пиксель с нужной прозрачностью
                 overlay.fill((fog_r, fog_g, fog_b, alpha), (x, y, 3, 3))
-        
+
         return overlay
-    
+
     def _create_room_visibility_overlay(self):
-        """Создаёт оверлей для системы видимости комнат (при наличии фонарика) с плавным градиентом."""
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        
-        # Благородный тёмно-синий/фиолетовый для скрытых комнат
-        fog_r, fog_g, fog_b = 15, 12, 35
-        max_alpha = 210
-        
-        # Заполняем весь экран туманом
-        overlay.fill((fog_r, fog_g, fog_b, max_alpha))
-        
-        # Определяем, в какой комнате находится игрок
+        overlay.fill((15, 12, 35, 210))
+
         player_room = None
-        if hasattr(self, 'level_data') and self.level_data and 'rooms' in self.level_data:
-            for room_data in self.level_data['rooms']:
-                room_rect = pygame.Rect(room_data['x'], room_data['y'], 
-                                        room_data['width'], room_data['height'])
-                if room_rect.collidepoint(self.player_rect.centerx, self.player_rect.centery):
+        if self.level_data and "rooms" in self.level_data:
+            for room_data in self.level_data["rooms"]:
+                room_rect = pygame.Rect(
+                    room_data["x"],
+                    room_data["y"],
+                    room_data["width"],
+                    room_data["height"],
+                )
+                if room_rect.collidepoint(self.player_rect.center):
                     player_room = room_rect
                     break
-        
-        # Если игрок в комнате - делаем эту комнату видимой с плавным градиентом
+
         if player_room:
-            # Ширина градиентной зоны
-            gradient_width = 80
-            
-            # Внутренняя полностью видимая область (чуть меньше комнаты)
-            inner_rect = player_room.inflate(-20, -20)
-            
-            # Внешняя граница градиента
-            outer_rect = player_room.inflate(gradient_width * 2, gradient_width * 2)
-            
-            # Рисуем градиент от внешней границы к внутренней
-            total_steps = gradient_width + 10  # Количество шагов градиента
-            
-            for step in range(total_steps, -1, -1):
-                # Интерполяция от outer_rect к inner_rect
-                t = step / total_steps  # 1.0 = внешний край, 0.0 = внутренний край
-                
-                # Плавная кривая для более естественного градиента (ease-in-out)
-                t_smooth = t * t * (3 - 2 * t)
-                
-                # Альфа: от max_alpha (внешний) до 0 (внутренний)
-                alpha = int(max_alpha * t_smooth)
-                
-                # Размер текущего прямоугольника
-                width_diff = outer_rect.width - inner_rect.width
-                height_diff = outer_rect.height - inner_rect.height
-                
-                current_width = inner_rect.width + int(width_diff * t)
-                current_height = inner_rect.height + int(height_diff * t)
-                
-                current_x = inner_rect.centerx - current_width // 2
-                current_y = inner_rect.centery - current_height // 2
-                
-                current_rect = pygame.Rect(
-                    current_x - self.camera_x,
-                    current_y - self.camera_y,
-                    current_width,
-                    current_height
-                )
-                
-                # Рисуем прямоугольник с текущей альфой
-                pygame.draw.rect(overlay, (fog_r, fog_g, fog_b, alpha), current_rect)
-            
-            # Финальная полностью прозрачная внутренняя область
-            inner_screen_rect = pygame.Rect(
-                inner_rect.x - self.camera_x,
-                inner_rect.y - self.camera_y,
-                inner_rect.width,
-                inner_rect.height
-            )
-            pygame.draw.rect(overlay, (0, 0, 0, 0), inner_screen_rect)
-        
+            screen_room = player_room.move(-self.camera_x, -self.camera_y)
+            pygame.draw.rect(overlay, (0, 0, 0, 0), screen_room)
+        else:
+            return self._create_clipped_vignette_overlay()
+
         return overlay
-        
-      
-    
+
     def load_level_by_id(self, level_id):
         """
         Загружает уровень по его строковому идентификатору из реестра уровней.
@@ -654,6 +551,18 @@ class Game:
         result = self.progress_manager.progress_event(event_key, value)
         if result.messages:
             self._show_game_info(result.messages[0], 1500)
+
+    def enter_game_over(self):
+        self.moving = False
+        self.show_save_prompt = False
+        self.info_message = None
+        self.info_until = 0
+        self.journal_open = False
+        self.journal_reset_confirm = False
+        self.inventory_manager.cancel_placement()
+        for key in self.keys_pressed:
+            self.keys_pressed[key] = False
+        self.set_state(GameState.GAME_OVER)
 
     def load_saves(self):
         try:
@@ -836,6 +745,11 @@ class Game:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.progress_event("take_hit", 1)
+                    if self.player_hp <= 0:
+                        self.enter_game_over()
+                        draws.draw_game_over(self)
+                        pygame.display.flip()
+                        return
             else:
                 self.moving = False
                 for key in self.keys_pressed:
@@ -852,6 +766,9 @@ class Game:
             draws.draw_saves(self)
         elif self.state == GameState.HOWTO:
             draws.draw_howto(self)
+        elif self.state == GameState.GAME_OVER:
+            self.moving = False
+            draws.draw_game_over(self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:
             # Полупрозрачный фон
@@ -877,7 +794,7 @@ class Game:
         while self.running:
             handlers.handle_event(self)
             
-            if self.state == GameState.GAME:
+            if self.state == GameState.GAME and self.player_hp > 0:
                 self.inventory_manager.update_placed_items()
                 self.inventory_manager.update_projector()
             

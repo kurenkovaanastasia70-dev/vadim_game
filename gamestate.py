@@ -1,8 +1,9 @@
 class GameState:
-    MENU = "menu"        # Главное меню
-    GAME = "game"        # Игровой экран
-    SHOP = "shop"        # Магазин
-    SETTINGS = "settings" # Настройки
+    MENU = "menu"
+    GAME = "game"
+    SHOP = "shop"
+    SETTINGS = "settings"
     DIFF = "diff"
     SAVES = "saves"
-    HOWTO = "howto"      # Как играть
+    HOWTO = "howto"
+    GAME_OVER = "game_over"

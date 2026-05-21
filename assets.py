@@ -226,9 +226,7 @@ def load_player_sprites():
         for i in range(frame_count):
             try:
                 path = f"sprite_parts/player_{direction}_{i+1}.png"
-                sprite = pygame.image.load(path).convert()  # сначала convert
-                sprite.set_colorkey((255, 255, 255))        # делаем белый прозрачным
-                sprite = sprite.convert_alpha()             # теперь можно снова включить альфу
+                sprite = pygame.image.load(path).convert_alpha()
                 px = int(TILE_SIZE * MAP_SCALE)
                 sprite = pygame.transform.scale(sprite, (px, px))
                 player_sprites[direction].append(sprite)
@@ -256,7 +254,8 @@ def load_ghost_sprite():
             ghost_img = ghost_img.convert_alpha()
         
         # Масштабируем до размера персонажа
-        ghost_img = pygame.transform.scale(ghost_img, (TILE_SIZE, TILE_SIZE))
+        ghost_size = int(TILE_SIZE * MAP_SCALE)
+        ghost_img = pygame.transform.scale(ghost_img, (ghost_size, ghost_size))
         print("[OK] Приведение загружено")
         return ghost_img
     except Exception as e:
@@ -326,4 +325,3 @@ def load_pin_images():
             pin_images[f"pin_{i}"] = None
     
     return pin_images
-
