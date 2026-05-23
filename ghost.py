@@ -101,7 +101,9 @@ class GhostAbilitiesConfig:
 
     def random_profile_name(self):
         """Случайный профиль из INI; секция ghost_default только база для merge и не выбирается."""
-        names = [k for k in self.profiles.keys() if k != "default"]
+        names = [k for k in self.profiles.keys() if k in JOURNAL_LIST_PROFILE_IDS]
+        if not names:
+            names = [k for k in self.profiles.keys() if k != "default"]
         return random.choice(names) if names else "default"
 
 

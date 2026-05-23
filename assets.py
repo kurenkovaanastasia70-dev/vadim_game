@@ -66,6 +66,26 @@ def _create_placeholder(size, color):
         return surf
 
 
+def _fit_alpha_image(img, size, padding=4):
+    """Обрезает прозрачные поля и центрирует изображение в квадрате size x size."""
+    img = img.convert_alpha()
+    bounds = img.get_bounding_rect()
+    if bounds.w <= 0 or bounds.h <= 0:
+        return pygame.Surface((size, size), pygame.SRCALPHA)
+
+    cropped = img.subsurface(bounds).copy()
+    max_side = max(1, size - padding * 2)
+    scale = min(max_side / cropped.get_width(), max_side / cropped.get_height())
+    new_size = (
+        max(1, int(cropped.get_width() * scale)),
+        max(1, int(cropped.get_height() * scale)),
+    )
+    fitted = pygame.transform.smoothscale(cropped, new_size)
+    canvas = pygame.Surface((size, size), pygame.SRCALPHA)
+    canvas.blit(fitted, fitted.get_rect(center=(size // 2, size // 2)))
+    return canvas
+
+
 def load_inventory_images():
     """
     Загружает изображения инвентаря.
@@ -83,13 +103,14 @@ def load_inventory_images():
 
     def find_and_load(filenames, target=None):
         """filenames: str или список вариантов (напр. с пробелами и подчёркиванием)"""
+        out_size = target or target_size
         for f in ([filenames] if isinstance(filenames, str) else filenames):
             for base in search_paths:
                 path = os.path.join(base, f)
                 if os.path.isfile(path):
                     try:
                         img = pygame.image.load(path).convert_alpha()
-                        return pygame.transform.smoothscale(img, (target or target_size, target or target_size))
+                        return _fit_alpha_image(img, out_size)
                     except Exception:
                         break
         return None
@@ -106,6 +127,9 @@ def load_inventory_images():
         inventory_images["аккумулятор"] = load_or_placeholder(["batareyka.png", "battery.png"], (80, 180, 60))
         inventory_images["крест"] = load_or_placeholder(["New Piskel.png", "New_Piskel.png", "cross.png"], (180, 160, 80))
         inventory_images["кровь"] = load_or_placeholder(["blood-1.png", "blood.png"], (150, 30, 30))
+        inventory_images["радио"] = load_or_placeholder(["radio.png", "record.png"], (80, 140, 180))
+        inventory_images["эмп"] = load_or_placeholder(["emf.png", "emp.png"], (100, 220, 120))
+        inventory_images["уф фонарь"] = load_or_placeholder(["uv.png", "uv_flashlight.png"], (130, 90, 220))
     except Exception as e:
         print(f"Не удалось загрузить изображения инвентаря: {e}")
         inventory_images = {}
@@ -115,7 +139,7 @@ def load_inventory_images():
 
 def load_placement_sprites():
     """Спрайты для размещаемых на уровне предметов: пыль (до/после), соль (до/после). Размер 50x50."""
-    size = 50
+    size = 38
     script_dir = os.path.dirname(os.path.abspath(__file__))
     search_paths = [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]
 
@@ -126,7 +150,7 @@ def load_placement_sprites():
                 if os.path.isfile(path):
                     try:
                         img = pygame.image.load(path).convert_alpha()
-                        return pygame.transform.smoothscale(img, (size, size))
+                        return _fit_alpha_image(img, size, padding=2)
                     except Exception:
                         break
         return None
@@ -140,7 +164,7 @@ def load_placement_sprites():
 
 def load_projector_sprite():
     """Спрайт проектора для размещения на карте. Размер 50x50."""
-    size = 50
+    size = 44
     script_dir = os.path.dirname(os.path.abspath(__file__))
     for base in [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]:
         for fn in ["proector.png", "projector.png"]:
@@ -148,7 +172,7 @@ def load_projector_sprite():
             if os.path.isfile(path):
                 try:
                     img = pygame.image.load(path).convert_alpha()
-                    return pygame.transform.smoothscale(img, (size, size))
+                    return _fit_alpha_image(img, size, padding=2)
                 except Exception:
                     pass
     return _create_placeholder(size, (100, 100, 120))
