@@ -52,7 +52,7 @@ class Game:
         self.previous_state = None
         self.fullscreen = True
         self.volume = 50
-        self.difficulty_levels = ["Лёгкая","Сормальная","Сложная","ХАРДКОР"]
+        self.difficulty_levels = ["Лёгкая","Нормальная","Сложная","ХАРДКОР"]
         self.difficulty_index = 1
         self.difficulty_selected = False
         self.save_file = "save.json"
@@ -116,6 +116,7 @@ class Game:
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 40, 240, 46, "Заново", GREEN),
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 100, 240, 46, "В меню", RED),
         ]
+        self.game_over_reason = "hp"
 
         self.player_money = 100
         self.player_level = 1
@@ -231,6 +232,11 @@ class Game:
         self.info_message = None
         self.info_until = 0
         self.uv_mode = False
+        self.loaded_inventory_runtime = None
+        self.loaded_hunt_state = None
+        self.hunt_cooldown_ticks = 0
+        self.hunt_active_ticks = 0
+        self.reset_hunt_timer()
 
         self.inventory_images = assets.load_inventory_images()
         self.trash_icon = assets.load_trash_icon()
@@ -281,6 +287,63 @@ class Game:
     def _show_game_info(self, text, duration_ms=1800):
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
+
+    def apply_volume(self):
+        if pygame.mixer.get_init():
+            pygame.mixer.music.set_volume(max(0, min(100, self.volume)) / 100)
+
+    def is_gameplay_paused(self):
+        return bool(self.show_save_prompt or self.journal_open or self.state == GameState.GAME_OVER)
+
+    def reset_hunt_timer(self):
+        cooldown_by_difficulty = {
+            0: 4 * 60 * FPS,
+            1: 3 * 60 * FPS,
+            2: 2 * 60 * FPS,
+            3: 90 * FPS,
+        }
+        self.hunt_cooldown_ticks = cooldown_by_difficulty.get(self.difficulty_index, 3 * 60 * FPS)
+        self.hunt_active_ticks = 0
+
+    def tick_hunt_timer(self):
+        if self.hunt_active_ticks > 0:
+            self.hunt_active_ticks -= 1
+            if self.hunt_active_ticks <= 0:
+                self.reset_hunt_timer()
+            return
+        if self.hunt_cooldown_ticks > 0:
+            self.hunt_cooldown_ticks -= 1
+            if self.hunt_cooldown_ticks <= 0:
+                duration_by_difficulty = {
+                    0: 25 * FPS,
+                    1: 35 * FPS,
+                    2: 45 * FPS,
+                    3: 60 * FPS,
+                }
+                self.hunt_active_ticks = duration_by_difficulty.get(self.difficulty_index, 35 * FPS)
+
+    def get_hunt_radio_text(self, radio_ok=True):
+        if self.hunt_active_ticks > 0:
+            return "Охота уже началась."
+        seconds = max(0, self.hunt_cooldown_ticks // FPS)
+        minutes = seconds // 60
+        rest = seconds % 60
+        if not radio_ok and self.difficulty_index >= 2:
+            return "До охоты: сигнал искажён."
+        return f"До охоты: {minutes:02d}:{rest:02d}."
+
+    def serialize_hunt_state(self):
+        return {
+            "cooldown_ticks": self.hunt_cooldown_ticks,
+            "active_ticks": self.hunt_active_ticks,
+        }
+
+    def restore_hunt_state(self, data):
+        if not isinstance(data, dict):
+            self.reset_hunt_timer()
+            return
+        self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
+        self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
 
     def default_journal_evidence(self):
         return {k: EVIDENCE_UNKNOWN for k in EVIDENCE_PROFILE_KEYS}
@@ -356,6 +419,8 @@ class Game:
         """ Сброс инвентаря после прохождения уровня"""
         for item in self.inventory:
             self.inventory[item] = False
+        self.inventory_manager.reset_runtime_state(clear_counts=True)
+        self.uv_mode = False
     def load_level(self, level_file_path):
         """
         Загружает уровень из JSON файла.
@@ -411,6 +476,16 @@ class Game:
             else:
                 self.journal_evidence = self.default_journal_evidence()
             self._refresh_discovered_evidence()
+            if self.loaded_inventory_runtime is not None:
+                self.inventory_manager.restore_runtime_state(self.loaded_inventory_runtime)
+                self.loaded_inventory_runtime = None
+            else:
+                self.inventory_manager.reset_runtime_state(clear_counts=False)
+            if self.loaded_hunt_state is not None:
+                self.restore_hunt_state(self.loaded_hunt_state)
+                self.loaded_hunt_state = None
+            else:
+                self.reset_hunt_timer()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self.vignette_texture = None
             self.update_camera()
@@ -525,6 +600,7 @@ class Game:
     
     def reset_for_new_game(self):
         """Полный сброс для новой игры"""
+        self.game_over_reason = "hp"
         self.player_hp = 5
         self.player_money = 100
         self.player_level = 1
@@ -534,15 +610,22 @@ class Game:
         self.journal_reset_confirm = False
         self.reset_journal_evidence()
         self.loaded_journal_evidence = None
+        self.loaded_inventory_runtime = None
+        self.loaded_hunt_state = None
+        self.reset_hunt_timer()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
     def buy_item(self, item_name, cost):
         """Покупка предмета в магазине"""
         #Todo: реализовать систему выкидывания при переполнении стека предметов
-        if self.player_money >= cost and not self.inventory[item_name]:
+        item_type = self.inventory_manager.item_type_from_name(item_name)
+        is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
+        if self.player_money >= cost and (is_consumable or not self.inventory[item_name]):
             self.player_money -= cost
             self.inventory[item_name] = True
+            if is_consumable:
+                self.inventory_manager.increase_count(item_type)
             self.progress_event("buy_item", 1)
             return True
         return False
@@ -552,7 +635,18 @@ class Game:
         if result.messages:
             self._show_game_info(result.messages[0], 1500)
 
-    def enter_game_over(self):
+    def submit_ghost_guess(self, profile_id):
+        actual = None
+        if self.ghost_manager.ghosts:
+            actual = self.ghost_manager.ghosts[0].ghost_kind
+        if profile_id == actual:
+            self._show_game_info("Призрак определён верно.", 1600)
+            return True
+        self.enter_game_over(reason="wrong_ghost")
+        return False
+
+    def enter_game_over(self, reason="hp"):
+        self.game_over_reason = reason
         self.moving = False
         self.show_save_prompt = False
         self.info_message = None
@@ -586,6 +680,8 @@ class Game:
             "money": self.player_money,
             "inventory": self.inventory.copy(),
             "item_counts": item_counts_serial,
+            "inventory_runtime": self.inventory_manager.serialize_runtime_state(),
+            "hunt_state": self.serialize_hunt_state(),
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
@@ -619,7 +715,9 @@ class Game:
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)
             if saved_inventory:
-                self.inventory = saved_inventory.copy()
+                base_inventory = {key: False for key in self.inventory_items}
+                base_inventory.update(saved_inventory)
+                self.inventory = base_inventory
             else:
                 self.reset_inventory()
             
@@ -643,6 +741,8 @@ class Game:
                 save_data.get("tasks"),
                 save_data.get("achievements_table"),
             )
+            self.loaded_inventory_runtime = save_data.get("inventory_runtime")
+            self.loaded_hunt_state = save_data.get("hunt_state")
             
             return True
         return False
@@ -728,8 +828,9 @@ class Game:
         if self.state == GameState.MENU:
             draws.draw_menu(self)
         elif self.state == GameState.GAME:
-            if not self.show_save_prompt:
+            if not self.is_gameplay_paused():
                 mechanics.update_player_movement(self)
+                self.tick_hunt_timer()
                 pz = self.inventory_manager.get_projector_zones()
                 self.ghost_manager.update(
                     self.player_rect,
@@ -794,7 +895,7 @@ class Game:
         while self.running:
             handlers.handle_event(self)
             
-            if self.state == GameState.GAME and self.player_hp > 0:
+            if self.state == GameState.GAME and self.player_hp > 0 and not self.is_gameplay_paused():
                 self.inventory_manager.update_placed_items()
                 self.inventory_manager.update_projector()
             

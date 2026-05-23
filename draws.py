@@ -64,6 +64,13 @@ def _wrap_lines(font, text, max_width):
     return lines
 
 
+def _blit_centered_icon(screen, icon, rect, size):
+    if not icon:
+        return
+    fitted = pygame.transform.smoothscale(icon, (size, size))
+    screen.blit(fitted, fitted.get_rect(center=rect.center))
+
+
 def _journal_panel_rect():
     w = min(640, max(400, SCREEN_WIDTH - 32))
     h = min(520, max(380, SCREEN_HEIGHT - 20))
@@ -137,6 +144,37 @@ def journal_get_checkbox_rects(panel):
     return out
 
 
+def _journal_candidate_area(game, panel):
+    inner = panel.inflate(-28, -28)
+    cfg = game.ghost_manager.abilities_config
+    marked = {k: game.journal_evidence.get(k, EVIDENCE_STATE_UNKNOWN) for k in EVIDENCE_PROFILE_KEYS}
+    candidates = filter_journal_suspects(cfg, marked)
+    row0 = _journal_checkboxes_y0(inner)
+    list_top = row0 + len(JOURNAL_EVIDENCE_HELP) * JOURNAL_ROW_H + 10
+    cnt_f = pygame.font.Font(None, 20)
+    stat_text = f"Осталось вариантов: {len(candidates)} из {len(JOURNAL_LIST_PROFILE_IDS)}."
+    sty = list_top
+    for sline in _wrap_lines(cnt_f, stat_text, inner.w):
+        sty += 22
+    name_top = sty + 8
+    close_rect, _ = _journal_close_rect(panel)
+    list_bottom = max(name_top + 40, close_rect.top - 8)
+    return inner, candidates, name_top, list_bottom
+
+
+def journal_get_candidate_rects(game, panel):
+    inner, candidates, name_top, list_bottom = _journal_candidate_area(game, panel)
+    rects = {}
+    row_h = 26
+    y = name_top
+    for name in candidates:
+        if y + row_h > list_bottom:
+            break
+        rects[name] = pygame.Rect(inner.x, y, inner.w, row_h - 2)
+        y += row_h
+    return rects
+
+
 def evidence_journal_hit_test(game, pos):
     panel = _journal_panel_rect()
     if not panel.collidepoint(pos):
@@ -154,6 +192,9 @@ def evidence_journal_hit_test(game, pos):
     for key, r in journal_get_checkbox_rects(panel).items():
         if r.collidepoint(pos):
             return key
+    for profile_id, r in journal_get_candidate_rects(game, panel).items():
+        if r.collidepoint(pos):
+            return ("guess", profile_id)
     return None
 
 
@@ -349,40 +390,28 @@ def draw_evidence_journal_overlay(game):
         game.screen.blit(cnt_f.render(sline, True, (205, 215, 225)), (inner.x, sty))
         sty += 22
 
-    name_top = sty + 6
-    line_h = 20
-    _pre_close, _ = _journal_close_rect(panel)
-    list_bottom = _pre_close.top - 8
-    if list_bottom < name_top + 40:
-        list_bottom = name_top + 40
-    list_w = inner.w
-
+    _inner, _candidates, name_top, list_bottom = _journal_candidate_area(game, panel)
+    row_h = 26
     y = name_top
-    overflowed = False
     for idx, name in enumerate(candidates):
-        if overflowed or y + line_h > list_bottom:
+        if y + row_h > list_bottom:
+            rest = max(0, len(candidates) - idx)
+            if rest:
+                game.screen.blit(
+                    small_f.render(f"…ещё {rest}. Сузи галками.", True, (170, 175, 195)),
+                    (inner.x, min(y, list_bottom - 18)),
+                )
             break
         prof = cfg.get_profile(name)
         disp = (prof.get("display_name") or "").strip() or f"Тип {name}"
-        wlines = _wrap_lines(names_f, f"·  {disp}  (класс {name}; выбрано по уликам)", list_w)
-        for wl in wlines:
-            if y + line_h > list_bottom:
-                rest = max(0, len(candidates) - idx)
-                game.screen.blit(
-                    small_f.render(
-                        f"…дальше не влезло (ещё ~{rest}). Сузи галками.",
-                        True,
-                        (170, 175, 195),
-                    ),
-                    (inner.x, min(y, list_bottom - line_h)),
-                )
-                overflowed = True
-                break
-            game.screen.blit(names_f.render(wl, True, (230, 232, 240)), (inner.x, y))
-            y += line_h
-        if overflowed:
-            break
-        y += 2
+        row_rect = pygame.Rect(inner.x, y, inner.w, row_h - 2)
+        mouse = pygame.mouse.get_pos()
+        hovered = row_rect.collidepoint(mouse)
+        pygame.draw.rect(game.screen, (42, 48, 64) if not hovered else (56, 68, 92), row_rect, border_radius=5)
+        pygame.draw.rect(game.screen, (90, 104, 132), row_rect, 1, border_radius=5)
+        label = f"Выбрать: {disp}  (тип {name})"
+        game.screen.blit(names_f.render(label, True, (235, 238, 246)), (row_rect.x + 8, row_rect.y + 4))
+        y += row_h
 
     confirm_mode = getattr(game, "journal_reset_confirm", False)
     reset_rect, reset_label = _journal_reset_rect(panel)
@@ -501,7 +530,7 @@ def draw_shop(game):
         pygame.draw.rect(game.screen, (45, 52, 68), icon_rect, border_radius=7)
         img = game.inventory_images.get(inv_key)
         if img:
-            game.screen.blit(pygame.transform.smoothscale(img, (42, 42)), (icon_rect.x + 4, icon_rect.y + 4))
+            _blit_centered_icon(game.screen, img, icon_rect, 42)
         else:
             fallback = name_f.render(name[:1], True, (224, 228, 236))
             game.screen.blit(fallback, fallback.get_rect(center=icon_rect.center))
@@ -619,10 +648,17 @@ def draw_game_over(game):
     body_font = pygame.font.Font(None, 30)
     hint_font = pygame.font.Font(None, 24)
 
-    title = title_font.render("Игра окончена", True, (235, 72, 72))
+    reason = getattr(game, "game_over_reason", "hp")
+    title_text = "Игра окончена"
+    body_text = "HP закончились. Можно начать заново или вернуться в меню."
+    if reason == "wrong_ghost":
+        title_text = "Ошибка расследования"
+        body_text = "Вы выбрали неверного призрака."
+
+    title = title_font.render(title_text, True, (235, 72, 72))
     game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 120)))
 
-    body = body_font.render("HP закончились. Можно начать заново или вернуться в меню.", True, (235, 230, 225))
+    body = body_font.render(body_text, True, (235, 230, 225))
     game.screen.blit(body, body.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 58)))
 
     hint = hint_font.render("Enter - заново, Esc - в меню", True, (170, 164, 158))
@@ -783,7 +819,7 @@ def draw_game(game):
         game.screen.blit(clipped_overlay, (0, 0))
     
     mouse_pos = pygame.mouse.get_pos()
-    purchased_items = [item for item in game.inventory_items if game.inventory[item]]
+    purchased_items = game.inventory_manager.visible_inventory_names()
     consumable_name_to_count = {
         "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
         "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
@@ -819,49 +855,57 @@ def draw_game(game):
         (hud_x + 10, hud_y + 110),
     )
 
-    # Выпадающий инвентарь по наведению
-    inv_header_rect = pygame.Rect(hud_x, hud_y + hud_h + 8, 250, 34)
-    inv_hover = inv_header_rect.collidepoint(mouse_pos)
-    inv_header_bg = pygame.Surface((inv_header_rect.w, inv_header_rect.h), pygame.SRCALPHA)
-    inv_header_bg.fill((236, 228, 210, 210))
-    game.screen.blit(inv_header_bg, inv_header_rect.topleft)
-    pygame.draw.rect(game.screen, (95, 77, 56), inv_header_rect, 2)
-    inv_font = pygame.font.Font(None, 24)
-    inv_title = f"Инвентарь ({len(purchased_items)})"
-    inv_hint = "v" if inv_hover else ">"
-    game.screen.blit(inv_font.render(f"{inv_hint} {inv_title}", True, (44, 37, 30)), (inv_header_rect.x + 8, inv_header_rect.y + 8))
+    # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
+    slot_font = pygame.font.Font(None, 18)
+    qty_font = pygame.font.Font(None, 20)
+    name_font = pygame.font.Font(None, 19)
+    active_item = getattr(game.inventory_manager, "active_hand_item", None)
+    hovered_name = None
+    for i, item_name in enumerate(purchased_items):
+        cx, cy, radius = mechanics.inventory_slot_screen(i)
+        circle_rect = pygame.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
+        hovered = ((mouse_pos[0] - cx) ** 2 + (mouse_pos[1] - cy) ** 2) <= radius ** 2
+        item_type = game.inventory_manager.item_type_from_name(item_name)
+        is_active = item_type is not None and item_type == active_item
+        fill = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        fill_alpha = 145 if hovered or is_active else 92
+        pygame.draw.circle(fill, (238, 244, 255, fill_alpha), (radius, radius), radius)
+        game.screen.blit(fill, circle_rect.topleft)
+        border = (255, 235, 150) if is_active else ((235, 245, 255) if hovered else (160, 175, 190))
+        pygame.draw.circle(game.screen, border, (cx, cy), radius, 2)
 
-    if inv_hover:
-        inv_rows = []
-        for item in purchased_items:
-            qty = consumable_name_to_count.get(item)
-            if qty is None:
-                inv_rows.append((item, ""))
-            else:
-                inv_rows.append((item, f"x{qty}"))
-        drop_h = min(260, 12 + max(1, len(inv_rows)) * 24)
-        drop_rect = pygame.Rect(inv_header_rect.x, inv_header_rect.bottom + 6, 340, drop_h)
-        drop_bg = pygame.Surface((drop_rect.w, drop_rect.h), pygame.SRCALPHA)
-        drop_bg.fill((245, 239, 226, 225))
-        game.screen.blit(drop_bg, drop_rect.topleft)
-        pygame.draw.rect(game.screen, (95, 77, 56), drop_rect, 2)
-        row_font = pygame.font.Font(None, 23)
-        if inv_rows:
-            for i, (item_name, qty_text) in enumerate(inv_rows[:10]):
-                row_y = drop_rect.y + 7 + i * 24
-                row_rect = pygame.Rect(drop_rect.x + 4, row_y - 1, drop_rect.w - 8, 22)
-                if i % 2 == 0:
-                    pygame.draw.rect(game.screen, (234, 225, 209), row_rect)
-                icon = game.inventory_images.get(item_name)
-                if icon:
-                    icon_small = pygame.transform.smoothscale(icon, (18, 18))
-                    game.screen.blit(icon_small, (drop_rect.x + 8, row_y + 1))
-                game.screen.blit(row_font.render(item_name, True, (48, 39, 30)), (drop_rect.x + 32, row_y + 1))
-                if qty_text:
-                    qty_surf = row_font.render(qty_text, True, (103, 76, 42))
-                    game.screen.blit(qty_surf, (drop_rect.right - qty_surf.get_width() - 10, row_y + 1))
+        icon = game.inventory_images.get(item_name)
+        if icon:
+            _blit_centered_icon(game.screen, icon, circle_rect, max(26, radius * 2 - 12))
         else:
-            game.screen.blit(row_font.render("- пусто", True, (60, 50, 40)), (drop_rect.x + 10, drop_rect.y + 8))
+            fallback = name_font.render(item_name[:1].upper(), True, (38, 43, 52))
+            game.screen.blit(fallback, fallback.get_rect(center=circle_rect.center))
+
+        key_surf = slot_font.render(str(i + 1), True, (235, 240, 248))
+        key_bg = pygame.Rect(circle_rect.left + 1, circle_rect.top + 1, 16, 15)
+        pygame.draw.rect(game.screen, (35, 40, 50), key_bg, border_radius=4)
+        game.screen.blit(key_surf, key_surf.get_rect(center=key_bg.center))
+
+        qty = consumable_name_to_count.get(item_name)
+        if qty is not None:
+            qty_surf = qty_font.render(f"x{qty}", True, (255, 245, 190))
+            qty_bg = pygame.Rect(circle_rect.right - qty_surf.get_width() - 8, circle_rect.bottom - 18, qty_surf.get_width() + 6, 16)
+            pygame.draw.rect(game.screen, (38, 34, 26), qty_bg, border_radius=5)
+            game.screen.blit(qty_surf, qty_surf.get_rect(center=qty_bg.center))
+
+        if hovered:
+            hovered_name = item_name
+
+    if hovered_name:
+        label = name_font.render(hovered_name, True, (245, 248, 252))
+        lx = max(8, min(SCREEN_WIDTH - label.get_width() - 18, mouse_pos[0] - label.get_width() // 2))
+        ly = max(8, mouse_pos[1] - 34)
+        tip_rect = pygame.Rect(lx - 7, ly - 5, label.get_width() + 14, label.get_height() + 8)
+        tip_bg = pygame.Surface((tip_rect.w, tip_rect.h), pygame.SRCALPHA)
+        tip_bg.fill((32, 36, 46, 220))
+        game.screen.blit(tip_bg, tip_rect.topleft)
+        pygame.draw.rect(game.screen, (170, 185, 205), tip_rect, 1, border_radius=5)
+        game.screen.blit(label, (lx, ly))
 
     # Компактная панель прогресса + раскрытие ачивок по наведению
     panel_w, panel_h = 320, 92

@@ -38,6 +38,8 @@ class Item(ABC):
     
     def is_owned(self, game) -> bool:
         """Проверка, куплен ли предмет"""
+        if self.item_type in game.inventory_manager.item_counts:
+            return game.inventory_manager.get_count(self.item_type) > 0
         return game.inventory.get(self.name, False)
 
 
@@ -61,6 +63,9 @@ class Radio(Item):
 
     def use(self, game):
         ok, text = game.ghost_manager.ask_radio(game.player_rect)
+        hunt_text = game.get_hunt_radio_text(ok) if hasattr(game, "get_hunt_radio_text") else ""
+        if hunt_text:
+            text = f"{text} {hunt_text}"
         game._show_game_info(text, 1800 if ok else 1200)
         if ok:
             game.progress_event("radio_answer", 1)
@@ -136,6 +141,8 @@ class Projector(Item):
 
 PROJECTOR_ZONE_RADIUS = 90  # радиус зоны, меньше самой маленькой комнаты (эмпирическое значение)
 BATTERY_DURATION_TICKS = 60 * 60 * 2  # одна охота ≈ 2 мин при 60 FPS
+PLACED_ITEM_HITBOX_SIZE = 50
+PLACEMENT_PREVIEW_SIZE = PLACED_ITEM_HITBOX_SIZE
 
 
 class PlacedProjector:
@@ -144,8 +151,8 @@ class PlacedProjector:
         self.x, self.y = x, y
         self.sprite = sprite
         self.radius = PROJECTOR_ZONE_RADIUS
-        half = PLACED_ITEM_SIZE // 2
-        self.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_SIZE, PLACED_ITEM_SIZE)
+        half = PLACED_ITEM_HITBOX_SIZE // 2
+        self.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE)
         self.powered = False
         self.battery_remaining = 0  # тиков до разряда
         self.is_moving = False  # при перемещении не работает
@@ -246,7 +253,7 @@ class Salt(PlaceableItem):
         super().__init__(ItemType.SALT, sprite_active, sprite_triggered)
 
 
-PLACED_ITEM_SIZE = 50  # размер размещённого предмета на карте
+PLACED_ITEM_SIZE = PLACED_ITEM_HITBOX_SIZE  # совместимость со старым кодом
 
 class PlacedItem:
     """Экземпляр размещённого предмета на карте.
@@ -256,8 +263,8 @@ class PlacedItem:
         self.x = x
         self.y = y
         self.item_type = item_type
-        half = PLACED_ITEM_SIZE // 2
-        self.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_SIZE, PLACED_ITEM_SIZE)
+        half = PLACED_ITEM_HITBOX_SIZE // 2
+        self.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE)
         
         self.sprite_active = sprite_active
         self.sprite_triggered = sprite_triggered
@@ -270,6 +277,14 @@ class PlacedItem:
         if not self.triggered and self.sprite_triggered:
             self.triggered = True
             self.current_sprite = self.sprite_triggered
+
+    def to_dict(self):
+        return {
+            "type": self.item_type.name,
+            "x": self.x,
+            "y": self.y,
+            "triggered": self.triggered,
+        }
     
     def draw(self, screen, camera_x=0, camera_y=0):
         """Отрисовка предмета"""
@@ -323,6 +338,80 @@ class InventoryManager:
         # Режим размещения
         self.placement_mode = False
         self.selected_item_type = None
+
+    def is_consumable(self, item_type: ItemType) -> bool:
+        return item_type in self.item_counts
+
+    def visible_inventory_names(self):
+        names = []
+        for item_name in self.game.inventory_items:
+            item_type = self.item_type_from_name(item_name)
+            if item_type is None:
+                continue
+            if self.is_consumable(item_type):
+                if self.get_count(item_type) > 0:
+                    names.append(item_name)
+            elif self.game.inventory.get(item_name, False):
+                names.append(item_name)
+        return names
+
+    def item_type_from_name(self, item_name):
+        for item_type in ItemType:
+            if item_type.value == item_name:
+                return item_type
+        return None
+
+    def reset_runtime_state(self, clear_counts=True):
+        if clear_counts:
+            for item_type in self.item_counts:
+                self.item_counts[item_type] = 0
+        self.placed_items.clear()
+        self.placed_projector = None
+        self.moving_projector = None
+        self.placement_mode = False
+        self.selected_item_type = None
+        self.active_hand_item = None
+
+    def serialize_runtime_state(self):
+        projector = None
+        if self.placed_projector:
+            projector = {
+                "x": self.placed_projector.x,
+                "y": self.placed_projector.y,
+                "powered": self.placed_projector.powered,
+                "battery_remaining": self.placed_projector.battery_remaining,
+            }
+        return {
+            "placed_items": [item.to_dict() for item in self.placed_items],
+            "placed_projector": projector,
+        }
+
+    def restore_runtime_state(self, data):
+        self.reset_runtime_state(clear_counts=False)
+        if not isinstance(data, dict):
+            return
+        for raw in data.get("placed_items", []):
+            if not isinstance(raw, dict):
+                continue
+            item_type_name = raw.get("type")
+            item_type = ItemType.__members__.get(item_type_name)
+            item = self.items.get(item_type)
+            if not isinstance(item, PlaceableItem):
+                continue
+            placed = item.create_placed_instance(raw.get("x", 0), raw.get("y", 0))
+            if raw.get("triggered"):
+                placed.trigger()
+            self.placed_items.append(placed)
+        raw_projector = data.get("placed_projector")
+        if isinstance(raw_projector, dict):
+            projector = PlacedProjector(
+                raw_projector.get("x", 0),
+                raw_projector.get("y", 0),
+                self.projector_sprite,
+            )
+            projector.powered = bool(raw_projector.get("powered", False))
+            projector.battery_remaining = max(0, int(raw_projector.get("battery_remaining", 0)))
+            self.placed_projector = projector
     
     def get_count(self, item_type: ItemType) -> int:
         """Получить количество расходного предмета"""
@@ -343,20 +432,19 @@ class InventoryManager:
         item = self.items.get(item_type)
         if item and item.is_owned(self.game):
             ok = item.use(self.game)
-            if ok:
+            if ok and item_type in (ItemType.FLASHLIGHT, ItemType.PROJECTOR, ItemType.RED_DUST, ItemType.SALT):
                 self.active_hand_item = item_type
             return ok
         return False
     
     def use_item_by_index(self, index: int) -> bool:
         """Использовать предмет по индексу в купленных предметах"""
-        purchased_items = [item for item in self.game.inventory_items if self.game.inventory[item]]
+        purchased_items = self.visible_inventory_names()
         if 0 <= index < len(purchased_items):
             item_name = purchased_items[index]
-            # Найти ItemType по имени
-            for item_type in ItemType:
-                if item_type.value == item_name:
-                    return self.use_item(item_type)
+            item_type = self.item_type_from_name(item_name)
+            if item_type:
+                return self.use_item(item_type)
         return False
     
     def start_placement(self, item_type: ItemType):
@@ -379,8 +467,8 @@ class InventoryManager:
         cx, cy = x // cell, y // cell
         if abs(cx - px) > 1 or abs(cy - py) > 1:
             return False  # не соседняя ячейка
-        half = PLACED_ITEM_SIZE // 2
-        test = pygame.Rect(x - half, y - half, PLACED_ITEM_SIZE, PLACED_ITEM_SIZE)
+        half = PLACED_ITEM_HITBOX_SIZE // 2
+        test = pygame.Rect(x - half, y - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE)
         for wall_rect, _ in getattr(g, 'walls', []):
             if test.colliderect(wall_rect):
                 return False
@@ -396,14 +484,14 @@ class InventoryManager:
         if not hasattr(g, 'player_rect') or not hasattr(g, 'walls'):
             return []
         px, py = g.player_rect.centerx // cell, g.player_rect.centery // cell
-        half = PLACED_ITEM_SIZE // 2
+        half = PLACED_ITEM_HITBOX_SIZE // 2
         valid = []
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
                     continue
                 cx, cy = (px + dx) * cell + cell // 2, (py + dy) * cell + cell // 2
-                test = pygame.Rect(cx - half, cy - half, PLACED_ITEM_SIZE, PLACED_ITEM_SIZE)
+                test = pygame.Rect(cx - half, cy - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE)
                 ok = True
                 for wall_rect, _ in getattr(g, 'walls', []):
                     if test.colliderect(wall_rect):
@@ -435,8 +523,8 @@ class InventoryManager:
                 return False
             if self.moving_projector:
                 self.moving_projector.x, self.moving_projector.y = x, y
-                half = PLACED_ITEM_SIZE // 2
-                self.moving_projector.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_SIZE, PLACED_ITEM_SIZE)
+                half = PLACED_ITEM_HITBOX_SIZE // 2
+                self.moving_projector.rect = pygame.Rect(x - half, y - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE)
                 self.moving_projector.is_moving = False
                 self.placed_projector = self.moving_projector
                 self.moving_projector = None
@@ -482,14 +570,14 @@ class InventoryManager:
         if self.placement_mode and self.selected_item_type:
             if self.selected_item_type == ItemType.PROJECTOR:
                 for cx, cy in self._get_valid_placement_cells():
-                    half = PLACED_ITEM_SIZE // 2
+                    half = PLACED_ITEM_HITBOX_SIZE // 2
                     r = pygame.Rect(
                         cx - half - camera_x,
                         cy - half - camera_y,
-                        PLACED_ITEM_SIZE,
-                        PLACED_ITEM_SIZE
+                        PLACED_ITEM_HITBOX_SIZE,
+                        PLACED_ITEM_HITBOX_SIZE
                     )
-                    s = pygame.Surface((PLACED_ITEM_SIZE, PLACED_ITEM_SIZE))
+                    s = pygame.Surface((PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE))
                     s.set_alpha(60)
                     s.fill((100, 150, 255))
                     screen.blit(s, r)
@@ -502,14 +590,14 @@ class InventoryManager:
                 item = self.items.get(self.selected_item_type)
                 if isinstance(item, PlaceableItem):
                     for cx, cy in self._get_valid_placement_cells():
-                        half = PLACED_ITEM_SIZE // 2
+                        half = PLACED_ITEM_HITBOX_SIZE // 2
                         r = pygame.Rect(
                             cx - half - camera_x,
                             cy - half - camera_y,
-                            PLACED_ITEM_SIZE,
-                            PLACED_ITEM_SIZE
+                            PLACED_ITEM_HITBOX_SIZE,
+                            PLACED_ITEM_HITBOX_SIZE
                         )
-                        s = pygame.Surface((PLACED_ITEM_SIZE, PLACED_ITEM_SIZE))
+                        s = pygame.Surface((PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE))
                         s.set_alpha(60)
                         s.fill((0, 255, 100))
                         screen.blit(s, r)

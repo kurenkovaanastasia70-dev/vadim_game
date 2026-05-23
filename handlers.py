@@ -124,22 +124,12 @@ def handle_shop_events(game, event):
                 else:
                     print("Недостаточно денег или предмет уже куплен!")
             elif i == 2:  # Кнопка "Купить красную пыль"
-                if game.player_money >= 30:
-                    game.player_money -= 30
-                    game.inventory["красная пыль"] = True
-                    from inventory_system import ItemType
-                    game.inventory_manager.increase_count(ItemType.RED_DUST)
-                    game.progress_event("buy_item", 1)
+                if game.buy_item("красная пыль", 30):
                     print("Куплена красная пыль!")
                 else:
                     print("Недостаточно денег!")
             elif i == 3:  # Кнопка "Купить соль"
-                if game.player_money >= 20:
-                    game.player_money -= 20
-                    game.inventory["соль"] = True
-                    from inventory_system import ItemType
-                    game.inventory_manager.increase_count(ItemType.SALT)
-                    game.progress_event("buy_item", 1)
+                if game.buy_item("соль", 20):
                     print("Куплена соль!")
                 else:
                     print("Недостаточно денег!")
@@ -149,32 +139,17 @@ def handle_shop_events(game, event):
                 else:
                     print("Недостаточно денег или предмет уже куплен!")
             elif i == 5:  # Кнопка "Купить аккумулятор"
-                if game.player_money >= 40:
-                    game.player_money -= 40
-                    game.inventory["аккумулятор"] = True
-                    from inventory_system import ItemType
-                    game.inventory_manager.increase_count(ItemType.BATTERY)
-                    game.progress_event("buy_item", 1)
+                if game.buy_item("аккумулятор", 40):
                     print("Куплен аккумулятор!")
                 else:
                     print("Недостаточно денег!")
             elif i == 6:  # Кнопка "Купить крест"
-                if game.player_money >= 60:
-                    game.player_money -= 60
-                    game.inventory["крест"] = True
-                    from inventory_system import ItemType
-                    game.inventory_manager.increase_count(ItemType.CROSS)
-                    game.progress_event("buy_item", 1)
+                if game.buy_item("крест", 60):
                     print("Куплен крест!")
                 else:
                     print("Недостаточно денег!")
             elif i == 7:  # Кнопка "Купить кровь"
-                if game.player_money >= 35:
-                    game.player_money -= 35
-                    game.inventory["кровь"] = True
-                    from inventory_system import ItemType
-                    game.inventory_manager.increase_count(ItemType.BLOOD)
-                    game.progress_event("buy_item", 1)
+                if game.buy_item("кровь", 35):
                     print("Куплена кровь!")
                 else:
                     print("Недостаточно денег!")
@@ -209,16 +184,14 @@ def handle_settings_events(game, event):
                 game.go_back()
             elif i == 1:  # Кнопка "Громкость"
                 game.volume = (game.volume + 10) % 110
-                if pygame.mixer.get_init():
-                    pygame.mixer.music.set_volume(game.volume)
+                game.apply_volume()
                 game.update_settings_button_texts()
             elif i == 2:  # Кнопка "Полноэкранный режим"
                 game.toggle_fullscreen()
             elif i == 3:  # Кнопка "Сбросить настройки"
                 game.fullscreen = True
                 game.volume = 50
-                if pygame.mixer.get_init():
-                    pygame.mixer.music.set_volume(game.volume)
+                game.apply_volume()
                 game.update_settings_button_texts()
 
 def handle_game_events(game, event):
@@ -255,15 +228,6 @@ def handle_game_events(game, event):
                     game.set_state(GameState.MENU, reset_stack=True)
         return
 
-    # Проверяем все кнопки игрового интерфейса
-    for i, button in enumerate(game.game_buttons):
-        # Если кнопка была нажата
-        if button.handle_event(event):
-            if i == 0:  # Кнопка "Меню"
-                game.show_save_prompt = True
-            elif i == 1:  # Кнопка "Магазин"
-                game.push_state(GameState.SHOP)
-
     if getattr(game, "journal_open", False) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         hit = draws.evidence_journal_hit_test(game, event.pos)
         if hit in ("close", "outside"):
@@ -278,7 +242,19 @@ def handle_game_events(game, event):
         elif hit in game.journal_evidence:
             game.cycle_journal_evidence_state(hit)
             game.journal_reset_confirm = False
+        elif isinstance(hit, tuple) and hit[0] == "guess":
+            game.journal_reset_confirm = False
+            game.submit_ghost_guess(hit[1])
         return
+
+    # Проверяем все кнопки игрового интерфейса
+    for i, button in enumerate(game.game_buttons):
+        # Если кнопка была нажата
+        if button.handle_event(event):
+            if i == 0:  # Кнопка "Меню"
+                game.show_save_prompt = True
+            elif i == 1:  # Кнопка "Магазин"
+                game.push_state(GameState.SHOP)
 
     # Обработка нажатий и отпусканий клавиш для плавного движения
     if event.type == pygame.KEYDOWN:
@@ -349,7 +325,7 @@ def handle_game_events(game, event):
                 game.push_state(GameState.SHOP)
         
         # Обработка кликов по инвентарю (та же сетка, что в draws.draw_game)
-        purchased_items = [item for item in game.inventory_items if game.inventory[item]]
+        purchased_items = game.inventory_manager.visible_inventory_names()
         for i, item in enumerate(purchased_items):
             circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
             if ((mouse_pos[0] - circle_x) ** 2 + (mouse_pos[1] - inventory_y) ** 2) <= circle_radius ** 2:
