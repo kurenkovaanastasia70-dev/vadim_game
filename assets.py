@@ -121,15 +121,15 @@ def load_inventory_images():
 
     try:
         inventory_images["фонарик"] = load_or_placeholder("fonarik.png", (200, 180, 80))
-        inventory_images["красная пыль"] = load_or_placeholder(["redsand to level.png", "redsand_to_level.png", "redsand-1.png"], (180, 50, 50))
-        inventory_images["соль"] = load_or_placeholder("salt-1.png", (240, 240, 240))
-        inventory_images["проектор"] = load_or_placeholder("proector.png", (100, 100, 120))
+        inventory_images["красная пыль"] = load_or_placeholder(["redsand-1.png", "redsand ui.png", "redsand_ui.png"], (180, 50, 50))
+        inventory_images["соль"] = load_or_placeholder(["salt-1.png", "salt ui.png", "salt_ui.png"], (240, 240, 240))
+        inventory_images["проектор"] = load_or_placeholder(["proector.png", "projector.png"], (100, 100, 120))
         inventory_images["аккумулятор"] = load_or_placeholder(["batareyka.png", "battery.png"], (80, 180, 60))
         inventory_images["крест"] = load_or_placeholder(["New Piskel.png", "New_Piskel.png", "cross.png"], (180, 160, 80))
         inventory_images["кровь"] = load_or_placeholder(["blood-1.png", "blood.png"], (150, 30, 30))
         inventory_images["радио"] = load_or_placeholder(["radio.png", "record.png"], (80, 140, 180))
-        inventory_images["эмп"] = load_or_placeholder(["emf.png", "emp.png"], (100, 220, 120))
-        inventory_images["уф фонарь"] = load_or_placeholder(["uv.png", "uv_flashlight.png"], (130, 90, 220))
+        inventory_images["эмп"] = load_or_placeholder(["amp.png", "amp1.png", "emf.png", "emp.png"], (100, 220, 120))
+        inventory_images["уф фонарь"] = load_or_placeholder(["yltrafiolet.png", "uv.png", "uv_flashlight.png"], (130, 90, 220))
     except Exception as e:
         print(f"Не удалось загрузить изображения инвентаря: {e}")
         inventory_images = {}
@@ -137,9 +137,32 @@ def load_inventory_images():
     return inventory_images
 
 
+def load_footprint_sprites():
+    """Спрайты УФ-следов. Возвращает список готовых небольших surface."""
+    size = 26
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    search_paths = [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]
+    sprites = []
+    for filename in ("sled1.png", "sled2.png"):
+        for base in search_paths:
+            path = os.path.join(base, filename)
+            if os.path.isfile(path):
+                try:
+                    img = pygame.image.load(path).convert_alpha()
+                    sprites.append(_fit_alpha_image(img, size, padding=1))
+                    break
+                except Exception:
+                    break
+    if sprites:
+        return sprites
+    fallback = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.ellipse(fallback, (0, 255, 120, 220), (8, 5, 10, 16))
+    return [fallback]
+
+
 def load_placement_sprites():
     """Спрайты для размещаемых на уровне предметов: пыль (до/после), соль (до/после). Размер 50x50."""
-    size = 38
+    size = max(24, int(TILE_SIZE * MAP_SCALE * 0.45))
     script_dir = os.path.dirname(os.path.abspath(__file__))
     search_paths = [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]
 
@@ -164,7 +187,7 @@ def load_placement_sprites():
 
 def load_projector_sprite():
     """Спрайт проектора для размещения на карте. Размер 50x50."""
-    size = 44
+    size = max(28, int(TILE_SIZE * MAP_SCALE * 0.50))
     script_dir = os.path.dirname(os.path.abspath(__file__))
     for base in [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]:
         for fn in ["proector.png", "projector.png"]:

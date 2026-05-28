@@ -542,8 +542,9 @@ def draw_shop(game):
                 break
             game.screen.blit(body_f.render(line, True, (160, 170, 188)), (x, card.y + 38 + i * 18))
 
+        side_x = card.right - 118
         price_surf = small_f.render(f"{price} монет", True, (238, 214, 130))
-        game.screen.blit(price_surf, (card.right - 128, card.y + 12))
+        game.screen.blit(price_surf, (side_x, card.y + 10))
 
         if count_type:
             status = f"Есть: {count}"
@@ -552,9 +553,10 @@ def draw_shop(game):
             status = "Куплено" if bought else "Не куплено"
             status_color = (175, 215, 190) if bought else (148, 156, 172)
         status_surf = small_f.render(status, True, status_color)
-        game.screen.blit(status_surf, (card.right - 128, card.y + 34))
+        game.screen.blit(status_surf, (side_x, card.y + 30))
 
         btn = game.shop_buttons[btn_index]
+        btn.rect = pygame.Rect(card.right - 104, card.y + 54, 90, 24)
         hover = btn.rect.collidepoint(mouse)
         can_buy = game.player_money >= price
         if not count_type and bought:
@@ -665,6 +667,31 @@ def draw_game_over(game):
     game.screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 22)))
 
     for button in game.game_over_buttons:
+        button.draw(game.screen)
+
+
+def draw_win(game):
+    game.screen.fill((12, 20, 16))
+
+    title_font = pygame.font.Font(None, 72)
+    body_font = pygame.font.Font(None, 30)
+    hint_font = pygame.font.Font(None, 24)
+
+    ghost_name = getattr(game, "win_ghost_name", "призрак")
+    title = title_font.render("Расследование завершено", True, (104, 211, 145))
+    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 126)))
+
+    body_text = f"Вы верно определили тип: {ghost_name}."
+    body = body_font.render(body_text, True, (232, 242, 235))
+    game.screen.blit(body, body.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 62)))
+
+    sub = body_font.render("Выбор подтверждён. Победа засчитана.", True, (190, 218, 202))
+    game.screen.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 28)))
+
+    hint = hint_font.render("Enter - заново, Esc - в меню", True, (156, 178, 164))
+    game.screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 8)))
+
+    for button in game.win_buttons:
         button.draw(game.screen)
 
 

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Урок: bugfix инвентаря, журнала и радио в Pygame</title>
+  <title>Урок: полный багфикс магазина, следов и масштабирования</title>
   <style>
     :root {
       color-scheme: dark;
       --bg: #171a21;
       --panel: #232836;
-      --panel-2: #2c3345;
+      --panel-2: #2d3446;
       --text: #eef2f8;
       --muted: #aeb8c8;
       --line: #465065;
@@ -29,54 +29,44 @@
     header {
       position: sticky;
       top: 0;
-      z-index: 10;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16px;
-      align-items: center;
-      padding: 14px 22px;
+      z-index: 2;
+      padding: 16px 24px;
       background: rgba(23, 26, 33, 0.96);
       border-bottom: 1px solid var(--line);
-      backdrop-filter: blur(10px);
     }
-    h1, h2, h3 { margin: 0; line-height: 1.15; }
-    h1 { font-size: 24px; }
+    h1, h2, h3 { margin: 0; line-height: 1.18; }
+    h1 { font-size: 25px; }
     h2 { font-size: 30px; margin-bottom: 12px; }
     h3 { font-size: 20px; margin: 18px 0 8px; color: var(--accent-2); }
     p, li { color: var(--muted); line-height: 1.55; }
-    button {
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: 7px;
-      cursor: pointer;
-      font: inherit;
-    }
-    button:hover { border-color: var(--accent-2); }
-    button.primary { background: #245a3e; border-color: #3c9667; }
-    button.ghost { background: transparent; }
     main {
       display: grid;
-      grid-template-columns: 260px 1fr;
-      min-height: calc(100vh - 70px);
+      grid-template-columns: 270px minmax(0, 1fr);
+      min-height: calc(100vh - 82px);
     }
     nav {
       position: sticky;
-      top: 68px;
-      height: calc(100vh - 68px);
+      top: 82px;
+      height: calc(100vh - 82px);
       overflow: auto;
       padding: 18px;
-      border-right: 1px solid var(--line);
       background: #1c202a;
+      border-right: 1px solid var(--line);
     }
     nav button {
       display: block;
       width: 100%;
       margin-bottom: 8px;
-      text-align: left;
       padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
     }
+    nav button.active { border-color: var(--accent); background: #244538; }
     section {
       display: none;
       max-width: 1120px;
@@ -112,10 +102,19 @@
       color: #d7e4ff;
     }
     code { color: #e8f0ff; }
-    .bad { color: var(--bad); }
     .ok { color: var(--accent); }
+    .bad { color: var(--bad); }
     .warn { color: var(--warn); }
-    .quiz li { margin-bottom: 12px; }
+    .qa dt {
+      margin-top: 18px;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .qa dd {
+      margin: 6px 0 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
     @media (max-width: 820px) {
       main { grid-template-columns: 1fr; }
       nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -126,158 +125,148 @@
 </head>
 <body>
   <header>
-    <div>
-      <h1>Bugfix в Pygame: инвентарь, журнал-пауза, радио и сохранение предметов</h1>
-      <p>Формат урока: теория, разбор симптомов, точечные исправления, вопросы для закрепления.</p>
-    </div>
-    <button class="primary" onclick="showSlide(0)">Начать</button>
+    <h1>Bugfix в Pygame: магазин, ассеты, УФ-следы, масштабирование и конфликт git</h1>
+    <p>Цель урока: пройти полный цикл багфикса от симптома до проверки: читаем план, находим причину, правим код, запускаем smoke-тесты.</p>
   </header>
   <main>
     <nav id="nav"></nav>
     <div>
-      <section class="active">
+      <section class="active" data-title="Цели">
         <h2>Цели урока</h2>
         <div class="grid">
-          <div class="card"><span class="tag">UI</span><h3>Инвентарь</h3><p>Вернуть прозрачные круги внизу экрана и синхронизировать отрисовку с обработкой кликов.</p></div>
-          <div class="card"><span class="tag">State</span><h3>Пауза</h3><p>Сделать журнал настоящей паузой: мир, призраки, проектор и ловушки не должны тикать.</p></div>
-          <div class="card"><span class="tag">Gameplay</span><h3>Радио</h3><p>Добавить ответ радио со временем до охоты и связать таймер с паузой.</p></div>
-          <div class="card"><span class="tag">Save</span><h3>Размещённые предметы</h3><p>Сохранять соль, пыль, проектор и заряд проектора между выходом и загрузкой.</p></div>
+          <div class="card"><span class="tag">Git</span><h3>Конфликт</h3><p>Понять, почему `<<<<<<<`, `=======`, `>>>>>>>` ломают Python-файл, и аккуратно оставить правильную ветку кода.</p></div>
+          <div class="card"><span class="tag">Assets</span><h3>Иконки</h3><p>Разделить картинки для магазина и спрайты объектов на карте: красная пыль, соль, ЭМП, УФ и следы.</p></div>
+          <div class="card"><span class="tag">Gameplay</span><h3>Следы</h3><p>Сделать следы невидимыми без УФ и рисовать их настоящими спрайтами `sled1.png` и `sled2.png`.</p></div>
+          <div class="card"><span class="tag">Scale</span><h3>Масштаб</h3><p>Привязать скорость призрака и размеры размещаемых предметов к `MAP_SCALE` через явные формулы.</p></div>
         </div>
       </section>
 
-      <section>
-        <h2>Теория: один источник правды</h2>
-        <p>В UI-баге инвентаря проблема была не только в картинках. Отрисовка стала выпадающим списком, а клики всё ещё проверялись по старым кругам. Это два разных источника правды.</p>
-        <pre><code>cx, cy, radius = mechanics.inventory_slot_screen(i)
-if distance(mouse, (cx, cy)) <= radius:
-    use_item_by_index(i)</code></pre>
-        <p>Правильный подход: если hit-test использует круги, значит отрисовка должна использовать ту же функцию геометрии. Поэтому круги вернулись в `draw_game()`, а `handlers.py` остался синхронизированным с ними.</p>
-      </section>
-
-      <section>
-        <h2>Баг 1: картинки инвентаря смещены</h2>
-        <p><span class="bad">Симптом:</span> ассеты имеют прозрачные поля, а код растягивал весь файл до квадрата. В итоге реальный предмет внутри PNG оказывался не по центру круга.</p>
-        <p><span class="ok">Фикс:</span> перед масштабированием берём alpha-bounding-box, обрезаем прозрачные поля, сохраняем пропорции и центрируем на квадратном canvas.</p>
-        <pre><code>bounds = img.get_bounding_rect()
-cropped = img.subsurface(bounds).copy()
-canvas.blit(fitted, fitted.get_rect(center=(size // 2, size // 2)))</code></pre>
-        <p>Такой helper используется и для иконок магазина, и для нижних кругов инвентаря.</p>
-      </section>
-
-      <section>
-        <h2>Баг 2: расходники и покупка</h2>
-        <p><span class="bad">Симптом:</span> `game.inventory` отвечал сразу за два смысла: предмет куплен и предмет есть в наличии. Для соли, крови, креста, батарейки и пыли это разные вещи.</p>
-        <p><span class="ok">Фикс:</span> инструменты проверяются по bool-флагу покупки, а расходники по `item_counts`. Покупка расходников идёт через единый `buy_item()`, который увеличивает счётчик.</p>
-        <pre><code>if item_type in item_counts:
-    return get_count(item_type) > 0
-return game.inventory.get(name, False)</code></pre>
-      </section>
-
-      <section>
-        <h2>Баг 3: журнал не ставил игру на паузу</h2>
-        <p><span class="bad">Симптом:</span> ввод игрока блокировался, но `ghost_manager.update()`, урон, проектор и ловушки продолжали обновляться.</p>
-        <p><span class="ok">Фикс:</span> добавлен единый метод `is_gameplay_paused()`. Все gameplay-тики проверяют его перед обновлением.</p>
-        <pre><code>if state == GAME and hp > 0 and not is_gameplay_paused():
-    update_placed_items()
-    update_projector()
-    tick_hunt_timer()
-    ghost_manager.update(...)</code></pre>
-        <p>Теперь журнал работает как пауза: игрок может спокойно отмечать улики.</p>
-      </section>
-
-      <section>
-        <h2>Баг 4: радио без таймера охоты</h2>
-        <p><span class="bad">Симптом:</span> радио отвечало про комнату и настроение призрака, но не сообщало время до охоты.</p>
-        <p><span class="ok">Фикс:</span> добавлен runtime-таймер охоты. Радио дописывает строку `До охоты: MM:SS`, а во время активной охоты сообщает, что она началась.</p>
-        <pre><code>ok, text = ghost_manager.ask_radio(player_rect)
-text = f"{text} {game.get_hunt_radio_text(ok)}"</code></pre>
-        <p>Таймер уменьшается только при активном gameplay, поэтому открытый журнал его не ускоряет.</p>
-      </section>
-
-      <section>
-        <h2>Баг 5: размер предметов на карте</h2>
-        <p><span class="bad">Симптом:</span> один `PLACED_ITEM_SIZE` задавал и хитбокс, и размер картинки. Любое визуальное изменение могло сломать коллизии.</p>
-        <p><span class="ok">Фикс:</span> хитбокс оставлен отдельной константой, а картинки соли, пыли и проектора масштабируются отдельно и рисуются по центру.</p>
-        <pre><code>PLACED_ITEM_HITBOX_SIZE = 50
-sprite_rect = sprite.get_rect(center=(x - camera_x, y - camera_y))</code></pre>
-      </section>
-
-      <section>
-        <h2>Баг 6: сохранение размещённых предметов</h2>
-        <p><span class="bad">Симптом:</span> при выходе в меню расходники уже потрачены, но поставленные на карту объекты не сохранялись.</p>
-        <p><span class="ok">Фикс:</span> `InventoryManager` получил методы сериализации и восстановления runtime-состояния: `placed_items`, `placed_projector`, заряд и состояние срабатывания.</p>
-        <pre><code>{
-  "placed_items": [{"type": "SALT", "x": 420, "y": 510, "triggered": false}],
-  "placed_projector": {"x": 600, "y": 380, "powered": true}
-}</code></pre>
-      </section>
-
-      <section>
-        <h2>Баг 7: конфиг призраков</h2>
-        <p>INI-файл `ghost_abilities.ini` уже передавался в `GhostManager`, но случайный выбор мог взять заготовки `ghost_8`-`ghost_16`, которых нет в списке журнала.</p>
-        <p><span class="ok">Фикс:</span> случайный выбор ограничен полностью описанными профилями `1`-`7`, чтобы игровой тип совпадал с типами расследования.</p>
-      </section>
-
-      <section>
-        <h2>Баг 8: неверный выбор призрака</h2>
-        <p><span class="bad">Симптом:</span> журнал только фильтровал кандидатов, но не давал финального риска. Игрок мог отмечать улики, но выбор конкретного типа не завершал расследование.</p>
-        <p><span class="ok">Фикс:</span> строки кандидатов стали кликабельными. Если выбранный тип не совпадает с реальным `ghost_kind`, игра переходит в `GAME_OVER` с причиной `wrong_ghost`.</p>
-        <pre><code>if profile_id == actual_ghost_kind:
-    show_info("Призрак определён верно.")
-else:
-    enter_game_over(reason="wrong_ghost")</code></pre>
-        <p>Экран проигрыша теперь смотрит на причину: при `wrong_ghost` показывает текст “Вы выбрали неверного призрака”, а при обычном уроне оставляет сообщение про HP.</p>
-      </section>
-
-      <section>
-        <h2>Контрольные вопросы</h2>
-        <ol class="quiz">
-          <li>Почему нельзя рисовать инвентарь одним способом, а клики проверять другим?</li>
-          <li>Чем отличается “предмет куплен” от “расходник есть в количестве больше нуля”?</li>
-          <li>Какие обновления должны остановиться при открытом журнале?</li>
-          <li>Почему таймер охоты нельзя уменьшать во время паузы?</li>
-          <li>Зачем разделять визуальный размер предмета и его хитбокс?</li>
-          <li>Какие данные нужны, чтобы восстановить поставленный проектор после загрузки?</li>
-          <li>Почему заготовочные профили призраков опасно выбирать случайно?</li>
-          <li>Почему для неверного выбора призрака лучше хранить отдельную причину game over, а не менять общий текст навсегда?</li>
+      <section data-title="План">
+        <h2>План занятия</h2>
+        <ol>
+          <li>Запустить диагностику: `rg` по конфликтам, ассетам, следам, скорости и кнопкам магазина.</li>
+          <li>Убрать merge conflict markers в `main_work.py` и проверить `compileall`.</li>
+          <li>Починить загрузку ассетов магазина: `redsand-1.png`, `salt-1.png`, `amp.png`, `yltrafiolet.png`.</li>
+          <li>Добавить загрузку УФ-следов и поменять логику `draw_footprints()`.</li>
+          <li>Изменить генерацию следов: создавать их по факту движения призрака, а не просто случайно в одной точке.</li>
+          <li>Сделать кнопку "Купить" компактной и синхронизировать её `rect` с карточкой магазина.</li>
+          <li>Зафиксировать формулы масштаба: скорость призрака и размеры placement-объектов.</li>
+          <li>Провести проверки: `python -m compileall -q .`, загрузка ассетов, создание `Game()` в dummy-режиме.</li>
         </ol>
       </section>
 
-      <section>
-        <h2>Практика</h2>
+      <section data-title="Конфликт">
+        <h2>Баг 1: merge conflict в `main_work.py`</h2>
+        <p><span class="bad">Симптом:</span> Python-файл содержал служебные строки git-конфликта. Такой файл не может выполниться.</p>
+        <pre><code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; Updated upstream
+код одной версии
+&#61;&#61;&#61;&#61;&#61;&#61;&#61;
+код другой версии
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; Stashed changes</code></pre>
+        <p><span class="ok">Фикс:</span> в `buy_item()` оставили `item_type_from_name()` и `increase_count()`. В `run()` оставили обновление мира только если игра не на паузе.</p>
+        <pre><code>if self.state == GameState.GAME and self.player_hp > 0 and not self.is_gameplay_paused():
+    self.inventory_manager.update_placed_items()
+    self.inventory_manager.update_projector()</code></pre>
+      </section>
+
+      <section data-title="Магазин">
+        <h2>Баг 2: неправильные картинки и кнопка магазина</h2>
+        <p><span class="bad">Симптом:</span> красная пыль в магазине бралась из placement-ассета `redsand to level.png`, а кнопка "Купить" могла перекрывать цену или статус.</p>
+        <p><span class="ok">Фикс:</span> UI-иконка красной пыли теперь берётся из `redsand-1.png`; соль явно берётся из `salt-1.png`; ЭМП и УФ учитывают новые имена файлов.</p>
+        <pre><code>inventory_images["красная пыль"] = load_or_placeholder(["redsand-1.png", ...])
+inventory_images["эмп"] = load_or_placeholder(["amp.png", "amp1.png", ...])
+inventory_images["уф фонарь"] = load_or_placeholder(["yltrafiolet.png", ...])</code></pre>
+        <p>Кнопка теперь вычисляется от карточки товара, поэтому нарисованный прямоугольник и hit-test совпадают.</p>
+        <pre><code>btn.rect = pygame.Rect(card.right - 104, card.y + 54, 90, 24)</code></pre>
+      </section>
+
+      <section data-title="Следы">
+        <h2>Баг 3: следы видны без УФ</h2>
+        <p><span class="bad">Симптом:</span> следы рисовались всегда, просто с меньшей прозрачностью. Это ломало смысл УФ-фонаря.</p>
+        <p><span class="ok">Фикс:</span> `draw_footprints()` сразу выходит, если УФ не включён. Когда УФ включён, рисуются `sled1.png` и `sled2.png`.</p>
+        <pre><code>def draw_footprints(..., uv_enabled=False, ...):
+    if not uv_enabled or not self.footprints:
+        return</code></pre>
+        <p>След теперь хранит `sprite_index`, `angle`, `ttl_start` и `room_id`, поэтому его можно рисовать как настоящий след, а не прямоугольник.</p>
+      </section>
+
+      <section data-title="Комнаты">
+        <h2>Баг 4: следы только в одной комнате</h2>
+        <p><span class="bad">Симптом:</span> следы появлялись как случайное событие update-цикла и не были привязаны к реальному движению призрака.</p>
+        <p><span class="ok">Фикс:</span> след создаётся после того, как ходящий призрак с УФ-уликой прошёл достаточную дистанцию. Патрульные точки теперь строятся по всем комнатам, а не по случайной маленькой выборке.</p>
+        <pre><code>moved = math.hypot(ghost.rect.centerx - last_x, ghost.rect.centery - last_y)
+if moved &gt;= step:
+    self.footprints.append({... "room_id": ghost.get_current_room_id() ...})</code></pre>
+      </section>
+
+      <section data-title="Масштаб">
+        <h2>Баг 5: `MAP_SCALE` и размеры</h2>
+        <p><span class="bad">Симптом:</span> скорость призрака и размеры placement-зон были неявными пиксельными числами. При изменении масштаба карта менялась, а скорость и hitbox могли выглядеть несогласованно.</p>
+        <p><span class="ok">Фикс:</span> скорость призрака умножается на `MAP_SCALE`, а hitbox соли/пыли считается через долю тайла.</p>
+        <pre><code>GHOST_SPEED_SCALE = MAP_SCALE
+self.speed = config_speed * GHOST_SPEED_SCALE
+
+PLACED_ITEM_HITBOX_SIZE = int(TILE_SIZE * MAP_SCALE * 0.50)</code></pre>
+        <p>Спрайты соли/пыли грузятся примерно в 45% клетки, проектор в 50% клетки. Визуальный размер не обязан совпадать с hitbox.</p>
+      </section>
+
+      <section data-title="Проверки">
+        <h2>Проверки после фикса</h2>
         <div class="card">
-          <h3>Мини-чек-лист</h3>
           <ul>
-            <li>Купить все предметы и проверить нижние прозрачные круги.</li>
-            <li>Потратить соль до нуля и убедиться, что она исчезла из активного инвентаря.</li>
-            <li>Открыть журнал рядом с призраком и проверить, что HP и проектор не меняются.</li>
-            <li>Нажать радио и увидеть время до охоты.</li>
-            <li>Поставить соль, пыль, проектор, сохраниться и загрузиться.</li>
-            <li>Кликнуть неверного кандидата в журнале и проверить текст “Вы выбрали неверного призрака”.</li>
+            <li>`python -m compileall -q .` не должен выводить ошибок.</li>
+            <li>Загрузка ассетов должна вернуть 10 UI-иконок и 2 спрайта следов.</li>
+            <li>Создание `Game()` в dummy-режиме должно проходить без исключений.</li>
+            <li>В магазине красная пыль выглядит как `redsand-1.png`, соль как `salt-1.png`.</li>
+            <li>Без УФ следы не видны; с УФ видны зелёные спрайты следов.</li>
+            <li>Кнопка "Купить" не перекрывает цену, статус и описание.</li>
           </ul>
         </div>
       </section>
+
+      <section data-title="Вопросы">
+        <h2>Вопросы и ответы</h2>
+        <dl class="qa">
+          <dt>Почему conflict markers нельзя оставлять в Python-файле?</dt>
+          <dd>Это не Python-синтаксис, а служебные строки git. Интерпретатор упадёт ещё до запуска игры.</dd>
+
+          <dt>Почему магазин не должен брать placement-ассет красной пыли?</dt>
+          <dd>UI-иконка и объект на карте решают разные задачи. В магазине нужна маленькая читаемая иконка, а на карте нужен спрайт ловушки.</dd>
+
+          <dt>Почему следы должны быть невидимы без УФ?</dt>
+          <dd>Иначе УФ-фонарь теряет смысл как инструмент расследования. Игрок должен купить и включить УФ, чтобы увидеть эту улику.</dd>
+
+          <dt>Почему след лучше генерировать по дистанции движения?</dt>
+          <dd>Тогда следы появляются там, где призрак реально прошёл. Случайный шанс в update может давать пятна в одной комнате или в одной зоне.</dd>
+
+          <dt>Зачем хранить `room_id` у следа?</dt>
+          <dd>Это удобно для debug-проверки: можно увидеть, в каких комнатах реально появились следы.</dd>
+
+          <dt>Почему hitbox и визуальный размер предмета разделены?</dt>
+          <dd>Красивая картинка не должна менять правила коллизий. Можно уменьшить спрайт соли, не ломая допустимые клетки размещения.</dd>
+
+          <dt>Почему кнопку магазина лучше вычислять от карточки?</dt>
+          <dd>Так layout и hit-test имеют один источник координат. Если карточка переедет, кнопка переедет вместе с ней.</dd>
+
+          <dt>Почему скорость призрака умножается на `MAP_SCALE`?</dt>
+          <dd>Координаты уровня масштабируются. Чтобы призрак проходил ту же долю тайла за секунду, его пиксельная скорость тоже должна масштабироваться явно.</dd>
+        </dl>
+      </section>
     </div>
   </main>
-
   <script>
-    const slides = Array.from(document.querySelectorAll("section"));
+    const sections = [...document.querySelectorAll("section")];
     const nav = document.getElementById("nav");
-    slides.forEach((slide, index) => {
+    sections.forEach((section, index) => {
       const button = document.createElement("button");
-      button.textContent = `${index + 1}. ${slide.querySelector("h2").textContent}`;
-      button.addEventListener("click", () => showSlide(index));
+      button.textContent = section.dataset.title || `Раздел ${index + 1}`;
+      button.onclick = () => showSlide(index);
       nav.appendChild(button);
     });
-
     function showSlide(index) {
-      slides.forEach((slide, i) => slide.classList.toggle("active", i === index));
-      Array.from(nav.children).forEach((button, i) => {
-        button.classList.toggle("primary", i === index);
-      });
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      sections.forEach((section, i) => section.classList.toggle("active", i === index));
+      [...nav.children].forEach((button, i) => button.classList.toggle("active", i === index));
     }
-
     showSlide(0);
   </script>
 </body>

@@ -7,3 +7,4 @@ class GameState:
     SAVES = "saves"
     HOWTO = "howto"
     GAME_OVER = "game_over"
+    WIN = "win"
