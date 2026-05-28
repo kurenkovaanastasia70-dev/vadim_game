@@ -116,7 +116,12 @@ class Game:
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 40, 240, 46, "Заново", GREEN),
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 100, 240, 46, "В меню", RED),
         ]
+        self.win_buttons = [
+            Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 52, 240, 46, "Заново", GREEN),
+            Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 112, 240, 46, "В меню", BLUE),
+        ]
         self.game_over_reason = "hp"
+        self.win_ghost_name = ""
 
         self.player_money = 100
         self.player_level = 1
@@ -277,6 +282,9 @@ class Game:
         self.near_computer = False  # Флаг близости к компьютеру
         self.update_camera()
 
+    def is_gameplay_paused(self):
+        return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
+
     def update_camera(self):
         """Обновляет смещение камеры, центрируя экран на игроке в пределах мира."""
         target_x = self.player_rect.centerx - SCREEN_WIDTH // 2
@@ -293,7 +301,7 @@ class Game:
             pygame.mixer.music.set_volume(max(0, min(100, self.volume)) / 100)
 
     def is_gameplay_paused(self):
-        return bool(self.show_save_prompt or self.journal_open or self.state == GameState.GAME_OVER)
+        return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
 
     def reset_hunt_timer(self):
         cooldown_by_difficulty = {
@@ -621,7 +629,7 @@ class Game:
         #Todo: реализовать систему выкидывания при переполнении стека предметов
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
-        if self.player_money >= cost and (is_consumable or not self.inventory[item_name]):
+        if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
             self.inventory[item_name] = True
             if is_consumable:
@@ -637,13 +645,28 @@ class Game:
 
     def submit_ghost_guess(self, profile_id):
         actual = None
+        ghost_name = profile_id
         if self.ghost_manager.ghosts:
             actual = self.ghost_manager.ghosts[0].ghost_kind
+            ghost_name = self.ghost_manager.ghosts[0].display_name
         if profile_id == actual:
-            self._show_game_info("Призрак определён верно.", 1600)
+            self.enter_win(ghost_name)
             return True
         self.enter_game_over(reason="wrong_ghost")
         return False
+
+    def enter_win(self, ghost_name=""):
+        self.win_ghost_name = ghost_name or "призрак"
+        self.moving = False
+        self.show_save_prompt = False
+        self.info_message = None
+        self.info_until = 0
+        self.journal_open = False
+        self.journal_reset_confirm = False
+        self.inventory_manager.cancel_placement()
+        for key in self.keys_pressed:
+            self.keys_pressed[key] = False
+        self.set_state(GameState.WIN)
 
     def enter_game_over(self, reason="hp"):
         self.game_over_reason = reason
@@ -870,6 +893,9 @@ class Game:
         elif self.state == GameState.GAME_OVER:
             self.moving = False
             draws.draw_game_over(self)
+        elif self.state == GameState.WIN:
+            self.moving = False
+            draws.draw_win(self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:
             # Полупрозрачный фон

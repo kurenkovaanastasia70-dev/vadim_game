@@ -13,6 +13,7 @@ from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
 import heapq
 
 GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
+GHOST_SPEED_SCALE = MAP_SCALE
 
 
 def _to_bool(value, default=False):
@@ -340,14 +341,15 @@ class Ghost:
         self.state_timer = 0
         
         # Параметры движения (из ghost_abilities.ini / профиля)
-        self.speed = _to_float(abilities.get("speed"), 3.0)
-        self.patrol_speed = _to_float(abilities.get("patrol_speed"), 2.0)
-        self.chase_speed = _to_float(abilities.get("chase_speed"), 2.0)
-        self.search_speed = _to_float(abilities.get("search_speed"), 2.0)
+        self.speed = _to_float(abilities.get("speed"), 3.0) * GHOST_SPEED_SCALE
+        self.patrol_speed = _to_float(abilities.get("patrol_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.chase_speed = _to_float(abilities.get("chase_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.search_speed = _to_float(abilities.get("search_speed"), 2.0) * GHOST_SPEED_SCALE
         # A* алгоритм
         self.astar = AStar(grid_size=32)  # Увеличено с 16 до 32 для ускорения
         self.current_path = []
         self.path_index = 0
+        self.last_footprint_pos = self.rect.center
         
         # Целевая точка
         self.target_x = None
@@ -438,11 +440,8 @@ class Ghost:
         if self.home_room_id in available_rooms:
             available_rooms.remove(self.home_room_id)
         
-        # Добавляем 1-3 случайные комнаты в зависимости от общего количества
-        num_extra_rooms = min(random.randint(1, 3), len(available_rooms))
-        if num_extra_rooms > 0:
-            extra_rooms = random.sample(available_rooms, num_extra_rooms)
-            self.patrol_rooms.extend(extra_rooms)
+        random.shuffle(available_rooms)
+        self.patrol_rooms.extend(available_rooms)
         
         # Генерируем точки для каждой комнаты
         self.patrol_points = []
@@ -1105,12 +1104,19 @@ class GhostManager:
         self.debug_mode = False
         self.abilities_config = GhostAbilitiesConfig()
         self.footprints = []  # [{"x": int, "y": int, "ttl": int}]
+        self.footprint_sprites = None
         self.emf_hotspot = None  # {"x": int, "y": int, "level": int, "ttl": int}
 
     def load_ghost_sprite(self):
         """Загружает спрайт приведения"""
         import assets
         self.ghost_sprite = assets.load_ghost_sprite()
+
+    def load_footprint_sprites(self):
+        if self.footprint_sprites is None:
+            import assets
+            self.footprint_sprites = assets.load_footprint_sprites()
+        return self.footprint_sprites
     
     def create_rooms_from_level_data(self, level_data):
         """Создает комнаты из данных уровня (JSON).
@@ -1220,17 +1226,35 @@ class GhostManager:
     def _update_ghost_abilities_runtime(self, ghost):
         """Генерирует runtime-события: следы и ЭМП-всплески."""
         if ghost.state == GhostState.INVISIBLE:
+            ghost.last_footprint_pos = ghost.rect.center
             return
 
-        # Следы: только для ходячих, шанс зависит от "типа" (через скорость/поведение).
-        if ghost.can_walk and random.random() < 0.015:
+        # УФ-следы оставляют только ходящие призраки с ultraviolet-уликой.
+        if ghost.can_walk and ghost.ultraviolet:
+            last_x, last_y = getattr(ghost, "last_footprint_pos", ghost.rect.center)
+            moved = math.hypot(ghost.rect.centerx - last_x, ghost.rect.centery - last_y)
+            step = max(20, int(TILE_SIZE * MAP_SCALE * 0.35))
+        else:
+            moved = 0
+            step = 1
+
+        if moved >= step:
+            ttl = random.randint(7 * 60, 14 * 60)
+            dx = ghost.rect.centerx - last_x
+            dy = ghost.rect.centery - last_y
+            angle = -math.degrees(math.atan2(dy, dx)) if dx or dy else random.randrange(0, 360)
             self.footprints.append(
                 {
                     "x": int(ghost.rect.centerx + random.randint(-10, 10)),
                     "y": int(ghost.rect.centery + random.randint(-10, 10)),
-                    "ttl": random.randint(7 * 60, 14 * 60),
+                    "ttl": ttl,
+                    "ttl_start": ttl,
+                    "sprite_index": random.randrange(0, max(1, len(self.load_footprint_sprites()))),
+                    "angle": angle,
+                    "room_id": ghost.get_current_room_id(),
                 }
             )
+            ghost.last_footprint_pos = ghost.rect.center
 
         # ЭМП: взаимодействие/бросок/проявление в зависимости от состояния.
         event_level = None
@@ -1321,14 +1345,17 @@ class GhostManager:
 
     def draw_footprints(self, screen, uv_enabled=False, camera_x=0, camera_y=0):
         """Рисует следы. В УФ-режиме контраст выше."""
-        if not self.footprints:
+        if not uv_enabled or not self.footprints:
             return
-        color = (170, 60, 220) if uv_enabled else (110, 70, 140)
-        alpha = 200 if uv_enabled else 120
+        sprites = self.load_footprint_sprites()
         for mark in self.footprints:
-            s = pygame.Surface((12, 7), pygame.SRCALPHA)
-            s.fill((color[0], color[1], color[2], alpha))
-            screen.blit(s, (mark["x"] - camera_x, mark["y"] - camera_y))
+            sprite = sprites[mark.get("sprite_index", 0) % len(sprites)].copy()
+            ttl_start = max(1, int(mark.get("ttl_start", mark.get("ttl", 1))))
+            alpha = max(80, min(255, int(230 * mark.get("ttl", ttl_start) / ttl_start)))
+            sprite.set_alpha(alpha)
+            rotated = pygame.transform.rotate(sprite, mark.get("angle", 0))
+            rect = rotated.get_rect(center=(mark["x"] - camera_x, mark["y"] - camera_y))
+            screen.blit(rotated, rect)
     
     def draw(self, screen, camera_x=0, camera_y=0):
         """Отрисовывает всех приведений и (в debug-режиме) комнаты."""
