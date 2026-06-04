@@ -317,6 +317,8 @@ def handle_game_events(game, event):
         # Клик по проектору — зарядить аккумулятором (если не в режиме размещения)
         if game.inventory_manager.try_power_projector(world_mouse_pos[0], world_mouse_pos[1]):
             return
+        if game.inventory_manager.pick_existing_item_at(world_mouse_pos[0], world_mouse_pos[1]):
+            return
         
         if game.computer_rect and game.near_computer:
             pad = int(48 * MAP_SCALE)

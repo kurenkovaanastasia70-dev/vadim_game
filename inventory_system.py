@@ -62,6 +62,12 @@ class Radio(Item):
         super().__init__(ItemType.RADIO)
 
     def use(self, game):
+        now = pygame.time.get_ticks()
+        cooldown_until = getattr(game, "radio_cooldown_until", 0)
+        if now < cooldown_until:
+            game._show_game_info("Радио: помехи, подожди настройки.", 900)
+            return True
+        game.radio_cooldown_until = now + getattr(game, "radio_cooldown_ms", 3000)
         ok, text = game.ghost_manager.ask_radio(game.player_rect)
         hunt_text = game.get_hunt_radio_text(ok) if hasattr(game, "get_hunt_radio_text") else ""
         if hunt_text:
@@ -103,8 +109,10 @@ class Battery(Item):
         super().__init__(ItemType.BATTERY)
 
     def use(self, game):
-        # Аккумулятор не используется напрямую — его тратит проектор
-        return False
+        game.inventory_manager.active_hand_item = self.item_type
+        if hasattr(game, "_show_game_info"):
+            game._show_game_info("Аккумулятор выбран: кликни по проектору.", 1100)
+        return True
 
 
 class Blood(Item):
@@ -121,6 +129,10 @@ class Blood(Item):
     
     def use(self, game):
         if game.inventory_manager.get_count(self.item_type) <= 0:
+            return False
+        if game.player_hp >= 5:
+            if hasattr(game, "_show_game_info"):
+                game._show_game_info("HP уже полные.", 900)
             return False
         heal = self.heal_amounts.get(game.difficulty_index, 3)
         game.player_hp = min(5, game.player_hp + heal)
@@ -139,7 +151,7 @@ class Projector(Item):
         return True
 
 
-PROJECTOR_ZONE_RADIUS = 90  # радиус зоны, меньше самой маленькой комнаты (эмпирическое значение)
+PROJECTOR_ZONE_RADIUS = 160  # радиус зоны, меньше самой маленькой комнаты (эмпирическое значение)
 BATTERY_DURATION_TICKS = 60 * 60 * 2  # одна охота ≈ 2 мин при 60 FPS
 PLACED_ITEM_HITBOX_RATIO = 0.50
 PLACED_ITEM_ICON_RATIO = 0.45
@@ -175,12 +187,12 @@ class PlacedProjector:
                 self.powered = False
     
     def draw(self, screen, debug_mode=False, camera_x=0, camera_y=0):
+        if self.powered and not self.is_moving:
+            center = (int(self.x - camera_x), int(self.y - camera_y))
+            pygame.draw.circle(screen, (95, 230, 190), center, self.radius, 2)
+            pygame.draw.circle(screen, (210, 255, 235), center, max(6, self.radius // 16), 1)
         if self.sprite:
             spr = self.sprite.copy()
-            if not self.powered:
-                spr.set_alpha(140)
-            elif self.battery_remaining < BATTERY_DURATION_TICKS // 4:
-                spr.set_alpha(180)  # почти разряжен — тусклее
             spr_rect = spr.get_rect(center=(self.x - camera_x, self.y - camera_y))
             screen.blit(spr, spr_rect)
         if debug_mode and self.powered and not self.is_moving:
@@ -191,15 +203,6 @@ class PlacedProjector:
                 self.radius,
                 2
             )
-        # Визуализация разряда — полупрозрачный круг, сужается при разряде
-        if self.powered and self.battery_remaining > 0:
-            fill_alpha = int(40 * self.battery_remaining / BATTERY_DURATION_TICKS)
-            s = pygame.Surface((self.radius * 2, self.radius * 2))
-            s.set_alpha(max(10, fill_alpha))
-            s.fill((0, 200, 80))
-            r = s.get_rect(center=(self.x - camera_x, self.y - camera_y))
-            screen.blit(s, r)
-
 
 class Cross(Item):
     """Крест — убирает приведение с карты на определённое время. TODO: добавить звук при использовании"""
@@ -337,10 +340,30 @@ class InventoryManager:
         
         # Размещённые предметы на карте
         self.placed_items = []
+        self.moving_placed_item = None
         
         # Режим размещения
         self.placement_mode = False
         self.selected_item_type = None
+
+    def pick_existing_item_at(self, x, y) -> bool:
+        if self.placement_mode:
+            return False
+        if self.placed_projector and self.placed_projector.rect.collidepoint(x, y):
+            self.moving_projector = self.placed_projector
+            self.placed_projector = None
+            self.moving_projector.is_moving = True
+            self.placement_mode = True
+            self.selected_item_type = ItemType.PROJECTOR
+            return True
+        for i in range(len(self.placed_items) - 1, -1, -1):
+            item = self.placed_items[i]
+            if item.rect.collidepoint(x, y):
+                self.moving_placed_item = self.placed_items.pop(i)
+                self.placement_mode = True
+                self.selected_item_type = item.item_type
+                return True
+        return False
 
     def is_consumable(self, item_type: ItemType) -> bool:
         return item_type in self.item_counts
@@ -369,6 +392,7 @@ class InventoryManager:
             for item_type in self.item_counts:
                 self.item_counts[item_type] = 0
         self.placed_items.clear()
+        self.moving_placed_item = None
         self.placed_projector = None
         self.moving_projector = None
         self.placement_mode = False
@@ -435,9 +459,11 @@ class InventoryManager:
         item = self.items.get(item_type)
         if item and item.is_owned(self.game):
             ok = item.use(self.game)
-            if ok and item_type in (ItemType.FLASHLIGHT, ItemType.PROJECTOR, ItemType.RED_DUST, ItemType.SALT):
+            if ok and item_type in (ItemType.FLASHLIGHT, ItemType.PROJECTOR, ItemType.RED_DUST, ItemType.SALT, ItemType.BATTERY):
                 self.active_hand_item = item_type
             return ok
+        if hasattr(self.game, "_show_game_info"):
+            self.game._show_game_info("Предмет не куплен.", 900)
         return False
     
     def use_item_by_index(self, index: int) -> bool:
@@ -457,6 +483,13 @@ class InventoryManager:
     
     def cancel_placement(self):
         """Отменить режим размещения"""
+        if self.moving_placed_item:
+            self.placed_items.append(self.moving_placed_item)
+            self.moving_placed_item = None
+        if self.moving_projector:
+            self.moving_projector.is_moving = False
+            self.placed_projector = self.moving_projector
+            self.moving_projector = None
         self.placement_mode = False
         self.selected_item_type = None
     
@@ -538,6 +571,19 @@ class InventoryManager:
         
         item = self.items.get(self.selected_item_type)
         if isinstance(item, PlaceableItem):
+            if self.moving_placed_item:
+                if not self._can_place_at(x, y):
+                    return False
+                self.moving_placed_item.x = x
+                self.moving_placed_item.y = y
+                half = PLACED_ITEM_HITBOX_SIZE // 2
+                self.moving_placed_item.rect = pygame.Rect(
+                    x - half, y - half, PLACED_ITEM_HITBOX_SIZE, PLACED_ITEM_HITBOX_SIZE
+                )
+                self.placed_items.append(self.moving_placed_item)
+                self.moving_placed_item = None
+                self.cancel_placement()
+                return True
             if self.get_count(self.selected_item_type) <= 0:
                 self.cancel_placement()
                 return False
@@ -587,7 +633,6 @@ class InventoryManager:
                     pygame.draw.rect(screen, (80, 120, 200), r, 2)
                 mouse_x, mouse_y = pygame.mouse.get_pos()
                 preview = self.projector_sprite.copy()
-                preview.set_alpha(180)
                 screen.blit(preview, preview.get_rect(center=(mouse_x, mouse_y)))
             else:
                 item = self.items.get(self.selected_item_type)
@@ -606,8 +651,8 @@ class InventoryManager:
                         screen.blit(s, r)
                         pygame.draw.rect(screen, (0, 200, 80), r, 2)
                     mouse_x, mouse_y = pygame.mouse.get_pos()
-                    preview = item.sprite_active.copy()
-                    preview.set_alpha(180)
+                    preview_source = self.moving_placed_item.current_sprite if self.moving_placed_item else item.sprite_active
+                    preview = preview_source.copy()
                     screen.blit(preview, preview.get_rect(center=(mouse_x, mouse_y)))
     
     def get_projector_zones(self):
@@ -625,7 +670,16 @@ class InventoryManager:
     def try_power_projector(self, x, y) -> bool:
         """Попытка зарядить проектор кликом. Возвращает True если заряжен."""
         if self.placed_projector and self.placed_projector.rect.collidepoint(x, y):
-            return self.placed_projector.power(self.game)
+            if self.active_hand_item != ItemType.BATTERY:
+                return False
+            if self.placed_projector.power(self.game):
+                if hasattr(self.game, "_show_game_info"):
+                    self.game._show_game_info(f"Проектор включён. Радиус: {self.placed_projector.radius}px.", 1300)
+                self.active_hand_item = None
+                return True
+            if hasattr(self.game, "_show_game_info"):
+                self.game._show_game_info("Нет аккумулятора.", 1000)
+            return True
         return False
     
     def update_placed_items(self):

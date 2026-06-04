@@ -67,7 +67,7 @@ def _wrap_lines(font, text, max_width):
 def _blit_centered_icon(screen, icon, rect, size):
     if not icon:
         return
-    fitted = pygame.transform.smoothscale(icon, (size, size))
+    fitted = pygame.transform.scale(icon, (size, size))
     screen.blit(fitted, fitted.get_rect(center=rect.center))
 
 
@@ -725,6 +725,8 @@ def draw_game(game):
 
 
     # обновление кадра анимации только при движении
+    game.inventory_manager.draw(game.screen, game.camera_x, game.camera_y)
+
     current_time = pygame.time.get_ticks()
 
 
@@ -744,8 +746,8 @@ def draw_game(game):
         frames = game.player_sprites[game.player_direction]  # получаем спрайты для этого направления
         if frames and len(frames) > 0:  # если есть спрайты для этого направления
             # Проверяем, что индекс не выходит за границы
-            if game.player_animation_frame < len(frames):
-                sprite = frames[game.player_animation_frame]
+            game.player_animation_frame %= len(frames)
+            sprite = frames[game.player_animation_frame]
 
 
     # Отрисовка приведений (перед игроком, чтобы игрок был поверх)
@@ -791,7 +793,7 @@ def draw_game(game):
             hand_rect.center = (cx, cy + off)
 
         if "фонарик" in game.inventory_images:
-            hand_img = pygame.transform.smoothscale(game.inventory_images["фонарик"], (sz, sz))
+            hand_img = pygame.transform.scale(game.inventory_images["фонарик"], (sz, sz))
             game.screen.blit(hand_img, hand_rect.topleft)
         else:
             # Fallback, если иконка не загружена: жёлтый квадратик-фонарик.
@@ -832,9 +834,6 @@ def draw_game(game):
             text_rect = text_surface.get_rect(center=box_rect.center)
             game.screen.blit(text_surface, text_rect)
 
-    # Отрисовка размещённых предметов (пыль, соль)
-    game.inventory_manager.draw(game.screen, game.camera_x, game.camera_y)
-    
     # Эффект затемнения: зависит от наличия фонарика
     if game.inventory.get("фонарик", False):
         # С фонариком: видна текущая комната целиком
@@ -965,9 +964,12 @@ def draw_game(game):
     for ach in getattr(game, "achievements_table", []):
         mark = "[x]" if ach.get("unlocked") else "[ ]"
         title = str(ach.get("title", ach.get("id", "")))
-        achievement_rows.append(f"{mark} {title}")
-    popup_h = min(250, 12 + max(1, len(achievement_rows)) * 22)
-    popup_rect = pygame.Rect(panel_x, panel_y + panel_h + 6, 360, popup_h)
+        desc = str(ach.get("description", "")).strip()
+        progress = f"{ach.get('progress', 0)}/{ach.get('target', 0)}"
+        row = f"{mark} {title}: {desc} ({progress})" if desc else f"{mark} {title} ({progress})"
+        achievement_rows.append(row)
+    popup_h = min(340, 12 + max(1, len(achievement_rows)) * 34)
+    popup_rect = pygame.Rect(panel_x, panel_y + panel_h + 6, 430, popup_h)
     show_ach_popup = ach_hover_rect.collidepoint(mouse_pos) or popup_rect.collidepoint(mouse_pos)
 
     if show_ach_popup:
@@ -979,9 +981,9 @@ def draw_game(game):
         max_text_w = popup_rect.w - 18
         if achievement_rows:
             for i, row in enumerate(achievement_rows[:10]):
-                row_y = popup_rect.y + 7 + i * 22
+                row_y = popup_rect.y + 7 + i * 34
                 if i % 2 == 0:
-                    pygame.draw.rect(game.screen, (234, 225, 209), (popup_rect.x + 4, row_y - 1, popup_rect.w - 8, 21))
+                    pygame.draw.rect(game.screen, (234, 225, 209), (popup_rect.x + 4, row_y - 1, popup_rect.w - 8, 32))
                 text = row
                 while popup_font.size(text)[0] > max_text_w and len(text) > 4:
                     text = text[:-4] + "..."
