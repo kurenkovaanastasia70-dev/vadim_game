@@ -9,12 +9,11 @@ import math
 import os
 from configparser import ConfigParser
 from enum import Enum
-from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE, FPS
+from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
 import heapq
 
 GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
 GHOST_SPEED_SCALE = MAP_SCALE
-PLAYER_SPEED_PER_FRAME = max(10, (TILE_SIZE * MAP_SCALE) // 3) / ((150 / 2) / 1000) / FPS
 GHOST_HITBOX_RATIO = 0.55
 
 
@@ -343,10 +342,10 @@ class Ghost:
         self.state_timer = 0
         
         # Параметры движения (из ghost_abilities.ini / профиля)
-        self.speed = PLAYER_SPEED_PER_FRAME
-        self.patrol_speed = PLAYER_SPEED_PER_FRAME
-        self.chase_speed = PLAYER_SPEED_PER_FRAME
-        self.search_speed = PLAYER_SPEED_PER_FRAME
+        self.speed = _to_float(abilities.get("speed"), 3.0) * GHOST_SPEED_SCALE
+        self.patrol_speed = _to_float(abilities.get("patrol_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.chase_speed = _to_float(abilities.get("chase_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.search_speed = _to_float(abilities.get("search_speed"), 2.0) * GHOST_SPEED_SCALE
         # A* алгоритм
         self.astar = AStar(grid_size=32)  # Увеличено с 16 до 32 для ускорения
         self.current_path = []
