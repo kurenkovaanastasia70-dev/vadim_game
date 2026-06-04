@@ -66,7 +66,7 @@ def _create_placeholder(size, color):
         return surf
 
 
-def _fit_alpha_image(img, size, padding=4):
+def _fit_alpha_image(img, size, padding=4, smooth=True):
     """Обрезает прозрачные поля и центрирует изображение в квадрате size x size."""
     img = img.convert_alpha()
     bounds = img.get_bounding_rect()
@@ -80,7 +80,8 @@ def _fit_alpha_image(img, size, padding=4):
         max(1, int(cropped.get_width() * scale)),
         max(1, int(cropped.get_height() * scale)),
     )
-    fitted = pygame.transform.smoothscale(cropped, new_size)
+    scale_fn = pygame.transform.smoothscale if smooth else pygame.transform.scale
+    fitted = scale_fn(cropped, new_size)
     canvas = pygame.Surface((size, size), pygame.SRCALPHA)
     canvas.blit(fitted, fitted.get_rect(center=(size // 2, size // 2)))
     return canvas
@@ -110,7 +111,7 @@ def load_inventory_images():
                 if os.path.isfile(path):
                     try:
                         img = pygame.image.load(path).convert_alpha()
-                        return _fit_alpha_image(img, out_size)
+                        return _fit_alpha_image(img, out_size, smooth=False)
                     except Exception:
                         break
         return None
@@ -273,6 +274,8 @@ def load_player_sprites():
         for i in range(frame_count):
             try:
                 path = f"sprite_parts/player_{direction}_{i+1}.png"
+                if not os.path.exists(path):
+                    continue
                 sprite = pygame.image.load(path).convert_alpha()
                 px = int(TILE_SIZE * MAP_SCALE)
                 sprite = pygame.transform.scale(sprite, (px, px))

@@ -126,6 +126,8 @@ class Game:
         self.player_money = 100
         self.player_level = 1
         self.player_hp = 5
+        self.radio_cooldown_until = 0
+        self.radio_cooldown_ms = 3000
         self.hit_invincible_until = 0
         local_ach_provider = LocalAchievementTableProvider(
             os.path.join("local_lessons", "achievements_catalog.csv")
@@ -305,12 +307,12 @@ class Game:
 
     def reset_hunt_timer(self):
         cooldown_by_difficulty = {
-            0: 4 * 60 * FPS,
-            1: 3 * 60 * FPS,
-            2: 2 * 60 * FPS,
-            3: 90 * FPS,
+            0: 90 * FPS,
+            1: 75 * FPS,
+            2: 60 * FPS,
+            3: 45 * FPS,
         }
-        self.hunt_cooldown_ticks = cooldown_by_difficulty.get(self.difficulty_index, 3 * 60 * FPS)
+        self.hunt_cooldown_ticks = cooldown_by_difficulty.get(self.difficulty_index, 75 * FPS)
         self.hunt_active_ticks = 0
 
     def tick_hunt_timer(self):
@@ -334,11 +336,14 @@ class Game:
         if self.hunt_active_ticks > 0:
             return "Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
-        minutes = seconds // 60
-        rest = seconds % 60
+        error_by_difficulty = {0: 5, 1: 8, 2: 12, 3: 18}
+        error = error_by_difficulty.get(self.difficulty_index, 8)
+        approx = max(0, seconds + random.randint(-error, error))
+        minutes = approx // 60
+        rest = approx % 60
         if not radio_ok and self.difficulty_index >= 2:
             return "До охоты: сигнал искажён."
-        return f"До охоты: {minutes:02d}:{rest:02d}."
+        return f"До охоты: ~{minutes:02d}:{rest:02d}."
 
     def serialize_hunt_state(self):
         return {
@@ -620,6 +625,7 @@ class Game:
         self.loaded_journal_evidence = None
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
+        self.radio_cooldown_until = 0
         self.reset_hunt_timer()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
