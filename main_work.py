@@ -128,6 +128,9 @@ class Game:
         self.player_hp = 5
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
+        self.radio_feedback_until = 0
+        self.radio_feedback_ok = False
+        self.radio_static_sound = None
         self.hit_invincible_until = 0
         local_ach_provider = LocalAchievementTableProvider(
             os.path.join("local_lessons", "achievements_catalog.csv")
@@ -173,8 +176,13 @@ class Game:
 
         self.start_x = int(2 * TILE_SIZE * MAP_SCALE)
         self.start_y = int((3 * TILE_SIZE + mechanics.TOP_BAR) * MAP_SCALE)
-        self.player_size = int(TILE_SIZE * MAP_SCALE)
-        self.player_rect = pygame.Rect(self.start_x, self.start_y, self.player_size, self.player_size)
+        self.player_visual_size = int(TILE_SIZE * MAP_SCALE)
+        self.player_size = max(24, int(self.player_visual_size * 0.68))
+        self.player_rect = pygame.Rect(0, 0, self.player_size, self.player_size)
+        self.player_rect.center = (
+            self.start_x + self.player_visual_size // 2,
+            self.start_y + self.player_visual_size // 2,
+        )
         self.world_width = int(SCREEN_WIDTH * MAP_SCALE)
         self.world_height = int(SCREEN_HEIGHT * MAP_SCALE)
         self.camera_x = 0
@@ -241,6 +249,7 @@ class Game:
         self.uv_mode = False
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
+        self.loaded_ghost_state = None
         self.hunt_cooldown_ticks = 0
         self.hunt_active_ticks = 0
         self.reset_hunt_timer()
@@ -248,6 +257,7 @@ class Game:
         self.inventory_images = assets.load_inventory_images()
         self.trash_icon = assets.load_trash_icon()
         self.player_sprites = assets.load_player_sprites()
+        self.radio_static_sound = assets.load_radio_static_sound()
         
         # Менеджер приведений
         self.ghost_manager = GhostManager()
@@ -298,6 +308,13 @@ class Game:
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
 
+    def trigger_radio_feedback(self, ok):
+        self.radio_feedback_ok = bool(ok)
+        self.radio_feedback_until = pygame.time.get_ticks() + 900
+        if self.radio_static_sound:
+            self.radio_static_sound.set_volume(max(0, min(100, self.volume)) / 100)
+            self.radio_static_sound.play()
+
     def apply_volume(self):
         if pygame.mixer.get_init():
             pygame.mixer.music.set_volume(max(0, min(100, self.volume)) / 100)
@@ -334,7 +351,7 @@ class Game:
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
-            return "Охота уже началась."
+            return "Оно здесь. Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
         error_by_difficulty = {0: 5, 1: 8, 2: 12, 3: 18}
         error = error_by_difficulty.get(self.difficulty_index, 8)
@@ -343,6 +360,8 @@ class Game:
         rest = approx % 60
         if not radio_ok and self.difficulty_index >= 2:
             return "До охоты: сигнал искажён."
+        if seconds <= 10:
+            return f"До охоты: ~{minutes:02d}:{rest:02d}. Активность рядом."
         return f"До охоты: ~{minutes:02d}:{rest:02d}."
 
     def serialize_hunt_state(self):
@@ -405,11 +424,8 @@ class Game:
 
     def use_radio(self):
         """Спросить у призрака через радиоприемник."""
-        if not self.inventory.get("радио", False):
-            self._show_game_info("Радио не куплено.", 900)
-            return
-        ok, text = self.ghost_manager.ask_radio(self.player_rect)
-        self._show_game_info(text, 1800 if ok else 1200)
+        from inventory_system import ItemType
+        return self.inventory_manager.use_item(ItemType.RADIO)
 
     def use_emf(self):
         """Скан ЭМП рядом с игроком."""
@@ -499,6 +515,9 @@ class Game:
                 self.loaded_hunt_state = None
             else:
                 self.reset_hunt_timer()
+            if self.loaded_ghost_state is not None:
+                self.ghost_manager.restore_runtime_state(self.loaded_ghost_state)
+                self.loaded_ghost_state = None
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self.vignette_texture = None
             self.update_camera()
@@ -602,8 +621,10 @@ class Game:
 
     def reset_player_position(self):
         """Сбрасывает позицию персонажа на начальную (НЕ сбрасывает HP!)"""
-        self.player_rect.x = self.start_x
-        self.player_rect.y = self.start_y
+        self.player_rect.center = (
+            self.start_x + self.player_visual_size // 2,
+            self.start_y + self.player_visual_size // 2,
+        )
         self.moving = False
         # HP НЕ сбрасываем здесь — они сохраняются между уровнями
         self.hit_invincible_until = 0
@@ -625,6 +646,7 @@ class Game:
         self.loaded_journal_evidence = None
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
+        self.loaded_ghost_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
@@ -701,7 +723,8 @@ class Game:
             "BLOOD": self.inventory_manager.item_counts.get(ItemType.BLOOD, 0),
             "CROSS": self.inventory_manager.item_counts.get(ItemType.CROSS, 0),
             "RED_DUST": self.inventory_manager.item_counts.get(ItemType.RED_DUST, 0),
-            "SALT": self.inventory_manager.item_counts.get(ItemType.SALT, 0)
+            "SALT": self.inventory_manager.item_counts.get(ItemType.SALT, 0),
+            "RADIO": self.inventory_manager.item_counts.get(ItemType.RADIO, 0)
         }
         save_data = {
             "level": self.player_level,
@@ -711,6 +734,7 @@ class Game:
             "item_counts": item_counts_serial,
             "inventory_runtime": self.inventory_manager.serialize_runtime_state(),
             "hunt_state": self.serialize_hunt_state(),
+            "ghost_state": self.ghost_manager.serialize_runtime_state(),
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
@@ -759,6 +783,7 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.CROSS] = saved_counts.get("CROSS", 0)
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = saved_counts.get("RED_DUST", 0)
                 self.inventory_manager.item_counts[ItemType.SALT] = saved_counts.get("SALT", 0)
+                self.inventory_manager.item_counts[ItemType.RADIO] = saved_counts.get("RADIO", int(self.inventory.get("радио", False)))
             else:
                 from inventory_system import ItemType
                 self.inventory_manager.item_counts[ItemType.BATTERY] = 0
@@ -766,12 +791,14 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.CROSS] = 0
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
                 self.inventory_manager.item_counts[ItemType.SALT] = 0
+                self.inventory_manager.item_counts[ItemType.RADIO] = int(self.inventory.get("радио", False))
             self.tasks, self.achievements_table = self.progress_manager.normalize_state(
                 save_data.get("tasks"),
                 save_data.get("achievements_table"),
             )
             self.loaded_inventory_runtime = save_data.get("inventory_runtime")
             self.loaded_hunt_state = save_data.get("hunt_state")
+            self.loaded_ghost_state = save_data.get("ghost_state")
             
             return True
         return False
@@ -911,14 +938,23 @@ class Game:
             self.screen.blit(overlay, (0, 0))
             
             # Диалоговое окно для сообщения
-            info_rect = pygame.Rect(SCREEN_WIDTH//2 - 300, SCREEN_HEIGHT//2 - 40, 600, 80)
+            lines = str(self.info_message).splitlines() or [str(self.info_message)]
+            line_height = 30
+            info_rect = pygame.Rect(
+                SCREEN_WIDTH // 2 - 330,
+                SCREEN_HEIGHT // 2 - max(45, 18 + len(lines) * line_height // 2),
+                660,
+                max(84, 36 + len(lines) * line_height),
+            )
             pygame.draw.rect(self.screen, DARK_GRAY, info_rect)
             pygame.draw.rect(self.screen, WHITE, info_rect, 3)
             
             info_font = pygame.font.Font(None, 32)
-            info_text = info_font.render(self.info_message, True, WHITE)
-            info_text_rect = info_text.get_rect(center=info_rect.center)
-            self.screen.blit(info_text, info_text_rect)
+            start_y = info_rect.centery - (len(lines) - 1) * line_height // 2
+            for i, line in enumerate(lines):
+                info_text = info_font.render(line, True, WHITE)
+                info_text_rect = info_text.get_rect(center=(info_rect.centerx, start_y + i * line_height))
+                self.screen.blit(info_text, info_text_rect)
         elif self.info_message and pygame.time.get_ticks() >= self.info_until:
             self.info_message = None
         

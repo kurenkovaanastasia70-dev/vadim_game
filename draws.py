@@ -46,6 +46,28 @@ JOURNAL_EVIDENCE_HELP = [
 ]
 
 
+def _draw_radio_feedback(game):
+    if pygame.time.get_ticks() >= getattr(game, "radio_feedback_until", 0):
+        return
+    panel = pygame.Rect(SCREEN_WIDTH // 2 - 190, 112, 380, 54)
+    surf = pygame.Surface(panel.size, pygame.SRCALPHA)
+    surf.fill((14, 18, 24, 210))
+    game.screen.blit(surf, panel.topleft)
+    border = (120, 215, 190) if getattr(game, "radio_feedback_ok", False) else (205, 150, 90)
+    pygame.draw.rect(game.screen, border, panel, 2, border_radius=7)
+
+    font = pygame.font.Font(None, 22)
+    label = "Радио: частота поймана" if getattr(game, "radio_feedback_ok", False) else "Радио: шум и помехи"
+    game.screen.blit(font.render(label, True, (230, 236, 240)), (panel.x + 14, panel.y + 8))
+
+    tick = pygame.time.get_ticks() // 70
+    base_y = panel.y + 38
+    for i in range(20):
+        h = 4 + ((i * 7 + tick * 5) % 16)
+        x = panel.x + 14 + i * 17
+        pygame.draw.line(game.screen, border, (x, base_y - h // 2), (x, base_y + h // 2), 2)
+
+
 def _wrap_lines(font, text, max_width):
     """Разбивает строку на подстроки, чтобы ширина не превышала max_width (по словам)."""
     words = text.split()
@@ -506,7 +528,7 @@ def draw_shop(game):
         (5, "Аккумулятор", "аккумулятор", 40, "Питание для проектора.", ItemType.BATTERY),
         (6, "Крест", "крест", 60, "Короткая защита от призрака.", ItemType.CROSS),
         (7, "Кровь", "кровь", 35, "Восстанавливает запас жизней.", ItemType.BLOOD),
-        (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", None),
+        (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", ItemType.RADIO),
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
     ]
@@ -761,12 +783,15 @@ def draw_game(game):
     )
 
     player_screen_rect = game.player_rect.move(-game.camera_x, -game.camera_y)
+    player_visual_size = getattr(game, "player_visual_size", game.player_size)
+    player_draw_rect = pygame.Rect(0, 0, player_visual_size, player_visual_size)
+    player_draw_rect.center = player_screen_rect.center
     
     # отрисовка персонажа
     if sprite:
-        game.screen.blit(sprite, player_screen_rect.topleft)
+        game.screen.blit(sprite, player_draw_rect.topleft)
     else:  # fallback — если спрайты не загрузились
-        pygame.draw.rect(game.screen, (255, 0, 0), player_screen_rect)
+        pygame.draw.rect(game.screen, (255, 0, 0), player_draw_rect)
 
     # Активный предмет в руке: если ничего не выбрано, но фонарик куплен — держим фонарик по умолчанию.
     if (
@@ -777,9 +802,9 @@ def draw_game(game):
 
     active_item = getattr(game.inventory_manager, "active_hand_item", None)
     if active_item == ItemType.FLASHLIGHT:
-        ps = game.player_size
+        ps = player_visual_size
         sz = max(28, int(ps * 0.38))
-        pr = player_screen_rect
+        pr = player_draw_rect
         cx, cy = pr.centerx, pr.centery
         off = int(ps * 0.40)
         hand_rect = pygame.Rect(0, 0, sz, sz)
@@ -852,7 +877,9 @@ def draw_game(game):
         "крест": game.inventory_manager.get_count(ItemType.CROSS),
         "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
         "соль": game.inventory_manager.get_count(ItemType.SALT),
+        "радио": game.inventory_manager.get_count(ItemType.RADIO),
     }
+    _draw_radio_feedback(game)
 
     # Кнопки меню и магазина
     for button in game.game_buttons:
