@@ -1205,6 +1205,94 @@ class GhostManager:
             f"Флаги: fly={ghost.can_fly}, walk={ghost.can_walk}, phase={ghost.can_phase_walls}, tp={ghost.can_teleport}; "
             f"улики: amp={ghost.amp}, uv={ghost.ultraviolet}, orb={ghost.ghostorb}, radio={ghost.radio}."
         )
+
+    def serialize_runtime_state(self):
+        if not self.ghosts:
+            return None
+        ghost = self.ghosts[0]
+        return {
+            "ghost_kind": ghost.ghost_kind,
+            "x": int(ghost.rect.x),
+            "y": int(ghost.rect.y),
+            "center_x": int(ghost.rect.centerx),
+            "center_y": int(ghost.rect.centery),
+            "home_room_id": int(ghost.home_room_id),
+            "state": ghost.state.value,
+            "state_timer": int(ghost.state_timer),
+            "target_x": ghost.target_x,
+            "target_y": ghost.target_y,
+            "current_patrol_index": int(ghost.current_patrol_index),
+            "invisibility_timer": int(ghost.invisibility_timer),
+            "invisibility_duration": int(ghost.invisibility_duration),
+            "initial_appear_time": int(ghost.initial_appear_time),
+            "is_first_appearance": bool(ghost.is_first_appearance),
+            "time_until_invisible": int(ghost.time_until_invisible),
+            "appear_freeze_timer": int(ghost.appear_freeze_timer),
+            "is_frozen_after_appear": bool(ghost.is_frozen_after_appear),
+            "alpha": int(ghost.alpha),
+            "base_alpha": int(ghost.base_alpha),
+        }
+
+    def restore_runtime_state(self, data):
+        if not isinstance(data, dict) or not self.rooms or not self.ghost_sprite:
+            return False
+
+        def safe_int(value, default=0):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        ghost_kind = data.get("ghost_kind") or "default"
+        abilities = self.abilities_config.get_profile(ghost_kind)
+        try:
+            center_x = data.get("center_x")
+            center_y = data.get("center_y")
+            if center_x is not None and center_y is not None:
+                x = safe_int(center_x) - GHOST_SIZE // 2
+                y = safe_int(center_y) - GHOST_SIZE // 2
+            else:
+                x = safe_int(data.get("x", 0))
+                y = safe_int(data.get("y", 0))
+            home_room_id = safe_int(data.get("home_room_id", 0))
+            if home_room_id < 0 or home_room_id >= len(self.rooms):
+                home_room_id = 0
+            ghost = Ghost(
+                x,
+                y,
+                self.ghost_sprite.copy(),
+                self.rooms,
+                home_room_id,
+                abilities=abilities,
+                ghost_kind=ghost_kind,
+            )
+        except (TypeError, ValueError):
+            return False
+        try:
+            ghost.state = GhostState(data.get("state", GhostState.INVISIBLE.value))
+        except ValueError:
+            ghost.state = GhostState.INVISIBLE
+        ghost.state_timer = max(0, safe_int(data.get("state_timer"), ghost.state_timer))
+        ghost.target_x = data.get("target_x")
+        ghost.target_y = data.get("target_y")
+        ghost.current_patrol_index = max(0, safe_int(data.get("current_patrol_index"), 0))
+        ghost.invisibility_timer = max(0, safe_int(data.get("invisibility_timer"), ghost.invisibility_timer))
+        ghost.invisibility_duration = max(0, safe_int(data.get("invisibility_duration"), ghost.invisibility_duration))
+        ghost.initial_appear_time = max(0, safe_int(data.get("initial_appear_time"), ghost.initial_appear_time))
+        ghost.is_first_appearance = bool(data.get("is_first_appearance", ghost.is_first_appearance))
+        ghost.time_until_invisible = max(1, safe_int(data.get("time_until_invisible"), ghost.time_until_invisible))
+        ghost.appear_freeze_timer = max(0, safe_int(data.get("appear_freeze_timer"), ghost.appear_freeze_timer))
+        ghost.is_frozen_after_appear = bool(data.get("is_frozen_after_appear", ghost.is_frozen_after_appear))
+        ghost.alpha = max(0, min(255, safe_int(data.get("alpha"), ghost.alpha)))
+        ghost.base_alpha = max(0, min(255, safe_int(data.get("base_alpha"), ghost.base_alpha)))
+        ghost.last_footprint_pos = ghost.rect.center
+        ghost.is_playing_spawn = False
+        ghost.spawn_animation_frame = 0
+        if ghost.sprite:
+            ghost.sprite.set_alpha(0 if ghost.state == GhostState.INVISIBLE else ghost.base_alpha)
+
+        self.ghosts = [ghost]
+        return True
     
     def update(
         self,

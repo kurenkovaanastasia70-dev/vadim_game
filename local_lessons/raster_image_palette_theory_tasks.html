@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Теория: растровые изображения, палитра и объём файла</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #171a21;
+      --panel: #232836;
+      --panel-2: #2d3446;
+      --text: #eef2f8;
+      --muted: #aeb8c8;
+      --line: #465065;
+      --accent: #68d391;
+      --accent-2: #7cc7ff;
+      --warn: #ffd166;
+      --bad: #ff8f8f;
+      --code: #10131a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 16px 24px;
+      background: rgba(23, 26, 33, 0.96);
+      border-bottom: 1px solid var(--line);
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.18; }
+    h1 { font-size: 25px; }
+    h2 { font-size: 30px; margin-bottom: 12px; }
+    h3 { font-size: 20px; margin: 18px 0 8px; color: var(--accent-2); }
+    p, li { color: var(--muted); line-height: 1.55; }
+    main {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      min-height: calc(100vh - 82px);
+    }
+    nav {
+      position: sticky;
+      top: 82px;
+      height: calc(100vh - 82px);
+      overflow: auto;
+      padding: 18px;
+      background: #1c202a;
+      border-right: 1px solid var(--line);
+    }
+    nav button {
+      display: block;
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    nav button.active { border-color: var(--accent); background: #244538; }
+    section {
+      display: none;
+      max-width: 1120px;
+      padding: 34px 42px 80px;
+    }
+    section.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #31405a;
+      color: #dce8ff;
+      font-size: 13px;
+      margin-right: 6px;
+    }
+    pre {
+      overflow: auto;
+      padding: 14px;
+      border-radius: 8px;
+      background: var(--code);
+      border: 1px solid #2d3444;
+      color: #d7e4ff;
+    }
+    code { color: #e8f0ff; }
+    .ok { color: var(--accent); }
+    .warn { color: var(--warn); }
+    details {
+      margin: 12px 0;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    summary {
+      cursor: pointer;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .pixels {
+      display: grid;
+      grid-template-columns: repeat(8, 28px);
+      grid-template-rows: repeat(8, 28px);
+      gap: 3px;
+      width: max-content;
+      padding: 12px;
+      background: #11151d;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .px { width: 28px; height: 28px; border-radius: 3px; border: 1px solid rgba(255,255,255,.12); }
+    .palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .swatch {
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.22);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 700;
+      text-shadow: 0 1px 2px #000;
+    }
+    .formula {
+      font-size: 20px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: #1d2630;
+      border-radius: 0 8px 8px 0;
+      color: var(--text);
+    }
+    @media (max-width: 820px) {
+      main { grid-template-columns: 1fr; }
+      nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      section { padding: 24px 18px 60px; }
+      .grid { grid-template-columns: 1fr; }
+      .pixels { grid-template-columns: repeat(8, 22px); grid-template-rows: repeat(8, 22px); }
+      .px { width: 22px; height: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Растровые изображения: пиксели, палитра, битовая глубина и объём</h1>
+    <p>Цель занятия: научиться решать задачи на объём растрового изображения и максимально возможное количество цветов в палитре.</p>
+  </header>
+  <main>
+    <nav id="nav"></nav>
+    <div>
+      <section class="active" data-title="Идея">
+        <h2>Главная идея</h2>
+        <div class="grid">
+          <div class="card"><span class="tag">Пиксель</span><h3>Изображение как таблица</h3><p>Растровое изображение состоит из маленьких точек — пикселей. Размер 256 x 256 означает 256 столбцов и 256 строк.</p></div>
+          <div class="card"><span class="tag">Палитра</span><h3>Цвет как номер</h3><p>В палитровом изображении каждый пиксель хранит не сам цвет, а номер цвета в палитре. Чем больше цветов, тем больше бит нужно на пиксель.</p></div>
+          <div class="card"><span class="tag">Биты</span><h3>Глубина цвета</h3><p>Если на пиксель отводится i бит, то можно закодировать 2^i разных цветов.</p></div>
+          <div class="card"><span class="tag">Объём</span><h3>Формула</h3><p>Объём без сжатия равен количеству пикселей, умноженному на количество бит на пиксель.</p></div>
+        </div>
+      </section>
+
+      <section data-title="Визуализация">
+        <h2>Визуализация: пиксели и палитра</h2>
+        <p>Ниже условное изображение 8 x 8. Каждый квадрат — пиксель. В настоящей задаче таких пикселей может быть 256 x 256, 512 x 512 и больше.</p>
+        <div class="grid">
+          <div class="card">
+            <h3>Мини-растр 8 x 8</h3>
+            <div class="pixels" aria-label="Сетка пикселей">
+              <div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div>
+              <div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div>
+              <div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div>
+              <div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div>
+              <div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div>
+              <div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div>
+              <div class="px" style="background:#1fab89"></div><div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div>
+              <div class="px" style="background:#1fab89"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#293462"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#f24c4c"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#ec9b3b"></div><div class="px" style="background:#1fab89"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Палитра из 4 цветов</h3>
+            <p>Чтобы закодировать 4 цвета, нужно 2 бита на пиксель, потому что 2^2 = 4.</p>
+            <div class="palette">
+              <div class="swatch" style="background:#293462">00</div>
+              <div class="swatch" style="background:#f24c4c">01</div>
+              <div class="swatch" style="background:#ec9b3b">10</div>
+              <div class="swatch" style="background:#1fab89">11</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-title="Формулы">
+        <h2>Формулы</h2>
+        <div class="formula">N = ширина x высота</div>
+        <p>N — количество пикселей.</p>
+        <div class="formula">I = N x i</div>
+        <p>I — информационный объём в битах, i — битовая глубина, то есть количество бит на один пиксель.</p>
+        <div class="formula">K = 2^i</div>
+        <p>K — максимально возможное количество цветов в палитре.</p>
+        <div class="formula">1 Кбайт = 1024 байта, 1 байт = 8 бит</div>
+        <p>В задачах ЕГЭ/ОГЭ обычно Кбайт считают через 1024 байта, если не сказано иначе.</p>
+      </section>
+
+      <section data-title="Алгоритм">
+        <h2>Алгоритм решения</h2>
+        <ol>
+          <li>Найти количество пикселей: ширина x высота.</li>
+          <li>Перевести объём файла в биты: Кбайт x 1024 x 8.</li>
+          <li>Найти бит на пиксель: общий объём в битах / количество пикселей.</li>
+          <li>Найти количество цветов: 2 в степени «бит на пиксель».</li>
+        </ol>
+        <pre><code>Дано: 256 x 256 пикселей, 80 Кбайт.
+Пикселей: 256 x 256 = 65536.
+Бит всего: 80 x 1024 x 8 = 655360.
+Бит на пиксель: 655360 / 65536 = 10.
+Цветов: 2^10 = 1024.</code></pre>
+      </section>
+
+      <section data-title="Задача 1">
+        <h2>Задача 1</h2>
+        <p>Имеется растровое изображение размером 256 x 256 пикселей и объёмом 80 Кбайт. Определите максимально возможное количество цветов в палитре изображения.</p>
+        <details>
+          <summary>Показать решение</summary>
+          <pre><code>1. Количество пикселей:
+256 x 256 = 65536.
+
+2. Переводим объём в биты:
+80 Кбайт = 80 x 1024 байт = 81920 байт.
+81920 x 8 = 655360 бит.
+
+3. Бит на пиксель:
+655360 / 65536 = 10 бит.
+
+4. Цветов:
+2^10 = 1024.
+
+Ответ: 1024 цвета.</code></pre>
+        </details>
+      </section>
+
+      <section data-title="Задача 2">
+        <h2>Задача 2</h2>
+        <p>Растровое изображение размером 128 x 128 пикселей занимает 12 Кбайт. Сколько цветов максимально может быть в палитре?</p>
+        <details>
+          <summary>Показать решение</summary>
+          <pre><code>1. Пикселей:
+128 x 128 = 16384.
+
+2. Объём в битах:
+12 x 1024 x 8 = 98304 бит.
+
+3. Бит на пиксель:
+98304 / 16384 = 6 бит.
+
+4. Цветов:
+2^6 = 64.
+
+Ответ: 64 цвета.</code></pre>
+        </details>
+      </section>
+
+      <section data-title="Задача 3">
+        <h2>Задача 3</h2>
+        <p>Изображение размером 512 x 256 пикселей использует палитру из 256 цветов. Найдите объём изображения в Кбайтах без сжатия.</p>
+        <details>
+          <summary>Показать решение</summary>
+          <pre><code>1. Цветов 256, значит:
+256 = 2^8, поэтому i = 8 бит на пиксель.
+
+2. Пикселей:
+512 x 256 = 131072.
+
+3. Объём в битах:
+131072 x 8 = 1048576 бит.
+
+4. Переводим в Кбайты:
+1048576 / 8 = 131072 байт.
+131072 / 1024 = 128 Кбайт.
+
+Ответ: 128 Кбайт.</code></pre>
+        </details>
+      </section>
+
+      <section data-title="Задача 4">
+        <h2>Задача 4</h2>
+        <p>Растровое изображение размером 320 x 240 пикселей имеет объём 75 Кбайт. Определите битовую глубину и максимальное количество цветов.</p>
+        <details>
+          <summary>Показать решение</summary>
+          <pre><code>1. Пикселей:
+320 x 240 = 76800.
+
+2. Объём в битах:
+75 x 1024 x 8 = 614400 бит.
+
+3. Бит на пиксель:
+614400 / 76800 = 8 бит.
+
+4. Цветов:
+2^8 = 256.
+
+Ответ: 8 бит на пиксель, 256 цветов.</code></pre>
+        </details>
+      </section>
+
+      <section data-title="Типичные ошибки">
+        <h2>Типичные ошибки</h2>
+        <div class="grid">
+          <div class="card"><h3>Забыли умножить на 8</h3><p>Кбайты переводятся в байты, а затем байты в биты. Если забыть x8, битовая глубина получится в 8 раз меньше.</p></div>
+          <div class="card"><h3>Перепутали цвета и биты</h3><p>Если палитра 256 цветов, это не 256 бит на пиксель, а 8 бит, потому что 256 = 2^8.</p></div>
+          <div class="card"><h3>Потеряли 1024</h3><p>В учебных задачах 1 Кбайт обычно равен 1024 байтам, а не 1000.</p></div>
+          <div class="card"><h3>Сжатие</h3><p>Если в задаче не сказано про сжатие, считаем изображение без сжатия и без служебных заголовков.</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const sections = [...document.querySelectorAll("section")];
+    const nav = document.getElementById("nav");
+    sections.forEach((section, index) => {
+      const button = document.createElement("button");
+      button.textContent = section.dataset.title || `Раздел ${index + 1}`;
+      button.onclick = () => showSlide(index);
+      nav.appendChild(button);
+    });
+    function showSlide(index) {
+      sections.forEach((section, i) => section.classList.toggle("active", i === index));
+      [...nav.children].forEach((button, i) => button.classList.toggle("active", i === index));
+    }
+    showSlide(0);
+  </script>
+</body>
+</html>

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Урок: радио, таймер охоты, расходники и сохранения</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #171a21;
+      --panel: #232836;
+      --panel-2: #2d3446;
+      --text: #eef2f8;
+      --muted: #aeb8c8;
+      --line: #465065;
+      --accent: #68d391;
+      --accent-2: #7cc7ff;
+      --warn: #ffd166;
+      --bad: #ff8f8f;
+      --code: #10131a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 16px 24px;
+      background: rgba(23, 26, 33, 0.96);
+      border-bottom: 1px solid var(--line);
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.18; }
+    h1 { font-size: 25px; }
+    h2 { font-size: 30px; margin-bottom: 12px; }
+    h3 { font-size: 20px; margin: 18px 0 8px; color: var(--accent-2); }
+    p, li { color: var(--muted); line-height: 1.55; }
+    main {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      min-height: calc(100vh - 82px);
+    }
+    nav {
+      position: sticky;
+      top: 82px;
+      height: calc(100vh - 82px);
+      overflow: auto;
+      padding: 18px;
+      background: #1c202a;
+      border-right: 1px solid var(--line);
+    }
+    nav button {
+      display: block;
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    nav button.active { border-color: var(--accent); background: #244538; }
+    section {
+      display: none;
+      max-width: 1120px;
+      padding: 34px 42px 80px;
+    }
+    section.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #31405a;
+      color: #dce8ff;
+      font-size: 13px;
+      margin-right: 6px;
+    }
+    pre {
+      overflow: auto;
+      padding: 14px;
+      border-radius: 8px;
+      background: var(--code);
+      border: 1px solid #2d3444;
+      color: #d7e4ff;
+    }
+    code { color: #e8f0ff; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+    details {
+      margin: 12px 0;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    summary {
+      cursor: pointer;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .qa dt {
+      margin-top: 18px;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .qa dd {
+      margin: 6px 0 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    @media (max-width: 820px) {
+      main { grid-template-columns: 1fr; }
+      nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      section { padding: 24px 18px 60px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Урок: полный разбор коммита с радио, сохранениями и коллизиями</h1>
+    <p>Цель урока: пройти все изменения коммита по порядку без темы контроля версий: требование, диагностика, модель состояния, предметы, UI, сохранения, коллизии и проверки.</p>
+  </header>
+  <main>
+    <nav id="nav"></nav>
+    <div>
+      <section class="active" data-title="Цели">
+        <h2>Цели урока</h2>
+        <div class="grid">
+          <div class="card"><span class="tag">Plan</span><h3>Работать от чеклиста</h3><p>Показать ученику, как брать задачу из плана разработки и закрывать подпункты без хаотичных правок.</p></div>
+          <div class="card"><span class="tag">Gameplay</span><h3>Радио как риск</h3><p>Радио должно давать полезный ответ один раз, тратить заряд и заставлять игрока покупать новое.</p></div>
+          <div class="card"><span class="tag">State</span><h3>Сохранения</h3><p>Таймер охоты, количество радио и позиция призрака сохраняются и восстанавливаются из `save.json`.</p></div>
+          <div class="card"><span class="tag">Collision</span><h3>Физика игрока</h3><p>Игрок подходит ближе к стенам, а предметы больше нельзя ставить через стену.</p></div>
+        </div>
+      </section>
+
+      <section data-title="План занятия">
+        <h2>План занятия</h2>
+        <ol>
+          <li>Открыть `DEVELOPMENT_PLAN.md` и найти блоки 3 и 5.2: радио, таймер охоты, звук и визуал.</li>
+          <li>Провести диагностику кода: где живут радио, счётчики предметов, таймер охоты, сохранения и коллизии.</li>
+          <li>Сделать радио расходником: добавить `ItemType.RADIO` в `item_counts`, магазин и HUD, списывать заряд после использования.</li>
+          <li>Связать радио с таймером охоты: `get_hunt_radio_text()` возвращает примерное время с погрешностью.</li>
+          <li>Добавить отдельную фразу, если охота уже активна.</li>
+          <li>Синхронизировать звук и визуал: опциональный `radio_static.*`, overlay настройки частоты и многострочный popup.</li>
+          <li>Обновить `save.json`: сохранять счётчик радио, таймер охоты и состояние призрака.</li>
+          <li>Запретить установку предметов через стену проверкой линии от игрока до точки установки.</li>
+          <li>Уменьшить hitbox игрока, но оставить визуальный спрайт прежнего размера и центрировать его.</li>
+          <li>Обновить план разработки и провести smoke-проверки.</li>
+        </ol>
+      </section>
+
+      <section data-title="Карта изменений">
+        <h2>Шаг 1: карта изменений коммита</h2>
+        <p><span class="warn">Учебная идея:</span> перед кодом ученик должен понимать, какие системы затронуты и почему это один связный фикс.</p>
+        <div class="grid">
+          <div class="card"><h3>`inventory_system.py`</h3><p>Радио стало count-based расходником, получает cooldown, показывает ответ с таймером охоты и списывает один заряд.</p></div>
+          <div class="card"><h3>`main_work.py`</h3><p>Хранит таймер охоты, feedback радио, звук, сохранение охоты, призрака и новый меньший hitbox игрока.</p></div>
+          <div class="card"><h3>`ghost.py`</h3><p>Сериализует и восстанавливает runtime-состояние призрака: тип, позицию, состояние FSM и таймеры.</p></div>
+          <div class="card"><h3>`draws.py` / `assets.py`</h3><p>Рисуют overlay радио, показывают количество радио, центрируют спрайт игрока и опционально грузят звук.</p></div>
+        </div>
+        <details>
+          <summary>Квиз: почему это один урок, а не четыре отдельных?</summary>
+          <p>Потому что изменения связаны игровой петлёй: радио даёт информацию о призраке и охоте, а значит должны корректно работать заряд, таймер, сохранение состояния мира и честные коллизии взаимодействия.</p>
+        </details>
+      </section>
+
+      <section data-title="Читаем план">
+        <h2>Шаг 2: читаем `DEVELOPMENT_PLAN.md`</h2>
+        <p>Блок 3 задаёт порядок работы:</p>
+        <ol>
+          <li><strong>3.1</strong> Таймер охоты.</li>
+          <li><strong>3.2</strong> Ответ радио с примерным временем.</li>
+          <li><strong>3.3</strong> Антиспам: кулдаун или заряд.</li>
+          <li><strong>3.4</strong> Звук и синхрон с `inventory_system.Radio`.</li>
+          <li><strong>3.5</strong> Отдельная фраза во время охоты.</li>
+        </ol>
+        <p>Отдельно пункт 5.2 требует визуал радио: короткий индикатор, шум, ответ без длинного текста.</p>
+        <details>
+          <summary>Квиз: почему не начинаем с UI?</summary>
+          <p>UI должен показывать состояние игры, а не заменять его. Если сначала нарисовать красивую рамку, но не сделать таймер и расход заряда, получится декорация без игровой логики.</p>
+        </details>
+      </section>
+
+      <section data-title="Диагностика">
+        <h2>Шаг 3: диагностика кода</h2>
+        <p>Команды для ученика:</p>
+        <pre><code>rg -n "radio|радио|ask_radio|hunt|item_counts" main_work.py inventory_system.py ghost.py draws.py
+rg -n "save_game|load_game|serialize_hunt_state|restore_hunt_state" main_work.py</code></pre>
+        <p>Что ищем:</p>
+        <ul>
+          <li>`inventory_system.Radio.use()` — основная точка использования предмета.</li>
+          <li>`GhostManager.ask_radio()` — фраза призрака и проверка, есть ли у типа призрака radio-улика.</li>
+          <li>`Game.get_hunt_radio_text()` — текст про охоту.</li>
+          <li>`Game.save_game()` и `Game.load_game()` — сохранение счётчиков и таймеров.</li>
+        </ul>
+      </section>
+
+      <section data-title="Расходник">
+        <h2>Шаг 4: радио становится расходником</h2>
+        <p><span class="bad">Проблема:</span> обычный предмет покупается один раз и остаётся в инвентаре навсегда. Для радио это ломает баланс: игрок может бесконечно спрашивать призрака.</p>
+        <p><span class="ok">Фикс:</span> радио добавляется в `item_counts`, как соль, кровь, крест и аккумулятор.</p>
+        <pre><code>self.item_counts = {
+    ItemType.BATTERY: 0,
+    ItemType.BLOOD: 0,
+    ItemType.CROSS: 0,
+    ItemType.RED_DUST: 0,
+    ItemType.SALT: 0,
+    ItemType.RADIO: 0,
+}</code></pre>
+        <p>После использования заряд списывается:</p>
+        <pre><code>if ok:
+    game.progress_event("radio_answer", 1)
+game.inventory_manager.decrease_count(self.item_type)</code></pre>
+        <details>
+          <summary>Квиз: почему заряд списывается после попытки, а не только после успешного ответа?</summary>
+          <p>Потому что игрок всё равно использовал устройство. Если списывать только успешные ответы, можно бесконечно проверять типы без radio-улики и не платить за риск.</p>
+        </details>
+      </section>
+
+      <section data-title="Таймер охоты">
+        <h2>Шаг 5: таймер охоты</h2>
+        <p>В `Game` хранится два числа:</p>
+        <ul>
+          <li>`hunt_cooldown_ticks` — сколько тиков до следующей охоты.</li>
+          <li>`hunt_active_ticks` — сколько тиков осталось текущей охоте.</li>
+        </ul>
+        <pre><code>def tick_hunt_timer(self):
+    if self.hunt_active_ticks &gt; 0:
+        self.hunt_active_ticks -= 1
+        if self.hunt_active_ticks &lt;= 0:
+            self.reset_hunt_timer()
+        return
+    if self.hunt_cooldown_ticks &gt; 0:
+        self.hunt_cooldown_ticks -= 1</code></pre>
+        <p>Важно: таймер тикает только когда игра не на паузе. Журнал, магазин и game over не должны незаметно съедать время.</p>
+        <details>
+          <summary>Квиз: почему таймер в `Game`, а не в `Radio`?</summary>
+          <p>Радио только читает состояние мира. Охота существует независимо от радио: она должна продолжаться, даже если игрок не покупал радио. Поэтому таймер принадлежит игровому состоянию.</p>
+        </details>
+      </section>
+
+      <section data-title="Ответ радио">
+        <h2>Шаг 6: ответ радио с погрешностью</h2>
+        <p>Радио не говорит точное число. Оно даёт приблизительное время, а погрешность растёт со сложностью.</p>
+        <pre><code>error_by_difficulty = {0: 5, 1: 8, 2: 12, 3: 18}
+approx = max(0, seconds + random.randint(-error, error))
+return f"До охоты: ~{minutes:02d}:{rest:02d}."</code></pre>
+        <p>Так игрок получает полезную информацию, но не превращает радио в точный секундомер.</p>
+        <details>
+          <summary>Квиз: зачем добавлять случайную погрешность?</summary>
+          <p>Погрешность сохраняет напряжение. Игрок понимает порядок времени, но не может математически идеально безопасно играть вокруг таймера.</p>
+        </details>
+      </section>
+
+      <section data-title="Охота активна">
+        <h2>Шаг 7: отдельная фраза во время охоты</h2>
+        <p><span class="bad">Плохой вариант:</span> во время охоты говорить «До охоты: ~00:00». Игрок может подумать, что охота ещё впереди.</p>
+        <p><span class="ok">Фикс:</span> если `hunt_active_ticks &gt; 0`, радио говорит отдельную фразу.</p>
+        <pre><code>if self.hunt_active_ticks &gt; 0:
+    return "Оно здесь. Охота уже началась."</code></pre>
+        <details>
+          <summary>Квиз: почему это важнее красивой формулировки?</summary>
+          <p>Это честная обратная связь. Игрок должен понимать текущее состояние опасности, иначе механика кажется случайной и несправедливой.</p>
+        </details>
+      </section>
+
+      <section data-title="Звук и визуал">
+        <h2>Шаг 8: звук и визуал радио</h2>
+        <p>Звук сделан опциональным: если появится файл `radio_static.wav`, `radio_static.ogg`, `radio_noise.wav`, `radio_noise.ogg` или `radio.mp3`, игра его подхватит.</p>
+        <pre><code>self.radio_static_sound = assets.load_radio_static_sound()
+
+def trigger_radio_feedback(self, ok):
+    self.radio_feedback_ok = bool(ok)
+    self.radio_feedback_until = pygame.time.get_ticks() + 900
+    if self.radio_static_sound:
+        self.radio_static_sound.play()</code></pre>
+        <p>Визуал — короткий overlay с полосками шума. Он не закрывает центр экрана надолго и не заменяет геймплей.</p>
+        <details>
+          <summary>Квиз: почему звук опциональный?</summary>
+          <p>В репозитории может не быть аудио-ассетов. Хорошая игровая логика не должна падать только потому, что звук ещё не добавили.</p>
+        </details>
+      </section>
+
+      <section data-title="Сохранения">
+        <h2>Шаг 9: сохранения</h2>
+        <p>В слот сохраняются три связанные части:</p>
+        <ul>
+          <li>`item_counts.RADIO` — сколько радио осталось.</li>
+          <li>`hunt_state` — cooldown и активная охота.</li>
+          <li>`ghost_state` — тип и позиция призрака при перезаходе.</li>
+        </ul>
+        <pre><code>save_data = {
+    "item_counts": item_counts_serial,
+    "hunt_state": self.serialize_hunt_state(),
+    "ghost_state": self.ghost_manager.serialize_runtime_state(),
+}</code></pre>
+        <p>Для старых сейвов есть fallback: если раньше радио было boolean-предметом, `True` превращается в один заряд.</p>
+        <details>
+          <summary>Квиз: почему нужно сохранять позицию призрака вместе с радио?</summary>
+          <p>Радио сообщает информацию о мире: комнату, активность, время до охоты. Если после загрузки призрак каждый раз появляется заново, сохранение ломает честность подсказки и ощущения непрерывного раунда.</p>
+        </details>
+      </section>
+
+      <section data-title="Установка">
+        <h2>Шаг 10: нельзя ставить предметы через стену</h2>
+        <p><span class="bad">Проблема:</span> старая проверка разрешала ставить предмет в соседнюю клетку и проверяла, что сам предмет не пересекает стену. Но она не проверяла, есть ли стена между игроком и точкой установки.</p>
+        <p><span class="ok">Фикс:</span> добавлена проверка отрезка от центра игрока до точки установки через `Rect.clipline()`.</p>
+        <pre><code>def _placement_line_blocked(self, x, y) -&gt; bool:
+    start = self.game.player_rect.center
+    end = (int(x), int(y))
+    for wall_rect, _ in getattr(self.game, "walls", []):
+        if wall_rect.clipline(start, end):
+            return True
+    return False</code></pre>
+        <p>Та же проверка используется и для подсветки допустимых клеток, чтобы UI не обещал игроку невозможное действие.</p>
+        <details>
+          <summary>Квиз: почему недостаточно проверить только hitbox предмета?</summary>
+          <p>Потому что предмет может стоять в свободной клетке за стеной. Его hitbox не пересекает стену, но игрок физически не должен иметь возможность поставить его через препятствие.</p>
+        </details>
+      </section>
+
+      <section data-title="Hitbox игрока">
+        <h2>Шаг 11: уменьшаем hitbox игрока</h2>
+        <p><span class="bad">Проблема:</span> `player_rect` был равен визуальному размеру спрайта. Из-за этого игрок упирался в стену слишком рано и не мог подойти близко.</p>
+        <p><span class="ok">Фикс:</span> добавили отдельный визуальный размер и отдельный collision-size.</p>
+        <pre><code>self.player_visual_size = int(TILE_SIZE * MAP_SCALE)
+self.player_size = max(24, int(self.player_visual_size * 0.68))
+self.player_rect = pygame.Rect(0, 0, self.player_size, self.player_size)
+self.player_rect.center = (
+    self.start_x + self.player_visual_size // 2,
+    self.start_y + self.player_visual_size // 2,
+)</code></pre>
+        <p>В `draws.py` спрайт рисуется прежнего размера, но центрируется по меньшему `player_rect`. Поэтому визуально персонаж не «усох», а коллизии стали честнее.</p>
+        <details>
+          <summary>Квиз: почему нельзя просто уменьшить спрайт?</summary>
+          <p>Проблема была не в картинке, а в физике. Если уменьшить спрайт, игрок станет визуально меньше, но это не объясняет, где находится реальное тело персонажа. Правильнее разделить visual rect и collision rect.</p>
+        </details>
+      </section>
+
+      <section data-title="Проверки">
+        <h2>Проверки после исправления</h2>
+        <div class="card">
+          <ul>
+            <li>`python -m py_compile ghost.py main_work.py inventory_system.py draws.py mechanics.py handlers.py assets.py` проходит без ошибок.</li>
+            <li>После покупки радио в магазине статус показывает `Есть: 1`.</li>
+            <li>После использования радио счётчик уменьшается до 0, предмет исчезает из видимого инвентаря.</li>
+            <li>Повторное нажатие `R` без покупки нового радио показывает, что предмет не куплен.</li>
+            <li>При активной охоте радио пишет «Оно здесь. Охота уже началась.».</li>
+            <li>При обычном состоянии ответ содержит примерное время до охоты с `~`.</li>
+            <li>После сохранения и загрузки сохраняются заряд радио, таймер охоты и позиция призрака.</li>
+            <li>Если аудио-ассета нет, игра не падает и просто показывает визуальный индикатор.</li>
+            <li>Предметы нельзя поставить за стеной, даже если клетка рядом с игроком.</li>
+            <li>Игрок визуально того же размера, но подходит ближе к стенам из-за меньшего collision-rect.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section data-title="Разбор diff">
+        <h2>Как объяснить diff ученику</h2>
+        <ol>
+          <li><strong>`inventory_system.py`</strong>: предмет радио теперь проверяет count, вызывает feedback, добавляет таймер охоты к тексту и списывает заряд.</li>
+          <li><strong>`main_work.py`</strong>: хранит radio feedback, звук, таймер охоты, сохранение `hunt_state` и `ghost_state`.</li>
+          <li><strong>`ghost.py`</strong>: умеет сериализовать и восстановить runtime-состояние призрака.</li>
+          <li><strong>`draws.py`</strong>: рисует короткий radio overlay и показывает количество радио в HUD.</li>
+          <li><strong>`assets.py`</strong>: опционально загружает звук радио.</li>
+          <li><strong>`DEVELOPMENT_PLAN.md`</strong>: чеклист обновлён после реализации, а не до неё.</li>
+        </ol>
+      </section>
+
+      <section data-title="Вопросы">
+        <h2>Развёрнутые вопросы и ответы</h2>
+        <dl class="qa">
+          <dt>Почему `Radio.use()` должен быть главным местом логики?</dt>
+          <dd>Потому что это объект предмета. Если часть поведения оставить в `Game.use_radio()`, а часть в `InventoryManager`, появятся два сценария с разными правилами расхода, кулдауна и прогресса задач.</dd>
+
+          <dt>Почему cooldown не списывает заряд?</dt>
+          <dd>Cooldown означает, что устройство ещё не готово к новой попытке. Игрок не получил новую информацию и не должен терять второй предмет из-за слишком быстрого нажатия.</dd>
+
+          <dt>Почему радио списывается даже при ответе «тишина»?</dt>
+          <dd>Это честная цена проверки. В расследовании отрицательный результат тоже информация: если радио молчит, игрок может исключить radio-улику в журнале.</dd>
+
+          <dt>Почему таймер охоты сохраняется?</dt>
+          <dd>Иначе можно было бы выходить и заходить, чтобы сбрасывать опасную фазу. Сохранение таймера закрывает такой абуз и делает раунд непрерывным.</dd>
+
+          <dt>Почему позиция призрака сохраняется отдельно от таймера?</dt>
+          <dd>Таймер говорит о времени, а позиция — о мире. Радио может сказать, что призрак рядом или в комнате N; после загрузки это должно остаться правдой.</dd>
+
+          <dt>Почему текст радио разделён на две строки?</dt>
+          <dd>Первая строка отвечает за призрака: комната, настроение, наличие radio-улики. Вторая строка отвечает за охоту. Так игрок быстрее считывает смысл.</dd>
+
+          <dt>Почему в `DEVELOPMENT_PLAN.md` надо обновлять чекбоксы?</dt>
+          <dd>План разработки — это рабочий документ. Если не отмечать закрытые пункты, команда будет заново обсуждать уже сделанную работу или неправильно планировать следующую итерацию.</dd>
+
+          <dt>Что будет, если в старом сейве нет `ghost_state`?</dt>
+          <dd>Загрузка не падает. Игра использует обычный спавн уровня. Это важно для обратной совместимости сохранений.</dd>
+        </dl>
+      </section>
+
+      <section data-title="Домашка">
+        <h2>Домашнее задание</h2>
+        <div class="grid">
+          <div class="card"><h3>Базовый уровень</h3><p>Добавить в `assets/` тестовый `radio_static.ogg` и проверить, что звук проигрывается при использовании радио.</p></div>
+          <div class="card"><h3>Средний уровень</h3><p>Добавить в журнал подсказку: если радио молчит, предложить отметить radio как «исключено», но не делать это автоматически.</p></div>
+          <div class="card"><h3>Сложный уровень</h3><p>Сделать отдельные лорные фразы радио для каждого `ghost_kind`, не дублируя данные вне `ghost_abilities.ini`.</p></div>
+          <div class="card"><h3>Проверка</h3><p>Написать ручной тест-кейс: купить 2 радио, использовать одно, сохраниться, загрузиться и проверить, что осталось 1 радио.</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const sections = [...document.querySelectorAll("section")];
+    const nav = document.getElementById("nav");
+    sections.forEach((section, index) => {
+      const button = document.createElement("button");
+      button.textContent = section.dataset.title || `Раздел ${index + 1}`;
+      button.onclick = () => showSlide(index);
+      nav.appendChild(button);
+    });
+    function showSlide(index) {
+      sections.forEach((section, i) => section.classList.toggle("active", i === index));
+      [...nav.children].forEach((button, i) => button.classList.toggle("active", i === index));
+    }
+    showSlide(0);
+  </script>
+</body>
+</html>

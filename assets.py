@@ -161,6 +161,24 @@ def load_footprint_sprites():
     return [fallback]
 
 
+def load_radio_static_sound():
+    """Опциональный звук радио. Если ассета нет или mixer недоступен, возвращает None."""
+    if not pygame.mixer.get_init():
+        return None
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    search_paths = [os.path.join(script_dir, "assets"), os.path.join(script_dir, "..", "assets"), "assets"]
+    filenames = ("radio_static.wav", "radio_static.ogg", "radio_noise.wav", "radio_noise.ogg", "radio.mp3")
+    for filename in filenames:
+        for base in search_paths:
+            path = os.path.join(base, filename)
+            if os.path.isfile(path):
+                try:
+                    return pygame.mixer.Sound(path)
+                except pygame.error:
+                    return None
+    return None
+
+
 def load_placement_sprites():
     """Спрайты для размещаемых на уровне предметов: пыль (до/после), соль (до/после). Размер 50x50."""
     size = max(24, int(TILE_SIZE * MAP_SCALE * 0.45))

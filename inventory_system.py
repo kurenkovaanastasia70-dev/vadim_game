@@ -62,6 +62,8 @@ class Radio(Item):
         super().__init__(ItemType.RADIO)
 
     def use(self, game):
+        if game.inventory_manager.get_count(self.item_type) <= 0:
+            return False
         now = pygame.time.get_ticks()
         cooldown_until = getattr(game, "radio_cooldown_until", 0)
         if now < cooldown_until:
@@ -71,10 +73,13 @@ class Radio(Item):
         ok, text = game.ghost_manager.ask_radio(game.player_rect)
         hunt_text = game.get_hunt_radio_text(ok) if hasattr(game, "get_hunt_radio_text") else ""
         if hunt_text:
-            text = f"{text} {hunt_text}"
-        game._show_game_info(text, 1800 if ok else 1200)
+            text = f"{text}\n{hunt_text}"
+        if hasattr(game, "trigger_radio_feedback"):
+            game.trigger_radio_feedback(ok)
+        game._show_game_info(text, 2400 if ok else 1700)
         if ok:
             game.progress_event("radio_answer", 1)
+        game.inventory_manager.decrease_count(self.item_type)
         return True
 
 
@@ -335,7 +340,8 @@ class InventoryManager:
             ItemType.BLOOD: 0,
             ItemType.CROSS: 0,
             ItemType.RED_DUST: 0,
-            ItemType.SALT: 0
+            ItemType.SALT: 0,
+            ItemType.RADIO: 0
         }
         
         # Размещённые предметы на карте
@@ -511,7 +517,21 @@ class InventoryManager:
         for hb in getattr(g, 'level_hitboxes', []):
             if test.colliderect(hb):
                 return False
+        if self._placement_line_blocked(x, y):
+            return False
         return True
+
+    def _placement_line_blocked(self, x, y) -> bool:
+        g = self.game
+        start = g.player_rect.center
+        end = (int(x), int(y))
+        for wall_rect, _ in getattr(g, 'walls', []):
+            if wall_rect.clipline(start, end):
+                return True
+        for hb in getattr(g, 'level_hitboxes', []):
+            if hb.clipline(start, end):
+                return True
+        return False
 
     def _get_valid_placement_cells(self):
         """Список координат (center_x, center_y) клеток, куда можно разместить предмет."""
@@ -538,6 +558,8 @@ class InventoryManager:
                         if test.colliderect(hb):
                             ok = False
                             break
+                if ok and self._placement_line_blocked(cx, cy):
+                    ok = False
                 if ok:
                     valid.append((cx, cy))
         return valid
