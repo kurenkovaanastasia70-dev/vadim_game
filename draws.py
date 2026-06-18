@@ -13,6 +13,7 @@ from constants import (
 )
 import assets
 import mechanics
+import level_config
 from inventory_system import ItemType
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
 
@@ -693,25 +694,65 @@ def draw_game_over(game):
 
 
 def draw_win(game):
-    game.screen.fill((12, 20, 16))
+    game.screen.fill((9, 14, 18))
+    for y in range(0, SCREEN_HEIGHT, 18):
+        shade = 18 + y * 30 // max(1, SCREEN_HEIGHT)
+        pygame.draw.line(game.screen, (8, shade, 20), (0, y), (SCREEN_WIDTH, y))
 
-    title_font = pygame.font.Font(None, 72)
+    panel = pygame.Rect(0, 0, 690, 560)
+    panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+    shadow = panel.move(10, 12)
+    pygame.draw.rect(game.screen, (2, 5, 7), shadow, border_radius=18)
+    pygame.draw.rect(game.screen, (24, 34, 34), panel, border_radius=18)
+    pygame.draw.rect(game.screen, (114, 219, 157), panel, 3, border_radius=18)
+
+    glow = pygame.Surface((panel.w - 44, 76), pygame.SRCALPHA)
+    glow.fill((88, 183, 128, 44))
+    game.screen.blit(glow, (panel.x + 22, panel.y + 22))
+
+    title_font = pygame.font.Font(None, 66)
     body_font = pygame.font.Font(None, 30)
-    hint_font = pygame.font.Font(None, 24)
+    small_font = pygame.font.Font(None, 24)
+    badge_font = pygame.font.Font(None, 22)
 
     ghost_name = getattr(game, "win_ghost_name", "призрак")
-    title = title_font.render("Расследование завершено", True, (104, 211, 145))
-    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 126)))
+    has_next = game.has_next_level()
+    next_level_id = getattr(game, "win_next_level_id", None)
+    next_meta = level_config.get_level_index().get(next_level_id, {}) if next_level_id else {}
+    next_name = next_meta.get("name", "следующий уровень")
 
-    body_text = f"Вы верно определили тип: {ghost_name}."
-    body = body_font.render(body_text, True, (232, 242, 235))
-    game.screen.blit(body, body.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 62)))
+    title = title_font.render("Победа!", True, (172, 255, 194))
+    game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 72)))
 
-    sub = body_font.render("Выбор подтверждён. Победа засчитана.", True, (190, 218, 202))
-    game.screen.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 28)))
+    badge = pygame.Rect(panel.centerx - 150, panel.y + 112, 300, 34)
+    pygame.draw.rect(game.screen, (45, 75, 64), badge, border_radius=16)
+    pygame.draw.rect(game.screen, (138, 229, 170), badge, 1, border_radius=16)
+    badge_text = badge_font.render("Расследование завершено", True, (228, 247, 235))
+    game.screen.blit(badge_text, badge_text.get_rect(center=badge.center))
 
-    hint = hint_font.render("Enter - заново, Esc - в меню", True, (156, 178, 164))
-    game.screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 8)))
+    lines = [
+        f"Вы верно определили тип: {ghost_name}.",
+        "Улики совпали, журнал подтверждён, дело закрыто.",
+    ]
+    if has_next:
+        lines.append(f"Открыт переход: {next_name}.")
+        hint_text = "Enter - следующий уровень | R - заново | Esc - меню"
+    else:
+        lines.append("Это финал текущей цепочки уровней.")
+        hint_text = "Enter - заново | Esc - меню"
+
+    y = panel.y + 174
+    for line in lines:
+        for wrapped in _wrap_lines(body_font, line, panel.w - 104):
+            text = body_font.render(wrapped, True, (230, 240, 232))
+            game.screen.blit(text, text.get_rect(center=(panel.centerx, y)))
+            y += 34
+        y += 2
+
+    pygame.draw.line(game.screen, (76, 116, 92), (panel.x + 70, panel.y + 306), (panel.right - 70, panel.y + 306), 2)
+
+    hint = small_font.render(hint_text, True, (166, 194, 174))
+    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.y + 336)))
 
     for button in game.win_buttons:
         button.draw(game.screen)

@@ -79,3 +79,16 @@ def get_level_file_path_by_number(number: int) -> Optional[str]:
         return None
     return os.path.join(BASE_DIR, filename)
 
+
+def get_next_level_id(level_id: Optional[str]) -> Optional[str]:
+    """
+    Возвращает id следующего уровня из реестра или None для финала кампании.
+    """
+    if not level_id:
+        return None
+    meta = get_level_index().get(level_id)
+    if not meta:
+        return None
+    next_level_id = meta.get("next")
+    return next_level_id if next_level_id else None
+

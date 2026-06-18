@@ -122,6 +122,7 @@ class Game:
         ]
         self.game_over_reason = "hp"
         self.win_ghost_name = ""
+        self.win_next_level_id = None
 
         self.player_money = 100
         self.player_level = 1
@@ -450,6 +451,53 @@ class Game:
             self.inventory[item] = False
         self.inventory_manager.reset_runtime_state(clear_counts=True)
         self.uv_mode = False
+
+    def get_next_level_id(self):
+        """Возвращает следующий уровень для текущей позиции кампании."""
+        level_id = self.current_level_id
+        if not level_id:
+            meta = level_config.get_level_by_number(self.player_level)
+            level_id = meta.get("id") if meta else None
+        return level_config.get_next_level_id(level_id)
+
+    def has_next_level(self):
+        return bool(getattr(self, "win_next_level_id", None) or self.get_next_level_id())
+
+    def configure_win_buttons(self):
+        if self.has_next_level():
+            self.win_buttons = [
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 78, 300, 46, "Следующий уровень", GREEN),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 136, 300, 46, "Заново", GRAY),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 194, 300, 46, "В меню", BLUE),
+            ]
+        else:
+            self.win_buttons = [
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 104, 260, 46, "Заново", GREEN),
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 164, 260, 46, "В меню", BLUE),
+            ]
+
+    def advance_to_next_level(self):
+        """Переходит на следующий уровень из levels_index.json."""
+        next_level_id = self.get_next_level_id()
+        if not next_level_id:
+            self._show_game_info("Это был последний доступный уровень.", 1600)
+            return False
+
+        next_meta = level_config.get_level_index().get(next_level_id, {})
+        self.player_level = int(next_meta.get("number", self.player_level + 1))
+        self.current_level_id = next_level_id
+        self.win_next_level_id = None
+        self.reset_inventory()
+        self.reset_journal_evidence()
+        self.loaded_journal_evidence = None
+        self.loaded_inventory_runtime = None
+        self.loaded_hunt_state = None
+        self.loaded_ghost_state = None
+        self.set_state(GameState.GAME, reset_stack=True)
+        if self.selected_save_slot:
+            self.save_game(self.selected_save_slot)
+        return True
+
     def load_level(self, level_file_path):
         """
         Загружает уровень из JSON файла.
@@ -685,6 +733,8 @@ class Game:
 
     def enter_win(self, ghost_name=""):
         self.win_ghost_name = ghost_name or "призрак"
+        self.win_next_level_id = self.get_next_level_id()
+        self.configure_win_buttons()
         self.moving = False
         self.show_save_prompt = False
         self.info_message = None
