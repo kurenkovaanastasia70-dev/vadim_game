@@ -46,6 +46,8 @@ JOURNAL_EVIDENCE_HELP = [
     ),
 ]
 
+EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in JOURNAL_EVIDENCE_HELP}
+
 
 def _draw_radio_feedback(game):
     if pygame.time.get_ticks() >= getattr(game, "radio_feedback_until", 0):
@@ -699,7 +701,7 @@ def draw_win(game):
         shade = 18 + y * 30 // max(1, SCREEN_HEIGHT)
         pygame.draw.line(game.screen, (8, shade, 20), (0, y), (SCREEN_WIDTH, y))
 
-    panel = pygame.Rect(0, 0, 690, 560)
+    panel = pygame.Rect(0, 0, 690, 620)
     panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
     shadow = panel.move(10, 12)
     pygame.draw.rect(game.screen, (2, 5, 7), shadow, border_radius=18)
@@ -720,6 +722,12 @@ def draw_win(game):
     next_level_id = getattr(game, "win_next_level_id", None)
     next_meta = level_config.get_level_index().get(next_level_id, {}) if next_level_id else {}
     next_name = next_meta.get("name", "следующий уровень")
+    report = getattr(game, "win_report", {}) or {}
+    evidence_keys = report.get("found_evidence", [])
+    evidence_names = [EVIDENCE_LABELS.get(key, key) for key in evidence_keys]
+    evidence_text = ", ".join(evidence_names) if evidence_names else "улики не отмечены в журнале"
+    reward = int(report.get("reward", 0) or 0)
+    report_next_name = report.get("next_level_name") or ("финал кампании" if not has_next else next_name)
 
     title = title_font.render("Победа!", True, (172, 255, 194))
     game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 72)))
@@ -749,10 +757,24 @@ def draw_win(game):
             y += 34
         y += 2
 
-    pygame.draw.line(game.screen, (76, 116, 92), (panel.x + 70, panel.y + 306), (panel.right - 70, panel.y + 306), 2)
+    report_box = pygame.Rect(panel.x + 58, panel.y + 270, panel.w - 116, 94)
+    pygame.draw.rect(game.screen, (19, 28, 30), report_box, border_radius=12)
+    pygame.draw.rect(game.screen, (72, 117, 94), report_box, 1, border_radius=12)
+    report_lines = [
+        f"Найденные улики: {evidence_text}",
+        f"Доход за уровень: +{reward}$",
+        f"Дальше: {report_next_name}",
+    ]
+    ry = report_box.y + 10
+    for line in report_lines:
+        for wrapped in _wrap_lines(small_font, line, report_box.w - 28):
+            game.screen.blit(small_font.render(wrapped, True, (205, 226, 212)), (report_box.x + 14, ry))
+            ry += 22
+
+    pygame.draw.line(game.screen, (76, 116, 92), (panel.x + 70, panel.y + 380), (panel.right - 70, panel.y + 380), 2)
 
     hint = small_font.render(hint_text, True, (166, 194, 174))
-    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.y + 336)))
+    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.y + 410)))
 
     for button in game.win_buttons:
         button.draw(game.screen)
@@ -832,7 +854,8 @@ def draw_game(game):
     if sprite:
         game.screen.blit(sprite, player_draw_rect.topleft)
     else:  # fallback — если спрайты не загрузились
-        pygame.draw.rect(game.screen, (255, 0, 0), player_draw_rect)
+        pygame.draw.ellipse(game.screen, (235, 205, 170), player_draw_rect.inflate(-player_visual_size // 3, -player_visual_size // 2))
+        pygame.draw.rect(game.screen, (58, 105, 165), player_draw_rect.inflate(-player_visual_size // 4, -player_visual_size // 5), border_radius=8)
 
     # Активный предмет в руке: если ничего не выбрано, но фонарик куплен — держим фонарик по умолчанию.
     if (

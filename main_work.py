@@ -123,6 +123,7 @@ class Game:
         self.game_over_reason = "hp"
         self.win_ghost_name = ""
         self.win_next_level_id = None
+        self.win_report = {}
 
         self.player_money = 100
         self.player_level = 1
@@ -463,17 +464,27 @@ class Game:
     def has_next_level(self):
         return bool(getattr(self, "win_next_level_id", None) or self.get_next_level_id())
 
+    def get_level_name(self, level_id=None):
+        level_id = level_id or self.current_level_id
+        meta = level_config.get_level_index().get(level_id) if level_id else None
+        if not meta:
+            meta = level_config.get_level_by_number(self.player_level)
+        return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
+
+    def get_level_complete_reward(self):
+        return 80 + max(0, self.player_level - 1) * 35 + self.difficulty_index * 20
+
     def configure_win_buttons(self):
         if self.has_next_level():
             self.win_buttons = [
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 78, 300, 46, "Следующий уровень", GREEN),
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 136, 300, 46, "Заново", GRAY),
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 194, 300, 46, "В меню", BLUE),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 130, 300, 46, "Следующий уровень", GREEN),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 188, 300, 46, "Заново", GRAY),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 246, 300, 46, "В меню", BLUE),
             ]
         else:
             self.win_buttons = [
-                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 104, 260, 46, "Заново", GREEN),
-                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 164, 260, 46, "В меню", BLUE),
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 158, 260, 46, "Заново", GREEN),
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 218, 260, 46, "В меню", BLUE),
             ]
 
     def advance_to_next_level(self):
@@ -497,6 +508,25 @@ class Game:
         if self.selected_save_slot:
             self.save_game(self.selected_save_slot)
         return True
+
+    def restart_current_level(self):
+        """Перезапускает текущий уровень, не сбрасывая кампанию на первый уровень."""
+        self.game_over_reason = "hp"
+        self.player_hp = 5
+        self.win_next_level_id = None
+        self.win_report = {}
+        self.reset_inventory()
+        self.reset_player_position()
+        self.journal_open = False
+        self.journal_reset_confirm = False
+        self.reset_journal_evidence()
+        self.loaded_journal_evidence = None
+        self.loaded_inventory_runtime = None
+        self.loaded_hunt_state = None
+        self.loaded_ghost_state = None
+        self.radio_cooldown_until = 0
+        self.reset_hunt_timer()
+        self.set_state(GameState.GAME, reset_stack=True)
 
     def load_level(self, level_file_path):
         """
@@ -734,6 +764,19 @@ class Game:
     def enter_win(self, ghost_name=""):
         self.win_ghost_name = ghost_name or "призрак"
         self.win_next_level_id = self.get_next_level_id()
+        reward = self.get_level_complete_reward()
+        self.player_money += reward
+        next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
+        found_evidence = [
+            key for key, state in self.journal_evidence.items()
+            if state == EVIDENCE_CONFIRMED
+        ]
+        self.win_report = {
+            "level_name": self.get_level_name(),
+            "found_evidence": found_evidence,
+            "reward": reward,
+            "next_level_name": next_meta.get("name") if next_meta else None,
+        }
         self.configure_win_buttons()
         self.moving = False
         self.show_save_prompt = False
