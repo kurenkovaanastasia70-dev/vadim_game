@@ -352,18 +352,24 @@ def handle_game_over_events(game, event):
 
 
 def handle_win_events(game, event):
+    has_next = game.has_next_level()
     for i, button in enumerate(game.win_buttons):
         if button.handle_event(event):
-            if i == 0:
-                game.reset_for_new_game()
-                game.set_state(GameState.GAME, reset_stack=True)
-            elif i == 1:
+            if i == 0 and has_next:
+                game.advance_to_next_level()
+            elif (i == 0 and not has_next) or (i == 1 and has_next):
+                game.restart_current_level()
+            else:
                 game.set_state(GameState.MENU, reset_stack=True)
 
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_RETURN:
-            game.reset_for_new_game()
-            game.set_state(GameState.GAME, reset_stack=True)
+            if has_next:
+                game.advance_to_next_level()
+            else:
+                game.restart_current_level()
+        elif event.key == pygame.K_r:
+            game.restart_current_level()
         elif event.key == pygame.K_ESCAPE:
             game.set_state(GameState.MENU, reset_stack=True)
 

@@ -564,6 +564,20 @@ class InventoryManager:
                     valid.append((cx, cy))
         return valid
 
+    def _placement_cell_at(self, x, y):
+        """Возвращает центр подсвеченной клетки под кликом или None."""
+        half = PLACED_ITEM_HITBOX_SIZE // 2
+        for cx, cy in self._get_valid_placement_cells():
+            cell_rect = pygame.Rect(
+                cx - half,
+                cy - half,
+                PLACED_ITEM_HITBOX_SIZE,
+                PLACED_ITEM_HITBOX_SIZE,
+            )
+            if cell_rect.collidepoint(x, y):
+                return cx, cy
+        return None
+
     def place_item(self, x, y) -> bool:
         """Разместить предмет на карте. Пыль/соль — только в соседних ячейках. Проектор — аналогично."""
         if not self.placement_mode or not self.selected_item_type:
@@ -577,8 +591,10 @@ class InventoryManager:
                 self.placed_projector = None
                 self.moving_projector.is_moving = True
                 return False  # не отменяем placement_mode
-            if not self._can_place_at(x, y):
+            placement_cell = self._placement_cell_at(x, y)
+            if not placement_cell:
                 return False
+            x, y = placement_cell
             if self.moving_projector:
                 self.moving_projector.x, self.moving_projector.y = x, y
                 half = PLACED_ITEM_HITBOX_SIZE // 2
@@ -593,9 +609,11 @@ class InventoryManager:
         
         item = self.items.get(self.selected_item_type)
         if isinstance(item, PlaceableItem):
+            placement_cell = self._placement_cell_at(x, y)
+            if not placement_cell:
+                return False
+            x, y = placement_cell
             if self.moving_placed_item:
-                if not self._can_place_at(x, y):
-                    return False
                 self.moving_placed_item.x = x
                 self.moving_placed_item.y = y
                 half = PLACED_ITEM_HITBOX_SIZE // 2
@@ -608,8 +626,6 @@ class InventoryManager:
                 return True
             if self.get_count(self.selected_item_type) <= 0:
                 self.cancel_placement()
-                return False
-            if not self._can_place_at(x, y):
                 return False
             placed = item.create_placed_instance(x, y)
             self.placed_items.append(placed)

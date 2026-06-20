@@ -276,31 +276,57 @@ def load_level_background(game):
 
 def load_player_sprites():
     """
-    Загружает спрайты персонажа (16 спрайтов по 4 на каждое направление).
-    Оригинальный код из main.py без изменений.
+    Загружает спрайты персонажа по фактическим файлам в sprite_parts.
+    Направления могут иметь разное количество кадров: вниз сейчас 2, остальные по 4.
     """
     player_sprites = {}
-    directions = {
-        "down": 2,   # 2 кадра
-        "up": 4,
-        "left": 4,
-        "right": 4
-    }
+    directions = ("down", "up", "left", "right")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    search_dirs = [
+        os.path.join(script_dir, "sprite_parts"),
+        os.path.join(os.getcwd(), "sprite_parts"),
+    ]
+    px = int(TILE_SIZE * MAP_SCALE)
 
-    for direction, frame_count in directions.items():
+    def load_frame(path):
+        sprite = pygame.image.load(path).convert_alpha()
+        return pygame.transform.scale(sprite, (px, px))
+
+    def make_player_placeholder():
+        surf = pygame.Surface((px, px), pygame.SRCALPHA)
+        body = pygame.Rect(px // 4, px // 5, px // 2, px * 3 // 5)
+        pygame.draw.ellipse(surf, (235, 205, 170), (px // 3, px // 12, px // 3, px // 3))
+        pygame.draw.rect(surf, (58, 105, 165), body, border_radius=max(4, px // 10))
+        pygame.draw.rect(surf, (25, 35, 48), body, 2, border_radius=max(4, px // 10))
+        return surf
+
+    for direction in directions:
         player_sprites[direction] = []
-        for i in range(frame_count):
+        frame_index = 1
+        while True:
+            found_path = None
+            for base_dir in search_dirs:
+                path = os.path.join(base_dir, f"player_{direction}_{frame_index}.png")
+                if os.path.exists(path):
+                    found_path = path
+                    break
+            if not found_path:
+                break
             try:
-                path = f"sprite_parts/player_{direction}_{i+1}.png"
-                if not os.path.exists(path):
-                    continue
-                sprite = pygame.image.load(path).convert_alpha()
-                px = int(TILE_SIZE * MAP_SCALE)
-                sprite = pygame.transform.scale(sprite, (px, px))
-                player_sprites[direction].append(sprite)
+                player_sprites[direction].append(load_frame(found_path))
             except Exception as e:
-                print(f"[!] Не удалось загрузить спрайт {path}: {e}")
-                # Продолжаем загрузку остальных спрайтов
+                print(f"[!] Не удалось загрузить спрайт {found_path}: {e}")
+            frame_index += 1
+
+    fallback_frames = next((frames for frames in player_sprites.values() if frames), None)
+    if fallback_frames:
+        for direction in directions:
+            if not player_sprites[direction]:
+                player_sprites[direction] = [frame.copy() for frame in fallback_frames]
+    else:
+        placeholder = make_player_placeholder()
+        for direction in directions:
+            player_sprites[direction] = [placeholder.copy()]
     
     return player_sprites
 
