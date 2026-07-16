@@ -253,8 +253,12 @@ def handle_game_events(game, event):
         if button.handle_event(event):
             if i == 0:  # Кнопка "Меню"
                 game.show_save_prompt = True
-            elif i == 1:  # Кнопка "Магазин"
-                game.push_state(GameState.SHOP)
+
+    if hasattr(game, "journal_button") and game.journal_button.handle_event(event):
+        game.journal_open = not getattr(game, "journal_open", False)
+        if not game.journal_open:
+            game.journal_reset_confirm = False
+        return
 
     # Обработка нажатий и отпусканий клавиш для плавного движения
     if event.type == pygame.KEYDOWN:

@@ -109,9 +109,9 @@ class Game:
         
         # Создание кнопок для игрового экрана
         self.game_buttons = [
-            Button(SCREEN_WIDTH - 150, 50, 100, 40, "Меню", RED),
-            Button(SCREEN_WIDTH - 150, 100, 100, 40, "Магазин", BLUE)
+            Button(SCREEN_WIDTH - 120, 16, 98, 38, "Меню", RED),
         ]
+        self.journal_button = Button(SCREEN_WIDTH - 172, 62, 150, 38, "Дело  J", GREEN)
         self.game_over_buttons = [
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 40, 240, 46, "Заново", GREEN),
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 100, 240, 46, "В меню", RED),

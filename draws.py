@@ -88,7 +88,7 @@ def _draw_crt_atmosphere(game):
 
 
 def _draw_compact_status_hud(game):
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 330, 86
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 378, 86
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -99,19 +99,22 @@ def _draw_compact_status_hud(game):
     hp = max(0, int(getattr(game, "player_hp", 0)))
     threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
 
+    game.screen.blit(small.render("HP", True, (145, 170, 160)), (hud_x + 12, hud_y + 10))
+    for i in range(5):
+        color = (225, 82, 82) if i < hp else (63, 74, 70)
+        _draw_pixel_heart(game.screen, hud_x + 12 + i * 22, hud_y + 32, 2, color)
+
     rows = [
-        ("HP", "♥" * hp if hp else "0", (225, 82, 82)),
         ("$", str(getattr(game, "player_money", 0)), (230, 206, 116)),
         ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
         ("UV", "ON" if getattr(game, "uv_mode", False) else "OFF", (166, 132, 236)),
     ]
-    x = hud_x + 12
+    x = hud_x + 132
     for label, value, color in rows:
-        tag = small.render(label, True, (145, 170, 160))
-        game.screen.blit(tag, (x, hud_y + 10))
+        game.screen.blit(small.render(label, True, (145, 170, 160)), (x, hud_y + 10))
         val = font.render(value, True, color)
         game.screen.blit(val, (x, hud_y + 32))
-        x += 74
+        x += 70
 
     bar = pygame.Rect(hud_x + 12, hud_y + 66, hud_w - 24, 8)
     pygame.draw.rect(game.screen, (42, 54, 49), bar, border_radius=4)
@@ -119,6 +122,37 @@ def _draw_compact_status_hud(game):
     if fill_w:
         pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
     pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
+
+
+def _draw_pixel_heart(screen, x, y, scale, color):
+    pixels = (
+        "01100110",
+        "11111111",
+        "11111111",
+        "01111110",
+        "00111100",
+        "00011000",
+    )
+    shadow = (22, 15, 18)
+    for row, line in enumerate(pixels):
+        for col, bit in enumerate(line):
+            if bit == "1":
+                rect = pygame.Rect(x + col * scale, y + row * scale, scale, scale)
+                pygame.draw.rect(screen, shadow, rect.move(scale, scale))
+                pygame.draw.rect(screen, color, rect)
+
+
+def _draw_retro_button(screen, button, active=False):
+    mouse = pygame.mouse.get_pos()
+    hovered = button.rect.collidepoint(mouse)
+    bg = (31, 43, 39) if not hovered else (45, 66, 58)
+    border = (214, 238, 207) if active else ((133, 196, 156) if hovered else (96, 132, 116))
+    text_color = (235, 246, 238)
+    pygame.draw.rect(screen, (5, 8, 7), button.rect.move(3, 3), border_radius=6)
+    pygame.draw.rect(screen, bg, button.rect, border_radius=6)
+    pygame.draw.rect(screen, border, button.rect, 2, border_radius=6)
+    label = pygame.font.Font(None, 23).render(button.text, True, text_color)
+    screen.blit(label, label.get_rect(center=button.rect.center))
 
 EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in JOURNAL_EVIDENCE_HELP}
 
@@ -386,7 +420,7 @@ def draw_howto(game):
         ),
         (
             "Опасность и сейв",
-            "Касание призрака = минус жизнь. **Меню** (справа вверху) — выход с сохранением в слот.",
+            "Касание призрака = минус жизнь. **Дело J** открывает журнал улик, **Меню** — выход с сохранением.",
         ),
     ]
 
@@ -1021,9 +1055,11 @@ def draw_game(game):
     }
     _draw_radio_feedback(game)
 
-    # Кнопки меню и магазина
+    # Верхние игровые кнопки: магазин убран, журнал вынесен как явная кнопка "Дело".
     for button in game.game_buttons:
-        button.draw(game.screen)
+        _draw_retro_button(game.screen, button)
+    if hasattr(game, "journal_button"):
+        _draw_retro_button(game.screen, game.journal_button, active=getattr(game, "journal_open", False))
 
     _draw_compact_status_hud(game)
 
