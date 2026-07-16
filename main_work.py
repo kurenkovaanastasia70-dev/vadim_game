@@ -306,6 +306,34 @@ class Game:
         self.camera_x = max(0, min(target_x, self.world_width - SCREEN_WIDTH))
         self.camera_y = max(0, min(target_y, self.world_height - SCREEN_HEIGHT))
 
+    def nearest_visible_ghost_distance(self):
+        """Возвращает расстояние до ближайшего видимого призрака или None."""
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        if not ghosts:
+            return None
+
+        nearest = None
+        for ghost in ghosts:
+            state_name = getattr(getattr(ghost, "state", None), "name", "")
+            if state_name == "INVISIBLE" or getattr(ghost, "is_frozen_after_appear", False):
+                continue
+            dist = self.player_rect.centerx - ghost.rect.centerx, self.player_rect.centery - ghost.rect.centery
+            distance = (dist[0] ** 2 + dist[1] ** 2) ** 0.5
+            nearest = distance if nearest is None else min(nearest, distance)
+        return nearest
+
+    def threat_level(self):
+        """0.0 спокойствие, 1.0 максимальная тревога рядом с призраком или во время охоты."""
+        distance = self.nearest_visible_ghost_distance()
+        proximity = 0.0
+        if distance is not None:
+            proximity = max(0.0, min(1.0, 1.0 - distance / 520.0))
+
+        hunt_pressure = 0.0
+        if getattr(self, "hunt_active_ticks", 0) > 0:
+            hunt_pressure = 0.45
+        return max(proximity, hunt_pressure)
+
     def _show_game_info(self, text, duration_ms=1800):
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms

@@ -46,6 +46,80 @@ JOURNAL_EVIDENCE_HELP = [
     ),
 ]
 
+
+def _draw_crt_atmosphere(game):
+    """Легкая ретро-постобработка без новых ассетов: tint, scanlines, шум и тревожная вспышка."""
+    now = pygame.time.get_ticks()
+    threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
+
+    tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    tint.fill((18, 45, 38, 34))
+    game.screen.blit(tint, (0, 0))
+
+    if threat > 0:
+        pulse = 0.5 + 0.5 * ((now // 120) % 2)
+        danger_alpha = int(28 + 74 * threat * pulse)
+        danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        danger.fill((110, 12, 18, danger_alpha))
+        game.screen.blit(danger, (0, 0))
+
+    line_alpha = 34 + int(18 * threat)
+    scanlines = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    for y in range(0, SCREEN_HEIGHT, 4):
+        pygame.draw.line(scanlines, (0, 0, 0, line_alpha), (0, y), (SCREEN_WIDTH, y))
+    game.screen.blit(scanlines, (0, 0))
+
+    noise = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    step = 32
+    offset = (now // 90) % step
+    for y in range(-offset, SCREEN_HEIGHT, step):
+        for x in range((y + offset) % 47, SCREEN_WIDTH, 96):
+            alpha = 10 + int(28 * threat)
+            noise.fill((220, 255, 230, alpha), (x, y, 2, 1))
+    game.screen.blit(noise, (0, 0))
+
+    vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    edge = int(80 + 45 * threat)
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, SCREEN_WIDTH, 28))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, SCREEN_HEIGHT - 28, SCREEN_WIDTH, 28))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, 28, SCREEN_HEIGHT))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (SCREEN_WIDTH - 28, 0, 28, SCREEN_HEIGHT))
+    game.screen.blit(vignette, (0, 0))
+
+
+def _draw_compact_status_hud(game):
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 330, 86
+    hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
+    hud_bg.fill((19, 25, 24, 218))
+    game.screen.blit(hud_bg, (hud_x, hud_y))
+    pygame.draw.rect(game.screen, (118, 156, 132), (hud_x, hud_y, hud_w, hud_h), 2, border_radius=6)
+
+    font = pygame.font.Font(None, 24)
+    small = pygame.font.Font(None, 20)
+    hp = max(0, int(getattr(game, "player_hp", 0)))
+    threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
+
+    rows = [
+        ("HP", "♥" * hp if hp else "0", (225, 82, 82)),
+        ("$", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
+        ("UV", "ON" if getattr(game, "uv_mode", False) else "OFF", (166, 132, 236)),
+    ]
+    x = hud_x + 12
+    for label, value, color in rows:
+        tag = small.render(label, True, (145, 170, 160))
+        game.screen.blit(tag, (x, hud_y + 10))
+        val = font.render(value, True, color)
+        game.screen.blit(val, (x, hud_y + 32))
+        x += 74
+
+    bar = pygame.Rect(hud_x + 12, hud_y + 66, hud_w - 24, 8)
+    pygame.draw.rect(game.screen, (42, 54, 49), bar, border_radius=4)
+    fill_w = int(bar.w * threat)
+    if fill_w:
+        pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
+    pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
+
 EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in JOURNAL_EVIDENCE_HELP}
 
 
@@ -932,6 +1006,8 @@ def draw_game(game):
         # Без фонарика: круг вокруг игрока, обрезанный по границам комнаты
         clipped_overlay = game._create_clipped_vignette_overlay()
         game.screen.blit(clipped_overlay, (0, 0))
+
+    _draw_crt_atmosphere(game)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
@@ -949,28 +1025,7 @@ def draw_game(game):
     for button in game.game_buttons:
         button.draw(game.screen)
 
-    # Единый левый HUD-блок
-    hud_x, hud_y, hud_w, hud_h = 24, 16, 340, 140
-    hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
-    hud_bg.fill((236, 228, 210, 212))
-    game.screen.blit(hud_bg, (hud_x, hud_y))
-    pygame.draw.rect(game.screen, (95, 77, 56), (hud_x, hud_y, hud_w, hud_h), 2)
-
-    title_font = pygame.font.Font(None, 25)
-    row_font = pygame.font.Font(None, 24)
-    game.screen.blit(title_font.render("HUD", True, (44, 37, 30)), (hud_x + 10, hud_y + 8))
-    game.screen.blit(row_font.render(f"Деньги: {game.player_money}", True, (44, 37, 30)), (hud_x + 10, hud_y + 36))
-    game.screen.blit(row_font.render(f"Уровень: {game.player_level}", True, (44, 37, 30)), (hud_x + 10, hud_y + 58))
-    game.screen.blit(row_font.render(f"Жизни: {game.player_hp}", True, (44, 37, 30)), (hud_x + 10, hud_y + 80))
-    game.screen.blit(
-        row_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, (44, 37, 30)),
-        (hud_x + 175, hud_y + 80),
-    )
-    controls_font = pygame.font.Font(None, 22)
-    game.screen.blit(
-        controls_font.render("J журнал | R радио | E ЭМП | T УФ", True, (65, 52, 38)),
-        (hud_x + 10, hud_y + 110),
-    )
+    _draw_compact_status_hud(game)
 
     # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
     slot_font = pygame.font.Font(None, 18)
