@@ -79,6 +79,8 @@ class Radio(Item):
         game._show_game_info(text, 2400 if ok else 1700)
         if ok:
             game.progress_event("radio_answer", 1)
+        if hasattr(game, "increase_ghost_activity"):
+            game.increase_ghost_activity(9 if ok else 5, "radio")
         game.inventory_manager.decrease_count(self.item_type)
         return True
 
@@ -92,6 +94,8 @@ class EmfDetector(Item):
     def use(self, game):
         level, text = game.ghost_manager.scan_emf(game.player_rect)
         game._show_game_info(text, 1600 if level < 5 else 2200)
+        if hasattr(game, "increase_ghost_activity"):
+            game.increase_ghost_activity(3 + level, "emf")
         return True
 
 
@@ -104,6 +108,8 @@ class UVFlashlight(Item):
     def use(self, game):
         game.uv_mode = not getattr(game, "uv_mode", False)
         game._show_game_info(f"УФ-режим: {'вкл' if game.uv_mode else 'выкл'}", 900)
+        if game.uv_mode and hasattr(game, "increase_ghost_activity"):
+            game.increase_ghost_activity(3, "uv")
         return True
 
 
@@ -125,12 +131,6 @@ class Blood(Item):
     
     def __init__(self):
         super().__init__(ItemType.BLOOD)
-        self.heal_amounts = {
-            0: 4,  # Лёгкая
-            1: 3,  # Нормальная
-            2: 2,  # Сложная
-            3: 1   # Хардкор
-        }
     
     def use(self, game):
         if game.inventory_manager.get_count(self.item_type) <= 0:
@@ -139,7 +139,7 @@ class Blood(Item):
             if hasattr(game, "_show_game_info"):
                 game._show_game_info("HP уже полные.", 900)
             return False
-        heal = self.heal_amounts.get(game.difficulty_index, 3)
+        heal = game.difficulty_config().get("blood_heal", 3) if hasattr(game, "difficulty_config") else 3
         game.player_hp = min(5, game.player_hp + heal)
         game.inventory_manager.decrease_count(self.item_type)
         return True
@@ -227,6 +227,8 @@ class Cross(Item):
                 ghost.invisibility_duration = random.randint(15 * 60, 30 * 60)
                 if ghost.sprite:
                     ghost.sprite.set_alpha(0)
+        if hasattr(game, "ghost_activity"):
+            game.ghost_activity = max(0.0, game.ghost_activity - 28)
         return True
 
 
@@ -454,11 +456,15 @@ class InventoryManager:
         """Увеличить количество предмета"""
         if item_type in self.item_counts:
             self.item_counts[item_type] += amount
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
     
     def decrease_count(self, item_type: ItemType, amount=1):
         """Уменьшить количество предмета"""
         if item_type in self.item_counts:
             self.item_counts[item_type] = max(0, self.item_counts[item_type] - amount)
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
     
     def use_item(self, item_type: ItemType) -> bool:
         """Использовать предмет"""
@@ -604,7 +610,11 @@ class InventoryManager:
                 self.moving_projector = None
             else:
                 self.placed_projector = PlacedProjector(x, y, self.projector_sprite)
+            if hasattr(self.game, "increase_ghost_activity"):
+                self.game.increase_ghost_activity(7, "projector")
             self.cancel_placement()
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
             return True
         
         item = self.items.get(self.selected_item_type)
@@ -632,7 +642,12 @@ class InventoryManager:
             self.decrease_count(self.selected_item_type)
             if self.selected_item_type == ItemType.SALT:
                 self.game.progress_event("use_salt", 1)
+            if hasattr(self.game, "increase_ghost_activity"):
+                amount = 5 if self.selected_item_type == ItemType.SALT else 6
+                self.game.increase_ghost_activity(amount, "place_item")
             self.cancel_placement()
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
             return True
         
         return False
@@ -714,6 +729,8 @@ class InventoryManager:
                 if hasattr(self.game, "_show_game_info"):
                     self.game._show_game_info(f"Проектор включён. Радиус: {self.placed_projector.radius}px.", 1300)
                 self.active_hand_item = None
+                if hasattr(self.game, "autosave_current_slot"):
+                    self.game.autosave_current_slot()
                 return True
             if hasattr(self.game, "_show_game_info"):
                 self.game._show_game_info("Нет аккумулятора.", 1000)
@@ -731,4 +748,6 @@ class InventoryManager:
                     continue
                 if ghost.rect.colliderect(item.rect):
                     item.trigger()
+                    if hasattr(self.game, "autosave_current_slot"):
+                        self.game.autosave_current_slot()
                     break

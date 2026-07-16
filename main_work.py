@@ -41,6 +41,57 @@ EVIDENCE_CONFIRMED = "confirmed"
 EVIDENCE_EXCLUDED = "excluded"
 EVIDENCE_STATES = (EVIDENCE_UNKNOWN, EVIDENCE_CONFIRMED, EVIDENCE_EXCLUDED)
 
+DIFFICULTY_CONFIG = {
+    0: {
+        "name": "Лёгкая",
+        "activity_gain_multiplier": 0.75,
+        "activity_decay_per_second": 2.4,
+        "ghost_speed_multiplier": 0.90,
+        "hunt_cooldown_seconds": 90,
+        "hunt_duration_seconds": 25,
+        "radio_time_error_seconds": 5,
+        "event_chance_multiplier": 0.70,
+        "reward_bonus": 0,
+        "blood_heal": 4,
+    },
+    1: {
+        "name": "Нормальная",
+        "activity_gain_multiplier": 1.00,
+        "activity_decay_per_second": 1.7,
+        "ghost_speed_multiplier": 1.00,
+        "hunt_cooldown_seconds": 75,
+        "hunt_duration_seconds": 35,
+        "radio_time_error_seconds": 8,
+        "event_chance_multiplier": 1.00,
+        "reward_bonus": 20,
+        "blood_heal": 3,
+    },
+    2: {
+        "name": "Сложная",
+        "activity_gain_multiplier": 1.25,
+        "activity_decay_per_second": 1.2,
+        "ghost_speed_multiplier": 1.12,
+        "hunt_cooldown_seconds": 60,
+        "hunt_duration_seconds": 45,
+        "radio_time_error_seconds": 12,
+        "event_chance_multiplier": 1.25,
+        "reward_bonus": 40,
+        "blood_heal": 2,
+    },
+    3: {
+        "name": "Хардкор",
+        "activity_gain_multiplier": 1.55,
+        "activity_decay_per_second": 0.8,
+        "ghost_speed_multiplier": 1.25,
+        "hunt_cooldown_seconds": 45,
+        "hunt_duration_seconds": 60,
+        "radio_time_error_seconds": 18,
+        "event_chance_multiplier": 1.60,
+        "reward_bonus": 60,
+        "blood_heal": 1,
+    },
+}
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
@@ -70,11 +121,11 @@ class Game:
         )
         
         self.menu_buttons = [
-            PinButton(200, 250, self.pin_images.get("pin_1"), "Начать игру"),
-            PinButton(600, 180, self.pin_images.get("pin_2"), "Настройки"),
-            PinButton(400, 320, self.pin_images.get("pin_2"), "Как играть"),
-            PinButton(150, 450, self.pin_images.get("pin_3"), "Сохранить"),
-            PinButton(650, 400, self.pin_images.get("pin_1"), "Выход")
+            PinButton(150, 260, self.pin_images.get("pin_1"), "Начать дело"),
+            PinButton(620, 205, self.pin_images.get("pin_2"), "Настройки"),
+            PinButton(405, 335, self.pin_images.get("pin_2"), "Как играть"),
+            PinButton(160, 500, self.pin_images.get("pin_3"), "Слоты"),
+            PinButton(675, 470, self.pin_images.get("pin_1"), "Выход"),
         ]
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
         # Журнал улик: ЭМП / УФ / радио и флаг панели
@@ -109,9 +160,9 @@ class Game:
         
         # Создание кнопок для игрового экрана
         self.game_buttons = [
-            Button(SCREEN_WIDTH - 150, 50, 100, 40, "Меню", RED),
-            Button(SCREEN_WIDTH - 150, 100, 100, 40, "Магазин", BLUE)
+            Button(SCREEN_WIDTH - 120, 16, 98, 38, "Меню", RED),
         ]
+        self.journal_button = Button(SCREEN_WIDTH - 172, 62, 150, 38, "Дело  J", GREEN)
         self.game_over_buttons = [
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 40, 240, 46, "Заново", GREEN),
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 100, 240, 46, "В меню", RED),
@@ -252,6 +303,10 @@ class Game:
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
+        self.loaded_activity_state = None
+        self.ghost_activity = 0.0
+        self.activity_event_cooldown_ticks = 0
+        self.activity_flash_until = 0
         self.hunt_cooldown_ticks = 0
         self.hunt_active_ticks = 0
         self.reset_hunt_timer()
@@ -306,6 +361,37 @@ class Game:
         self.camera_x = max(0, min(target_x, self.world_width - SCREEN_WIDTH))
         self.camera_y = max(0, min(target_y, self.world_height - SCREEN_HEIGHT))
 
+    def nearest_visible_ghost_distance(self):
+        """Возвращает расстояние до ближайшего видимого призрака или None."""
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        if not ghosts:
+            return None
+
+        nearest = None
+        for ghost in ghosts:
+            state_name = getattr(getattr(ghost, "state", None), "name", "")
+            if state_name == "INVISIBLE" or getattr(ghost, "is_frozen_after_appear", False):
+                continue
+            dist = self.player_rect.centerx - ghost.rect.centerx, self.player_rect.centery - ghost.rect.centery
+            distance = (dist[0] ** 2 + dist[1] ** 2) ** 0.5
+            nearest = distance if nearest is None else min(nearest, distance)
+        return nearest
+
+    def threat_level(self):
+        """0.0 спокойствие, 1.0 максимальная тревога рядом с призраком или во время охоты."""
+        distance = self.nearest_visible_ghost_distance()
+        proximity = 0.0
+        if distance is not None:
+            proximity = max(0.0, min(1.0, 1.0 - distance / 520.0))
+
+        hunt_pressure = 0.0
+        if getattr(self, "hunt_active_ticks", 0) > 0:
+            hunt_pressure = 0.45
+        activity_pressure = max(0.0, min(1.0, getattr(self, "ghost_activity", 0.0) / 100.0))
+        if pygame.time.get_ticks() < getattr(self, "activity_flash_until", 0):
+            activity_pressure = min(1.0, activity_pressure + 0.18)
+        return max(proximity, hunt_pressure, activity_pressure)
+
     def _show_game_info(self, text, duration_ms=1800):
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
@@ -324,14 +410,74 @@ class Game:
     def is_gameplay_paused(self):
         return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
 
+    def difficulty_config(self):
+        return DIFFICULTY_CONFIG.get(self.difficulty_index, DIFFICULTY_CONFIG[1])
+
+    def current_ghost_activity_multiplier(self):
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        if not ghosts:
+            return 1.0
+        return max(0.2, float(getattr(ghosts[0], "activity_gain", 1.0)))
+
+    def apply_difficulty_to_ghosts(self):
+        cfg = self.difficulty_config()
+        multiplier = cfg["ghost_speed_multiplier"]
+        for ghost in getattr(self.ghost_manager, "ghosts", []):
+            if hasattr(ghost, "set_difficulty_speed_multiplier"):
+                ghost.set_difficulty_speed_multiplier(multiplier)
+
+    def increase_ghost_activity(self, amount, reason="event"):
+        cfg = self.difficulty_config()
+        gain = amount * cfg["activity_gain_multiplier"] * self.current_ghost_activity_multiplier()
+        before = self.ghost_activity
+        self.ghost_activity = max(0.0, min(100.0, self.ghost_activity + gain))
+        if int(before // 25) != int(self.ghost_activity // 25):
+            self.activity_flash_until = pygame.time.get_ticks() + 650
+        return self.ghost_activity
+
+    def tick_ghost_activity(self):
+        cfg = self.difficulty_config()
+        decay = cfg["activity_decay_per_second"] / FPS
+        if self.hunt_active_ticks > 0:
+            decay *= 0.25
+        self.ghost_activity = max(0.0, self.ghost_activity - decay)
+
+        distance = self.nearest_visible_ghost_distance()
+        if distance is not None and distance < 260:
+            self.increase_ghost_activity(0.035, "near_ghost")
+
+        if self.activity_event_cooldown_ticks > 0:
+            self.activity_event_cooldown_ticks -= 1
+
+        if self.ghost_activity >= 75 and self.activity_event_cooldown_ticks <= 0:
+            chance = 0.012 * cfg["event_chance_multiplier"]
+            if random.random() < chance:
+                self.trigger_activity_event()
+
+        if self.ghost_activity >= 100 and self.hunt_active_ticks <= 0:
+            self.start_activity_hunt()
+
+    def trigger_activity_event(self):
+        self.activity_event_cooldown_ticks = 10 * FPS
+        self.activity_flash_until = pygame.time.get_ticks() + 1000
+        self._show_game_info(random.choice([
+            "Температура резко упала.",
+            "Связь искажается.",
+            "Где-то рядом сдвинулся предмет.",
+            "Воздух стал тяжелым.",
+        ]), 1300)
+
+    def start_activity_hunt(self):
+        cfg = self.difficulty_config()
+        self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
+        self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
+        self.ghost_activity = 55.0
+        self.activity_event_cooldown_ticks = 12 * FPS
+        self.activity_flash_until = pygame.time.get_ticks() + 1200
+        self._show_game_info("Активность достигла пика. Охота началась.", 1800)
+
     def reset_hunt_timer(self):
-        cooldown_by_difficulty = {
-            0: 90 * FPS,
-            1: 75 * FPS,
-            2: 60 * FPS,
-            3: 45 * FPS,
-        }
-        self.hunt_cooldown_ticks = cooldown_by_difficulty.get(self.difficulty_index, 75 * FPS)
+        self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
         self.hunt_active_ticks = 0
 
     def tick_hunt_timer(self):
@@ -343,20 +489,13 @@ class Game:
         if self.hunt_cooldown_ticks > 0:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
-                duration_by_difficulty = {
-                    0: 25 * FPS,
-                    1: 35 * FPS,
-                    2: 45 * FPS,
-                    3: 60 * FPS,
-                }
-                self.hunt_active_ticks = duration_by_difficulty.get(self.difficulty_index, 35 * FPS)
+                self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
             return "Оно здесь. Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
-        error_by_difficulty = {0: 5, 1: 8, 2: 12, 3: 18}
-        error = error_by_difficulty.get(self.difficulty_index, 8)
+        error = self.difficulty_config()["radio_time_error_seconds"]
         approx = max(0, seconds + random.randint(-error, error))
         minutes = approx // 60
         rest = approx % 60
@@ -453,6 +592,11 @@ class Game:
         self.inventory_manager.reset_runtime_state(clear_counts=True)
         self.uv_mode = False
 
+    def reset_ghost_activity(self):
+        self.ghost_activity = 0.0
+        self.activity_event_cooldown_ticks = 0
+        self.activity_flash_until = 0
+
     def get_next_level_id(self):
         """Возвращает следующий уровень для текущей позиции кампании."""
         level_id = self.current_level_id
@@ -472,7 +616,7 @@ class Game:
         return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
 
     def get_level_complete_reward(self):
-        return 80 + max(0, self.player_level - 1) * 35 + self.difficulty_index * 20
+        return 80 + max(0, self.player_level - 1) * 35 + self.difficulty_config()["reward_bonus"]
 
     def configure_win_buttons(self):
         if self.has_next_level():
@@ -504,6 +648,8 @@ class Game:
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
+        self.loaded_activity_state = None
+        self.reset_ghost_activity()
         self.set_state(GameState.GAME, reset_stack=True)
         if self.selected_save_slot:
             self.save_game(self.selected_save_slot)
@@ -524,8 +670,10 @@ class Game:
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
+        self.loaded_activity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
+        self.reset_ghost_activity()
         self.set_state(GameState.GAME, reset_stack=True)
 
     def load_level(self, level_file_path):
@@ -596,6 +744,15 @@ class Game:
             if self.loaded_ghost_state is not None:
                 self.ghost_manager.restore_runtime_state(self.loaded_ghost_state)
                 self.loaded_ghost_state = None
+            if self.loaded_activity_state is not None:
+                try:
+                    self.ghost_activity = max(0.0, min(100.0, float(self.loaded_activity_state)))
+                except (TypeError, ValueError):
+                    self.reset_ghost_activity()
+                self.loaded_activity_state = None
+            else:
+                self.reset_ghost_activity()
+            self.apply_difficulty_to_ghosts()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self.vignette_texture = None
             self.update_camera()
@@ -725,8 +882,10 @@ class Game:
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
+        self.loaded_activity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
+        self.reset_ghost_activity()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
@@ -748,6 +907,11 @@ class Game:
         result = self.progress_manager.progress_event(event_key, value)
         if result.messages:
             self._show_game_info(result.messages[0], 1500)
+        self.autosave_current_slot()
+
+    def autosave_current_slot(self):
+        if self.selected_save_slot:
+            self.save_game(self.selected_save_slot)
 
     def submit_ghost_guess(self, profile_id):
         actual = None
@@ -827,6 +991,7 @@ class Game:
             "item_counts": item_counts_serial,
             "inventory_runtime": self.inventory_manager.serialize_runtime_state(),
             "hunt_state": self.serialize_hunt_state(),
+            "ghost_activity": round(float(getattr(self, "ghost_activity", 0.0)), 2),
             "ghost_state": self.ghost_manager.serialize_runtime_state(),
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
@@ -892,6 +1057,7 @@ class Game:
             self.loaded_inventory_runtime = save_data.get("inventory_runtime")
             self.loaded_hunt_state = save_data.get("hunt_state")
             self.loaded_ghost_state = save_data.get("ghost_state")
+            self.loaded_activity_state = save_data.get("ghost_activity", 0.0)
             
             return True
         return False
@@ -980,6 +1146,7 @@ class Game:
             if not self.is_gameplay_paused():
                 mechanics.update_player_movement(self)
                 self.tick_hunt_timer()
+                self.tick_ghost_activity()
                 pz = self.inventory_manager.get_projector_zones()
                 self.ghost_manager.update(
                     self.player_rect,
@@ -994,6 +1161,7 @@ class Game:
                 if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
+                    self.increase_ghost_activity(12, "player_hit")
                     self.progress_event("take_hit", 1)
                     if self.player_hp <= 0:
                         self.enter_game_over()
