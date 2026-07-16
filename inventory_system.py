@@ -456,11 +456,15 @@ class InventoryManager:
         """Увеличить количество предмета"""
         if item_type in self.item_counts:
             self.item_counts[item_type] += amount
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
     
     def decrease_count(self, item_type: ItemType, amount=1):
         """Уменьшить количество предмета"""
         if item_type in self.item_counts:
             self.item_counts[item_type] = max(0, self.item_counts[item_type] - amount)
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
     
     def use_item(self, item_type: ItemType) -> bool:
         """Использовать предмет"""
@@ -609,6 +613,8 @@ class InventoryManager:
             if hasattr(self.game, "increase_ghost_activity"):
                 self.game.increase_ghost_activity(7, "projector")
             self.cancel_placement()
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
             return True
         
         item = self.items.get(self.selected_item_type)
@@ -640,6 +646,8 @@ class InventoryManager:
                 amount = 5 if self.selected_item_type == ItemType.SALT else 6
                 self.game.increase_ghost_activity(amount, "place_item")
             self.cancel_placement()
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
             return True
         
         return False
@@ -721,6 +729,8 @@ class InventoryManager:
                 if hasattr(self.game, "_show_game_info"):
                     self.game._show_game_info(f"Проектор включён. Радиус: {self.placed_projector.radius}px.", 1300)
                 self.active_hand_item = None
+                if hasattr(self.game, "autosave_current_slot"):
+                    self.game.autosave_current_slot()
                 return True
             if hasattr(self.game, "_show_game_info"):
                 self.game._show_game_info("Нет аккумулятора.", 1000)
@@ -738,4 +748,6 @@ class InventoryManager:
                     continue
                 if ghost.rect.colliderect(item.rect):
                     item.trigger()
+                    if hasattr(self.game, "autosave_current_slot"):
+                        self.game.autosave_current_slot()
                     break

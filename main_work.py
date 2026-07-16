@@ -121,11 +121,11 @@ class Game:
         )
         
         self.menu_buttons = [
-            PinButton(200, 250, self.pin_images.get("pin_1"), "Начать игру"),
-            PinButton(600, 180, self.pin_images.get("pin_2"), "Настройки"),
-            PinButton(400, 320, self.pin_images.get("pin_2"), "Как играть"),
-            PinButton(150, 450, self.pin_images.get("pin_3"), "Сохранить"),
-            PinButton(650, 400, self.pin_images.get("pin_1"), "Выход")
+            PinButton(150, 260, self.pin_images.get("pin_1"), "Начать дело"),
+            PinButton(620, 205, self.pin_images.get("pin_2"), "Настройки"),
+            PinButton(405, 335, self.pin_images.get("pin_2"), "Как играть"),
+            PinButton(160, 500, self.pin_images.get("pin_3"), "Слоты"),
+            PinButton(675, 470, self.pin_images.get("pin_1"), "Выход"),
         ]
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
         # Журнал улик: ЭМП / УФ / радио и флаг панели
@@ -907,6 +907,11 @@ class Game:
         result = self.progress_manager.progress_event(event_key, value)
         if result.messages:
             self._show_game_info(result.messages[0], 1500)
+        self.autosave_current_slot()
+
+    def autosave_current_slot(self):
+        if self.selected_save_slot:
+            self.save_game(self.selected_save_slot)
 
     def submit_ghost_guess(self, profile_id):
         actual = None

@@ -51,6 +51,7 @@ def handle_difficulty_events(game, event):
                 game.difficulty_selected = True
                 # Сброс для новой игры (HP, деньги, уровень)
                 game.reset_for_new_game()
+                game.autosave_current_slot()
                 game.set_state(GameState.GAME, reset_stack = True)
             elif i == 4:  # Назад
                 game.go_back()

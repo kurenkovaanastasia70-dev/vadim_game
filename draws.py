@@ -592,18 +592,53 @@ def draw_menu(game):
     if hasattr(game, "cork_board_bg") and game.cork_board_bg:
         game.screen.blit(game.cork_board_bg, (0, 0))
     else:
-        game.screen.fill(DARK_GRAY)
+        game.screen.fill((84, 58, 36))
 
-    font = pygame.font.Font(None, 72)
+    shade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    shade.fill((18, 10, 6, 82))
+    game.screen.blit(shade, (0, 0))
 
-    title = font.render("Приключенческая игра", True, BLACK)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
-    game.screen.blit(title, title_rect)
+    title_card = pygame.Rect(SCREEN_WIDTH // 2 - 270, 54, 540, 118)
+    pygame.draw.rect(game.screen, (238, 224, 190), title_card, border_radius=5)
+    pygame.draw.rect(game.screen, (94, 62, 38), title_card, 3, border_radius=5)
+    pygame.draw.line(game.screen, (145, 38, 38), (title_card.left + 24, title_card.bottom - 22), (title_card.right - 24, title_card.bottom - 22), 3)
 
-    font_small = pygame.font.Font(None, 36)
-    subtitle = font_small.render("выбирете действие", True, BLACK)
-    subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 160))
-    game.screen.blit(subtitle, subtitle_rect)
+    font = pygame.font.Font(None, 64)
+    title = font.render("ДЕЛО О ПРИЗРАКЕ", True, (42, 30, 22))
+    game.screen.blit(title, title.get_rect(center=(title_card.centerx, title_card.y + 42)))
+
+    font_small = pygame.font.Font(None, 26)
+    subtitle = font_small.render("доска расследования • выбери следующую улику", True, (68, 48, 34))
+    game.screen.blit(subtitle, subtitle.get_rect(center=(title_card.centerx, title_card.y + 82)))
+
+    pin_centers = [button.rect.center for button in game.menu_buttons]
+    thread_pairs = [(0, 2), (2, 1), (0, 3), (2, 4), (3, 4)]
+    for a, b in thread_pairs:
+        if a < len(pin_centers) and b < len(pin_centers):
+            pygame.draw.line(game.screen, (128, 25, 28), pin_centers[a], pin_centers[b], 3)
+            pygame.draw.line(game.screen, (210, 72, 65), pin_centers[a], pin_centers[b], 1)
+
+    note_font = pygame.font.Font(None, 22)
+    notes = [
+        (pygame.Rect(84, 176, 176, 58), "ЭМП скачет"),
+        (pygame.Rect(765, 150, 160, 60), "следы в УФ"),
+        (pygame.Rect(735, 610, 176, 58), "радио шумит"),
+    ]
+    for rect, text in notes:
+        pygame.draw.rect(game.screen, (226, 211, 164), rect, border_radius=4)
+        pygame.draw.rect(game.screen, (93, 68, 41), rect, 2, border_radius=4)
+        game.screen.blit(note_font.render(text, True, (52, 38, 28)), (rect.x + 12, rect.y + 18))
+
+    ghost_x, ghost_y = SCREEN_WIDTH // 2, 228
+    ghost_surf = pygame.Surface((150, 130), pygame.SRCALPHA)
+    pygame.draw.ellipse(ghost_surf, (20, 26, 25, 150), (30, 8, 90, 104))
+    pygame.draw.circle(ghost_surf, (225, 245, 230, 95), (58, 48), 6)
+    pygame.draw.circle(ghost_surf, (225, 245, 230, 95), (92, 48), 6)
+    pygame.draw.polygon(ghost_surf, (20, 26, 25, 150), [(32, 86), (48, 116), (64, 88), (82, 118), (98, 88), (118, 116), (120, 82)])
+    game.screen.blit(ghost_surf, ghost_surf.get_rect(center=(ghost_x, ghost_y)))
+
+    for y in range(0, SCREEN_HEIGHT, 5):
+        pygame.draw.line(game.screen, (0, 0, 0, 26), (0, y), (SCREEN_WIDTH, y))
 
     # Рисуем пины вместо обычных кнопок
     for button in game.menu_buttons:
