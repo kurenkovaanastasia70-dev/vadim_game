@@ -45,7 +45,7 @@ class GhostAbilitiesConfig:
         "ghostorb",
         "radio",
     )
-    FLOAT_KEYS = ("speed", "patrol_speed", "chase_speed", "search_speed")
+    FLOAT_KEYS = ("speed", "patrol_speed", "chase_speed", "search_speed", "activity_gain")
 
     DEFAULTS = {
         "display_name": "",
@@ -57,6 +57,7 @@ class GhostAbilitiesConfig:
         "patrol_speed": 2.0,
         "chase_speed": 2.0,
         "search_speed": 2.0,
+        "activity_gain": 1.0,
         "amp": False,
         "ultraviolet": False,
         "ghostorb": False,
@@ -335,6 +336,7 @@ class Ghost:
         self.ultraviolet = abilities.get("ultraviolet", False)
         self.ghostorb = abilities.get("ghostorb", False)
         self.radio = abilities.get("radio", False)
+        self.activity_gain = _to_float(abilities.get("activity_gain"), 1.0)
         self.aggression = 10  # 0..100, обновляется в update()
         
         # FSM состояние - НАЧИНАЕМ НЕВИДИМЫМ
@@ -342,10 +344,11 @@ class Ghost:
         self.state_timer = 0
         
         # Параметры движения (из ghost_abilities.ini / профиля)
-        self.speed = _to_float(abilities.get("speed"), 3.0) * GHOST_SPEED_SCALE
-        self.patrol_speed = _to_float(abilities.get("patrol_speed"), 2.0) * GHOST_SPEED_SCALE
-        self.chase_speed = _to_float(abilities.get("chase_speed"), 2.0) * GHOST_SPEED_SCALE
-        self.search_speed = _to_float(abilities.get("search_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.base_speed = _to_float(abilities.get("speed"), 3.0) * GHOST_SPEED_SCALE
+        self.base_patrol_speed = _to_float(abilities.get("patrol_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.base_chase_speed = _to_float(abilities.get("chase_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.base_search_speed = _to_float(abilities.get("search_speed"), 2.0) * GHOST_SPEED_SCALE
+        self.set_difficulty_speed_multiplier(1.0)
         # A* алгоритм
         self.astar = AStar(grid_size=32)  # Увеличено с 16 до 32 для ускорения
         self.current_path = []
@@ -399,6 +402,12 @@ class Ghost:
         self.spawn_animation_speed = 300  # мс между кадрами (25 кадров × 300мс = 7.5 сек)
         self.is_playing_spawn = False
         self._load_spawn_animation()
+
+    def set_difficulty_speed_multiplier(self, multiplier):
+        self.speed = self.base_speed * multiplier
+        self.patrol_speed = self.base_patrol_speed * multiplier
+        self.chase_speed = self.base_chase_speed * multiplier
+        self.search_speed = self.base_search_speed * multiplier
     
     def _load_spawn_animation(self):
         """Загрузка анимации спавна из GIF"""
@@ -1202,6 +1211,7 @@ class GhostManager:
         print(
             f"Заспавнено 1 приведение [{ghost.display_name}] (профиль {ghost_kind}) на ({spawn_x}, {spawn_y}). "
             f"Скорости: {ghost.speed}/{ghost.patrol_speed}/{ghost.chase_speed}/{ghost.search_speed}. "
+            f"Множитель активности: {ghost.activity_gain}. "
             f"Флаги: fly={ghost.can_fly}, walk={ghost.can_walk}, phase={ghost.can_phase_walls}, tp={ghost.can_teleport}; "
             f"улики: amp={ghost.amp}, uv={ghost.ultraviolet}, orb={ghost.ghostorb}, radio={ghost.radio}."
         )

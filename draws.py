@@ -116,9 +116,13 @@ def _draw_compact_status_hud(game):
         game.screen.blit(val, (x, hud_y + 32))
         x += 70
 
-    bar = pygame.Rect(hud_x + 12, hud_y + 66, hud_w - 24, 8)
+    activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
+    activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
+    game.screen.blit(activity_label, (hud_x + 12, hud_y + 50))
+
+    bar = pygame.Rect(hud_x + 176, hud_y + 56, hud_w - 188, 8)
     pygame.draw.rect(game.screen, (42, 54, 49), bar, border_radius=4)
-    fill_w = int(bar.w * threat)
+    fill_w = int(bar.w * max(threat, activity / 100))
     if fill_w:
         pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
     pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
