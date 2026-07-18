@@ -14,7 +14,7 @@ from constants import (
 import assets
 import mechanics
 import level_config
-from inventory_system import ItemType
+from inventory_system import ItemType, MAX_CARRIED_ITEMS
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
 
 # Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
@@ -1121,43 +1121,48 @@ def draw_game(game):
     name_font = pygame.font.Font(None, 19)
     active_item = getattr(game.inventory_manager, "active_hand_item", None)
     hovered_name = None
-    for i, item_name in enumerate(purchased_items):
+    total_slots = max(MAX_CARRIED_ITEMS, len(purchased_items))
+    for i in range(total_slots):
+        item_name = purchased_items[i] if i < len(purchased_items) else None
         cx, cy, radius = mechanics.inventory_slot_screen(i)
         circle_rect = pygame.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
         hovered = ((mouse_pos[0] - cx) ** 2 + (mouse_pos[1] - cy) ** 2) <= radius ** 2
-        item_type = game.inventory_manager.item_type_from_name(item_name)
+        item_type = game.inventory_manager.item_type_from_name(item_name) if item_name else None
         is_active = item_type is not None and item_type == active_item
         fill = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        fill_alpha = 145 if hovered or is_active else 92
+        fill_alpha = 145 if hovered or is_active else (76 if item_name else 38)
         pygame.draw.circle(fill, (238, 244, 255, fill_alpha), (radius, radius), radius)
         game.screen.blit(fill, circle_rect.topleft)
-        border = (255, 235, 150) if is_active else ((235, 245, 255) if hovered else (160, 175, 190))
+        border = (255, 235, 150) if is_active else ((235, 245, 255) if hovered else ((160, 175, 190) if item_name else (92, 108, 120)))
         pygame.draw.circle(game.screen, border, (cx, cy), radius, 2)
 
-        icon = game.inventory_images.get(item_name)
-        if icon:
-            _blit_centered_icon(game.screen, icon, circle_rect, max(26, radius * 2 - 12))
+        if item_name:
+            icon = game.inventory_images.get(item_name)
+            if icon:
+                _blit_centered_icon(game.screen, icon, circle_rect, max(26, radius * 2 - 12))
+            else:
+                fallback = name_font.render(item_name[:1].upper(), True, (38, 43, 52))
+                game.screen.blit(fallback, fallback.get_rect(center=circle_rect.center))
         else:
-            fallback = name_font.render(item_name[:1].upper(), True, (38, 43, 52))
-            game.screen.blit(fallback, fallback.get_rect(center=circle_rect.center))
+            pygame.draw.circle(game.screen, (120, 138, 150), (cx, cy), max(3, radius // 8), 1)
 
         key_surf = slot_font.render(str(i + 1), True, (235, 240, 248))
         key_bg = pygame.Rect(circle_rect.left + 1, circle_rect.top + 1, 16, 15)
         pygame.draw.rect(game.screen, (35, 40, 50), key_bg, border_radius=4)
         game.screen.blit(key_surf, key_surf.get_rect(center=key_bg.center))
 
-        qty = consumable_name_to_count.get(item_name)
+        qty = consumable_name_to_count.get(item_name) if item_name else None
         if qty is not None:
             qty_surf = qty_font.render(f"x{qty}", True, (255, 245, 190))
             qty_bg = pygame.Rect(circle_rect.right - qty_surf.get_width() - 8, circle_rect.bottom - 18, qty_surf.get_width() + 6, 16)
             pygame.draw.rect(game.screen, (38, 34, 26), qty_bg, border_radius=5)
             game.screen.blit(qty_surf, qty_surf.get_rect(center=qty_bg.center))
 
-        if hovered:
+        if hovered and item_name:
             hovered_name = item_name
 
     if hovered_name:
-        label = name_font.render(hovered_name, True, (245, 248, 252))
+        label = name_font.render(f"{hovered_name}  |  ПКМ выбросить", True, (245, 248, 252))
         lx = max(8, min(SCREEN_WIDTH - label.get_width() - 18, mouse_pos[0] - label.get_width() // 2))
         ly = max(8, mouse_pos[1] - 34)
         tip_rect = pygame.Rect(lx - 7, ly - 5, label.get_width() + 14, label.get_height() + 8)

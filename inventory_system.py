@@ -181,6 +181,7 @@ PLACED_ITEM_ICON_RATIO = 0.45
 PLACEMENT_PREVIEW_RATIO = PLACED_ITEM_HITBOX_RATIO
 PLACED_ITEM_HITBOX_SIZE = max(32, int(TILE_SIZE * MAP_SCALE * PLACED_ITEM_HITBOX_RATIO))
 PLACEMENT_PREVIEW_SIZE = PLACED_ITEM_HITBOX_SIZE
+MAX_CARRIED_ITEMS = 3
 
 
 class PlacedProjector:
@@ -326,6 +327,43 @@ class PlacedItem:
             screen.blit(sprite_copy, sprite_rect)
 
 
+class DroppedInventoryItem:
+    def __init__(self, x, y, item_type):
+        self.x = int(x)
+        self.y = int(y)
+        self.item_type = item_type
+        self.radius = max(26, int(TILE_SIZE * MAP_SCALE * 0.28))
+        self.rect = pygame.Rect(0, 0, self.radius * 2, self.radius * 2)
+        self.rect.center = (self.x, self.y)
+
+    def to_dict(self):
+        return {
+            "type": self.item_type.name,
+            "x": self.x,
+            "y": self.y,
+        }
+
+    def draw(self, screen, icon=None, camera_x=0, camera_y=0):
+        cx = int(self.x - camera_x)
+        cy = int(self.y - camera_y)
+        size = self.radius * 2
+        panel = pygame.Surface((size + 18, size + 18), pygame.SRCALPHA)
+        center = (panel.get_width() // 2, panel.get_height() // 2)
+        pygame.draw.circle(panel, (120, 210, 230, 46), center, self.radius + 8)
+        pygame.draw.circle(panel, (235, 245, 255, 118), center, self.radius + 2)
+        pygame.draw.circle(panel, (22, 30, 34, 178), center, self.radius)
+        pygame.draw.circle(panel, (158, 222, 236, 180), center, self.radius, 2)
+        screen.blit(panel, panel.get_rect(center=(cx, cy)))
+        if icon:
+            fitted = pygame.transform.smoothscale(icon, (max(22, size - 16), max(22, size - 16)))
+            fitted.set_alpha(218)
+            screen.blit(fitted, fitted.get_rect(center=(cx, cy)))
+        else:
+            font = pygame.font.Font(None, 24)
+            label = font.render(self.item_type.value[:1].upper(), True, (228, 242, 246))
+            screen.blit(label, label.get_rect(center=(cx, cy)))
+
+
 class InventoryManager:
     """Менеджер инвентаря - управляет всеми предметами и их использованием"""
     
@@ -368,6 +406,7 @@ class InventoryManager:
         # Размещённые предметы на карте
         self.placed_items = []
         self.moving_placed_item = None
+        self.dropped_items = []
         
         # Режим размещения
         self.placement_mode = False
@@ -408,6 +447,30 @@ class InventoryManager:
                 names.append(item_name)
         return names
 
+    def carried_slots_count(self):
+        return len(self.visible_inventory_names())
+
+    def can_receive_item(self, item_type):
+        if item_type is None:
+            return False
+        if self.is_consumable(item_type) and self.get_count(item_type) > 0:
+            return True
+        if not self.is_consumable(item_type) and self.game.inventory.get(item_type.value, False):
+            return True
+        return self.carried_slots_count() < MAX_CARRIED_ITEMS
+
+    def receive_item(self, item_type, amount=1):
+        if not self.can_receive_item(item_type):
+            if hasattr(self.game, "_show_game_info"):
+                self.game._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            return False
+        self.game.inventory[item_type.value] = True
+        if self.is_consumable(item_type):
+            self.increase_count(item_type, amount)
+        if hasattr(self.game, "autosave_current_slot"):
+            self.game.autosave_current_slot()
+        return True
+
     def item_type_from_name(self, item_name):
         for item_type in ItemType:
             if item_type.value == item_name:
@@ -419,6 +482,7 @@ class InventoryManager:
             for item_type in self.item_counts:
                 self.item_counts[item_type] = 0
         self.placed_items.clear()
+        self.dropped_items.clear()
         self.moving_placed_item = None
         self.placed_projector = None
         self.moving_projector = None
@@ -438,6 +502,7 @@ class InventoryManager:
         return {
             "placed_items": [item.to_dict() for item in self.placed_items],
             "placed_projector": projector,
+            "dropped_items": [item.to_dict() for item in self.dropped_items],
         }
 
     def restore_runtime_state(self, data):
@@ -466,6 +531,13 @@ class InventoryManager:
             projector.powered = bool(raw_projector.get("powered", False))
             projector.battery_remaining = max(0, int(raw_projector.get("battery_remaining", 0)))
             self.placed_projector = projector
+        for raw in data.get("dropped_items", []):
+            if not isinstance(raw, dict):
+                continue
+            item_type = ItemType.__members__.get(raw.get("type"))
+            if item_type is None:
+                continue
+            self.dropped_items.append(DroppedInventoryItem(raw.get("x", 0), raw.get("y", 0), item_type))
     
     def get_count(self, item_type: ItemType) -> int:
         """Получить количество расходного предмета"""
@@ -505,6 +577,61 @@ class InventoryManager:
             item_type = self.item_type_from_name(item_name)
             if item_type:
                 return self.use_item(item_type)
+        return False
+
+    def _drop_point_near_player(self):
+        px, py = self.game.player_rect.center
+        direction = getattr(self.game, "player_direction", "down")
+        offset = int(TILE_SIZE * MAP_SCALE * 0.55)
+        dx, dy = 0, offset
+        if direction == "left":
+            dx, dy = -offset, 0
+        elif direction == "right":
+            dx, dy = offset, 0
+        elif direction == "up":
+            dx, dy = 0, -offset
+        x = max(20, min(getattr(self.game, "world_width", px), px + dx))
+        y = max(20, min(getattr(self.game, "world_height", py), py + dy))
+        return x, y
+
+    def drop_item_by_index(self, index):
+        names = self.visible_inventory_names()
+        if not (0 <= index < len(names)):
+            return False
+        item_type = self.item_type_from_name(names[index])
+        if item_type is None:
+            return False
+        x, y = self._drop_point_near_player()
+        if self.is_consumable(item_type):
+            if self.get_count(item_type) <= 0:
+                return False
+            self.decrease_count(item_type)
+            if self.get_count(item_type) <= 0:
+                self.game.inventory[item_type.value] = False
+        else:
+            self.game.inventory[item_type.value] = False
+        if self.active_hand_item == item_type:
+            self.active_hand_item = None
+        self.dropped_items.append(DroppedInventoryItem(x, y, item_type))
+        if hasattr(self.game, "_show_game_info"):
+            self.game._show_game_info("Предмет оставлен на полу.", 900)
+        if hasattr(self.game, "autosave_current_slot"):
+            self.game.autosave_current_slot()
+        return True
+
+    def pick_dropped_item_at(self, x, y):
+        if self.placement_mode:
+            return False
+        for i in range(len(self.dropped_items) - 1, -1, -1):
+            dropped = self.dropped_items[i]
+            if not dropped.rect.collidepoint(x, y):
+                continue
+            if not self.receive_item(dropped.item_type):
+                return True
+            self.dropped_items.pop(i)
+            if hasattr(self.game, "_show_game_info"):
+                self.game._show_game_info("Предмет поднят.", 800)
+            return True
         return False
     
     def start_placement(self, item_type: ItemType):
@@ -673,6 +800,14 @@ class InventoryManager:
     
     def draw(self, screen, camera_x=0, camera_y=0):
         """Отрисовка размещённых предметов и предпросмотра"""
+        for item in self.dropped_items:
+            item.draw(
+                screen,
+                icon=self.game.inventory_images.get(item.item_type.value),
+                camera_x=camera_x,
+                camera_y=camera_y,
+            )
+
         # Размещённые предметы
         for item in self.placed_items:
             item.draw(screen, camera_x=camera_x, camera_y=camera_y)

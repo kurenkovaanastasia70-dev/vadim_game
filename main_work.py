@@ -927,6 +927,9 @@ class Game:
         #Todo: реализовать систему выкидывания при переполнении стека предметов
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
+        if item_type and not self.inventory_manager.can_receive_item(item_type):
+            self._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            return False
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
             self.inventory[item_name] = True
