@@ -4,6 +4,7 @@
 """
 import pygame
 import random
+import math
 from enum import Enum
 from abc import ABC, abstractmethod
 
@@ -344,19 +345,29 @@ class DroppedInventoryItem:
         }
 
     def draw(self, screen, icon=None, camera_x=0, camera_y=0):
+        now = pygame.time.get_ticks()
+        phase = now * 0.004 + (self.x + self.y) * 0.01
+        bob = math.sin(phase) * 4
+        pulse = (math.sin(phase * 0.8) + 1.0) * 0.5
         cx = int(self.x - camera_x)
-        cy = int(self.y - camera_y)
+        cy = int(self.y - camera_y + bob)
         size = self.radius * 2
         panel = pygame.Surface((size + 18, size + 18), pygame.SRCALPHA)
         center = (panel.get_width() // 2, panel.get_height() // 2)
-        pygame.draw.circle(panel, (120, 210, 230, 46), center, self.radius + 8)
-        pygame.draw.circle(panel, (235, 245, 255, 118), center, self.radius + 2)
-        pygame.draw.circle(panel, (22, 30, 34, 178), center, self.radius)
-        pygame.draw.circle(panel, (158, 222, 236, 180), center, self.radius, 2)
+        shadow_w = int(self.radius * (1.5 - pulse * 0.15))
+        shadow_h = max(5, int(self.radius * 0.32))
+        shadow = pygame.Surface((shadow_w * 2, shadow_h * 2), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 92), shadow.get_rect())
+        screen.blit(shadow, shadow.get_rect(center=(int(self.x - camera_x), int(self.y - camera_y + self.radius * 0.72))))
+
+        pygame.draw.circle(panel, (120, 210, 230, int(56 + pulse * 30)), center, self.radius + 8)
+        pygame.draw.circle(panel, (235, 245, 255, 145), center, self.radius + 2)
+        pygame.draw.circle(panel, (22, 30, 34, 205), center, self.radius)
+        pygame.draw.circle(panel, (158, 222, 236, 210), center, self.radius, 2)
         screen.blit(panel, panel.get_rect(center=(cx, cy)))
         if icon:
             fitted = pygame.transform.smoothscale(icon, (max(22, size - 16), max(22, size - 16)))
-            fitted.set_alpha(218)
+            fitted.set_alpha(238)
             screen.blit(fitted, fitted.get_rect(center=(cx, cy)))
         else:
             font = pygame.font.Font(None, 24)
@@ -800,14 +811,6 @@ class InventoryManager:
     
     def draw(self, screen, camera_x=0, camera_y=0):
         """Отрисовка размещённых предметов и предпросмотра"""
-        for item in self.dropped_items:
-            item.draw(
-                screen,
-                icon=self.game.inventory_images.get(item.item_type.value),
-                camera_x=camera_x,
-                camera_y=camera_y,
-            )
-
         # Размещённые предметы
         for item in self.placed_items:
             item.draw(screen, camera_x=camera_x, camera_y=camera_y)
@@ -861,6 +864,15 @@ class InventoryManager:
                     preview_source = self.moving_placed_item.current_sprite if self.moving_placed_item else item.sprite_active
                     preview = preview_source.copy()
                     screen.blit(preview, preview.get_rect(center=(mouse_x, mouse_y)))
+
+    def draw_dropped_items(self, screen, camera_x=0, camera_y=0):
+        for item in self.dropped_items:
+            item.draw(
+                screen,
+                icon=self.game.inventory_images.get(item.item_type.value),
+                camera_x=camera_x,
+                camera_y=camera_y,
+            )
     
     def get_projector_zones(self):
         """Зоны активных проекторов (cx, cy, radius) для призраков."""

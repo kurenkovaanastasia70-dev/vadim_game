@@ -1094,6 +1094,7 @@ def draw_game(game):
         game.screen.blit(clipped_overlay, (0, 0))
 
     _draw_crt_atmosphere(game)
+    game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
