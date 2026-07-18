@@ -22,6 +22,7 @@ class ItemType(Enum):
     RADIO = "радио"              # запрос состояния и местоположения призрака
     EMF = "эмп"                  # скан уровней ЭМП 1..5
     UV_FLASHLIGHT = "уф фонарь"  # подсветка следов
+    THERMOMETER = "градусник"    # показывает температуру текущей комнаты
 
 
 class Item(ABC):
@@ -104,6 +105,23 @@ class UVFlashlight(Item):
     def use(self, game):
         game.uv_mode = not getattr(game, "uv_mode", False)
         game._show_game_info(f"УФ-режим: {'вкл' if game.uv_mode else 'выкл'}", 900)
+        return True
+
+
+class Thermometer(Item):
+    """Заглушка градусника: измерение рисуется в HUD после покупки."""
+
+    def __init__(self):
+        super().__init__(ItemType.THERMOMETER)
+
+    def use(self, game):
+        game.inventory_manager.active_hand_item = self.item_type
+        if hasattr(game, "_show_game_info"):
+            temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
+            if temperature is None:
+                game._show_game_info("Градусник: нет данных.", 900)
+            else:
+                game._show_game_info(f"Градусник: {temperature:.1f} °C", 1100)
         return True
 
 
@@ -330,6 +348,7 @@ class InventoryManager:
             ItemType.RADIO: Radio(),
             ItemType.EMF: EmfDetector(),
             ItemType.UV_FLASHLIGHT: UVFlashlight(),
+            ItemType.THERMOMETER: Thermometer(),
             ItemType.RED_DUST: RedDust(dust_active, dust_triggered),
             ItemType.SALT: Salt(salt_active, salt_triggered)
         }

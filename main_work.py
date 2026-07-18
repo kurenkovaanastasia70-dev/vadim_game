@@ -40,6 +40,56 @@ EVIDENCE_UNKNOWN = "unknown"
 EVIDENCE_CONFIRMED = "confirmed"
 EVIDENCE_EXCLUDED = "excluded"
 EVIDENCE_STATES = (EVIDENCE_UNKNOWN, EVIDENCE_CONFIRMED, EVIDENCE_EXCLUDED)
+DIFFICULTY_CONFIG = {
+    0: {
+        "name": "Лёгкая",
+        "activity_gain_multiplier": 0.75,
+        "activity_decay_per_second": 2.4,
+        "ghost_speed_multiplier": 0.90,
+        "hunt_cooldown_seconds": 90,
+        "hunt_duration_seconds": 25,
+        "radio_time_error_seconds": 5,
+        "event_chance_multiplier": 0.70,
+        "reward_bonus": 0,
+        "blood_heal": 4,
+    },
+    1: {
+        "name": "Нормальная",
+        "activity_gain_multiplier": 1.00,
+        "activity_decay_per_second": 1.7,
+        "ghost_speed_multiplier": 1.00,
+        "hunt_cooldown_seconds": 75,
+        "hunt_duration_seconds": 35,
+        "radio_time_error_seconds": 8,
+        "event_chance_multiplier": 1.00,
+        "reward_bonus": 20,
+        "blood_heal": 3,
+    },
+    2: {
+        "name": "Сложная",
+        "activity_gain_multiplier": 1.25,
+        "activity_decay_per_second": 1.2,
+        "ghost_speed_multiplier": 1.12,
+        "hunt_cooldown_seconds": 60,
+        "hunt_duration_seconds": 45,
+        "radio_time_error_seconds": 12,
+        "event_chance_multiplier": 1.25,
+        "reward_bonus": 40,
+        "blood_heal": 2,
+    },
+    3: {
+        "name": "Хардкор",
+        "activity_gain_multiplier": 1.55,
+        "activity_decay_per_second": 0.8,
+        "ghost_speed_multiplier": 1.25,
+        "hunt_cooldown_seconds": 45,
+        "hunt_duration_seconds": 60,
+        "radio_time_error_seconds": 18,
+        "event_chance_multiplier": 1.60,
+        "reward_bonus": 60,
+        "blood_heal": 1,
+    },
+}
 
 class Game:
     def __init__(self):
@@ -97,6 +147,7 @@ class Game:
             Button(794, 360, 116, 32, "Купить", BLUE),
             Button(794, 462, 116, 32, "Купить", BLUE),
             Button(794, 564, 116, 32, "Купить", BLUE),
+            Button(794, 650, 116, 32, "Купить", BLUE),
         ]
         
         # Создание кнопок для настроек
@@ -210,6 +261,7 @@ class Game:
             "радио": False,
             "эмп": False,
             "уф фонарь": False,
+            "градусник": False,
         }
         self.inventory_items = [
             "фонарик",
@@ -222,6 +274,7 @@ class Game:
             "радио",
             "эмп",
             "уф фонарь",
+            "градусник",
         ]
 
         # Состояние для плавного движения
@@ -296,6 +349,10 @@ class Game:
         self.near_computer = False  # Флаг близости к компьютеру
         self.update_camera()
 
+        self.ghost_activity = 0
+        self.activity_event_cooldown_ticks = 0
+        self.activity_flash_until = 0
+
     def is_gameplay_paused(self):
         return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
 
@@ -325,13 +382,7 @@ class Game:
         return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
 
     def reset_hunt_timer(self):
-        cooldown_by_difficulty = {
-            0: 90 * FPS,
-            1: 75 * FPS,
-            2: 60 * FPS,
-            3: 45 * FPS,
-        }
-        self.hunt_cooldown_ticks = cooldown_by_difficulty.get(self.difficulty_index, 75 * FPS)
+        self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
         self.hunt_active_ticks = 0
 
     def tick_hunt_timer(self):
@@ -343,13 +394,7 @@ class Game:
         if self.hunt_cooldown_ticks > 0:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
-                duration_by_difficulty = {
-                    0: 25 * FPS,
-                    1: 35 * FPS,
-                    2: 45 * FPS,
-                    3: 60 * FPS,
-                }
-                self.hunt_active_ticks = duration_by_difficulty.get(self.difficulty_index, 35 * FPS)
+                self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
@@ -378,6 +423,58 @@ class Game:
             return
         self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
         self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
+
+    def difficulty_config(self):
+        return DIFFICULTY_CONFIG.get(self.difficulty_index, DIFFICULTY_CONFIG[1])
+
+    def current_ghost_activity_multiplier(self):
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        if not ghosts:
+            return 1.0
+        return max(0.2, float(getattr(ghosts[0], "activity_gain", 1.0)))
+
+    def apply_difficulty_to_ghosts(self):
+        cfg = self.difficulty_config()
+        multiplier = cfg["ghost_speed_multiplier"]
+        for ghost in getattr(self.ghost_manager, "ghosts", []):
+            if hasattr(ghost, "set_difficulty_speed_multiplier"):
+                ghost.set_difficulty_speed_multiplier(multiplier)
+
+    def increase_ghost_activity(self, amount, reason = "event"):
+        cfg = self.difficulty_config()
+        gain = amount * cfg["activity_gain_multiplier"] * self.current_ghost_activity_multiplier()
+        before = self.ghost_activity
+        self.ghost_activity = max(0, min(100.0, self.ghost_activity+gain))
+        if int(before//25)!= int(self.ghost_activity//25):
+            self.activity_flash_until=pygame.time.get_ticks()+650
+        return self.ghost_activity
+
+    def get_player_room_id(self):
+        if self.level_data and "rooms" in self.level_data:
+            for i, room_data in enumerate(self.level_data["rooms"]):
+                room_rect = pygame.Rect(
+                    room_data["x"],
+                    room_data["y"],
+                    room_data["width"],
+                    room_data["height"],
+                )
+                if room_rect.collidepoint(self.player_rect.center):
+                    return i
+        return -1
+
+    def get_current_temperature_c(self):
+        player_room_id = self.get_player_room_id()
+        room_seed = max(0, player_room_id)
+        base_temperature = 19.0 + (room_seed % 5) * 0.7
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        if ghosts:
+            ghost = ghosts[0]
+            if (
+                getattr(ghost, "freezing_temperature", False)
+                and player_room_id == getattr(ghost, "home_room_id", -2)
+            ):
+                return -2.5 + (room_seed % 4) * 0.8
+        return base_temperature
 
     def default_journal_evidence(self):
         return {k: EVIDENCE_UNKNOWN for k in EVIDENCE_PROFILE_KEYS}

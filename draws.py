@@ -35,6 +35,11 @@ JOURNAL_EVIDENCE_HELP = [
         "Ответ или голос с радио: галка, если слышал. Снимай галку, если радио «молчит» в таком раунде.",
     ),
     (
+        "freezing_temperature",
+        "Низкая температура",
+        "Градусник показывает холод в любимой комнате: отметь, если температура резко ниже обычной.",
+    ),
+    (
         "can_walk",
         "Ходит по полу",
         "Отмечай, если призрак явно перемещается пешком: следы, обход стен, движение по комнатам без полёта.",
@@ -97,8 +102,8 @@ def _blit_centered_icon(screen, icon, rect, size):
 
 
 def _journal_panel_rect():
-    w = min(640, max(400, SCREEN_WIDTH - 32))
-    h = min(520, max(380, SCREEN_HEIGHT - 20))
+    w = min(720, max(400, SCREEN_WIDTH - 32))
+    h = min(600, max(420, SCREEN_HEIGHT - 20))
     return pygame.Rect((SCREEN_WIDTH - w) // 2, (SCREEN_HEIGHT - h) // 2, w, h)
 
 
@@ -106,7 +111,7 @@ def _journal_content_width(panel):
     return panel.w - 28 * 2
 
 
-JOURNAL_ROW_H = 54
+JOURNAL_ROW_H = 50
 JOURNAL_CB_SIZE = 24
 EVIDENCE_STATE_UNKNOWN = "unknown"
 EVIDENCE_STATE_CONFIRMED = "confirmed"
@@ -534,11 +539,12 @@ def draw_shop(game):
         (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", ItemType.RADIO),
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
+        (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
     ]
 
-    card_w, card_h = 430, 82
+    card_w, card_h = 430, 78
     col_x = [62, 570]
-    row_y = [112, 214, 316, 418, 520]
+    row_y = [100, 185, 270, 355, 440, 525]
     mouse = pygame.mouse.get_pos()
 
     for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
@@ -563,7 +569,7 @@ def draw_shop(game):
         x = icon_rect.right + 14
         game.screen.blit(name_f.render(name, True, (238, 242, 248)), (x, card.y + 12))
         for i, line in enumerate(_wrap_lines(body_f, desc, 210)):
-            if i >= 2:
+            if i >= 1:
                 break
             game.screen.blit(body_f.render(line, True, (160, 170, 188)), (x, card.y + 38 + i * 18))
 
@@ -581,7 +587,7 @@ def draw_shop(game):
         game.screen.blit(status_surf, (side_x, card.y + 30))
 
         btn = game.shop_buttons[btn_index]
-        btn.rect = pygame.Rect(card.right - 104, card.y + 54, 90, 24)
+        btn.rect = pygame.Rect(card.right - 104, card.y + 51, 90, 24)
         hover = btn.rect.collidepoint(mouse)
         can_buy = game.player_money >= price
         if not count_type and bought:
@@ -950,7 +956,8 @@ def draw_game(game):
         button.draw(game.screen)
 
     # Единый левый HUD-блок
-    hud_x, hud_y, hud_w, hud_h = 24, 16, 340, 140
+    has_thermometer = game.inventory.get("градусник", False)
+    hud_x, hud_y, hud_w, hud_h = 24, 16, 340, 162 if has_thermometer else 140
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((236, 228, 210, 212))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -966,10 +973,16 @@ def draw_game(game):
         row_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, (44, 37, 30)),
         (hud_x + 175, hud_y + 80),
     )
+    controls_y = hud_y + 110
+    if has_thermometer:
+        temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
+        temp_text = "Температура: -- °C" if temperature is None else f"Температура: {temperature:.1f} °C"
+        game.screen.blit(row_font.render(temp_text, True, (44, 37, 30)), (hud_x + 10, hud_y + 102))
+        controls_y = hud_y + 132
     controls_font = pygame.font.Font(None, 22)
     game.screen.blit(
         controls_font.render("J журнал | R радио | E ЭМП | T УФ", True, (65, 52, 38)),
-        (hud_x + 10, hud_y + 110),
+        (hud_x + 10, controls_y),
     )
 
     # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
