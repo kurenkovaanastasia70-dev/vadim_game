@@ -24,10 +24,14 @@ class Button:
         # Создаем шрифт для текста кнопки (None = системный шрифт, 36 = размер)
         self.font = pygame.font.Font(None, 36)
     def draw(self,screen):
-        pygame.draw.rect(screen, self.current_color, self.rect)
-        #Todo: сделать возможность полупрозрачных кнопок, в класс передать ещё и цвет рамки
-        pygame.draw.rect(screen, BLACK, self.rect, 2)
-        text_surface = self.font.render(self.text, False, BLACK)
+        hovered = self.current_color == self.hover_color
+        base = (35, 42, 40) if not hovered else (52, 68, 62)
+        border = (128, 170, 145) if not hovered else (205, 235, 196)
+        shadow_rect = self.rect.move(3, 3)
+        pygame.draw.rect(screen, (8, 10, 10), shadow_rect, border_radius=7)
+        pygame.draw.rect(screen, base, self.rect, border_radius=7)
+        pygame.draw.rect(screen, border, self.rect, 2, border_radius=7)
+        text_surface = self.font.render(self.text, False, (235, 240, 232))
         text_rect = text_surface.get_rect(center = self.rect.center)
         screen.blit(text_surface, text_rect)
     def handle_event(self, event):

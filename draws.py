@@ -51,6 +51,125 @@ JOURNAL_EVIDENCE_HELP = [
     ),
 ]
 
+
+def _draw_crt_atmosphere(game):
+    """Легкая ретро-постобработка без новых ассетов: tint, scanlines, шум и тревожная вспышка."""
+    now = pygame.time.get_ticks()
+    threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
+
+    tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    tint.fill((18, 45, 38, 34))
+    game.screen.blit(tint, (0, 0))
+
+    if threat > 0:
+        pulse = 0.5 + 0.5 * ((now // 120) % 2)
+        danger_alpha = int(28 + 74 * threat * pulse)
+        danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        danger.fill((110, 12, 18, danger_alpha))
+        game.screen.blit(danger, (0, 0))
+
+    line_alpha = 34 + int(18 * threat)
+    scanlines = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    for y in range(0, SCREEN_HEIGHT, 4):
+        pygame.draw.line(scanlines, (0, 0, 0, line_alpha), (0, y), (SCREEN_WIDTH, y))
+    game.screen.blit(scanlines, (0, 0))
+
+    noise = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    step = 32
+    offset = (now // 90) % step
+    for y in range(-offset, SCREEN_HEIGHT, step):
+        for x in range((y + offset) % 47, SCREEN_WIDTH, 96):
+            alpha = 10 + int(28 * threat)
+            noise.fill((220, 255, 230, alpha), (x, y, 2, 1))
+    game.screen.blit(noise, (0, 0))
+
+    vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    edge = int(80 + 45 * threat)
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, SCREEN_WIDTH, 28))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, SCREEN_HEIGHT - 28, SCREEN_WIDTH, 28))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, 28, SCREEN_HEIGHT))
+    pygame.draw.rect(vignette, (0, 0, 0, edge), (SCREEN_WIDTH - 28, 0, 28, SCREEN_HEIGHT))
+    game.screen.blit(vignette, (0, 0))
+
+
+def _draw_compact_status_hud(game):
+    has_thermometer = game.inventory.get("градусник", False)
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 378, 108 if has_thermometer else 86
+    hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
+    hud_bg.fill((19, 25, 24, 218))
+    game.screen.blit(hud_bg, (hud_x, hud_y))
+    pygame.draw.rect(game.screen, (118, 156, 132), (hud_x, hud_y, hud_w, hud_h), 2, border_radius=6)
+
+    font = pygame.font.Font(None, 24)
+    small = pygame.font.Font(None, 20)
+    hp = max(0, int(getattr(game, "player_hp", 0)))
+    threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
+
+    game.screen.blit(small.render("HP", True, (145, 170, 160)), (hud_x + 12, hud_y + 10))
+    for i in range(5):
+        color = (225, 82, 82) if i < hp else (63, 74, 70)
+        _draw_pixel_heart(game.screen, hud_x + 12 + i * 22, hud_y + 32, 2, color)
+
+    rows = [
+        ("$", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
+        ("UV", "ON" if getattr(game, "uv_mode", False) else "OFF", (166, 132, 236)),
+    ]
+    x = hud_x + 132
+    for label, value, color in rows:
+        game.screen.blit(small.render(label, True, (145, 170, 160)), (x, hud_y + 10))
+        val = font.render(value, True, color)
+        game.screen.blit(val, (x, hud_y + 32))
+        x += 70
+
+    activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
+    activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
+    game.screen.blit(activity_label, (hud_x + 12, hud_y + 50))
+
+    bar = pygame.Rect(hud_x + 176, hud_y + 56, hud_w - 188, 8)
+    pygame.draw.rect(game.screen, (42, 54, 49), bar, border_radius=4)
+    fill_w = int(bar.w * max(threat, activity / 100))
+    if fill_w:
+        pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
+    pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
+
+    if has_thermometer:
+        temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
+        temp_value = "-- C" if temperature is None else f"{temperature:.1f} C"
+        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 76))
+        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 74))
+
+
+def _draw_pixel_heart(screen, x, y, scale, color):
+    pixels = (
+        "01100110",
+        "11111111",
+        "11111111",
+        "01111110",
+        "00111100",
+        "00011000",
+    )
+    shadow = (22, 15, 18)
+    for row, line in enumerate(pixels):
+        for col, bit in enumerate(line):
+            if bit == "1":
+                rect = pygame.Rect(x + col * scale, y + row * scale, scale, scale)
+                pygame.draw.rect(screen, shadow, rect.move(scale, scale))
+                pygame.draw.rect(screen, color, rect)
+
+
+def _draw_retro_button(screen, button, active=False):
+    mouse = pygame.mouse.get_pos()
+    hovered = button.rect.collidepoint(mouse)
+    bg = (31, 43, 39) if not hovered else (45, 66, 58)
+    border = (214, 238, 207) if active else ((133, 196, 156) if hovered else (96, 132, 116))
+    text_color = (235, 246, 238)
+    pygame.draw.rect(screen, (5, 8, 7), button.rect.move(3, 3), border_radius=6)
+    pygame.draw.rect(screen, bg, button.rect, border_radius=6)
+    pygame.draw.rect(screen, border, button.rect, 2, border_radius=6)
+    label = pygame.font.Font(None, 23).render(button.text, True, text_color)
+    screen.blit(label, label.get_rect(center=button.rect.center))
+
 EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in JOURNAL_EVIDENCE_HELP}
 
 
@@ -317,7 +436,7 @@ def draw_howto(game):
         ),
         (
             "Опасность и сейв",
-            "Касание призрака = минус жизнь. **Меню** (справа вверху) — выход с сохранением в слот.",
+            "Касание призрака = минус жизнь. **Дело J** открывает журнал улик, **Меню** — выход с сохранением.",
         ),
     ]
 
@@ -485,18 +604,53 @@ def draw_menu(game):
     if hasattr(game, "cork_board_bg") and game.cork_board_bg:
         game.screen.blit(game.cork_board_bg, (0, 0))
     else:
-        game.screen.fill(DARK_GRAY)
+        game.screen.fill((84, 58, 36))
 
-    font = pygame.font.Font(None, 72)
+    shade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    shade.fill((18, 10, 6, 82))
+    game.screen.blit(shade, (0, 0))
 
-    title = font.render("Приключенческая игра", True, BLACK)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
-    game.screen.blit(title, title_rect)
+    title_card = pygame.Rect(SCREEN_WIDTH // 2 - 270, 54, 540, 118)
+    pygame.draw.rect(game.screen, (238, 224, 190), title_card, border_radius=5)
+    pygame.draw.rect(game.screen, (94, 62, 38), title_card, 3, border_radius=5)
+    pygame.draw.line(game.screen, (145, 38, 38), (title_card.left + 24, title_card.bottom - 22), (title_card.right - 24, title_card.bottom - 22), 3)
 
-    font_small = pygame.font.Font(None, 36)
-    subtitle = font_small.render("выбирете действие", True, BLACK)
-    subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 160))
-    game.screen.blit(subtitle, subtitle_rect)
+    font = pygame.font.Font(None, 64)
+    title = font.render("ДЕЛО О ПРИЗРАКЕ", True, (42, 30, 22))
+    game.screen.blit(title, title.get_rect(center=(title_card.centerx, title_card.y + 42)))
+
+    font_small = pygame.font.Font(None, 26)
+    subtitle = font_small.render("доска расследования • выбери следующую улику", True, (68, 48, 34))
+    game.screen.blit(subtitle, subtitle.get_rect(center=(title_card.centerx, title_card.y + 82)))
+
+    pin_centers = [button.rect.center for button in game.menu_buttons]
+    thread_pairs = [(0, 2), (2, 1), (0, 3), (2, 4), (3, 4)]
+    for a, b in thread_pairs:
+        if a < len(pin_centers) and b < len(pin_centers):
+            pygame.draw.line(game.screen, (128, 25, 28), pin_centers[a], pin_centers[b], 3)
+            pygame.draw.line(game.screen, (210, 72, 65), pin_centers[a], pin_centers[b], 1)
+
+    note_font = pygame.font.Font(None, 22)
+    notes = [
+        (pygame.Rect(84, 176, 176, 58), "ЭМП скачет"),
+        (pygame.Rect(765, 150, 160, 60), "следы в УФ"),
+        (pygame.Rect(735, 610, 176, 58), "радио шумит"),
+    ]
+    for rect, text in notes:
+        pygame.draw.rect(game.screen, (226, 211, 164), rect, border_radius=4)
+        pygame.draw.rect(game.screen, (93, 68, 41), rect, 2, border_radius=4)
+        game.screen.blit(note_font.render(text, True, (52, 38, 28)), (rect.x + 12, rect.y + 18))
+
+    ghost_x, ghost_y = SCREEN_WIDTH // 2, 228
+    ghost_surf = pygame.Surface((150, 130), pygame.SRCALPHA)
+    pygame.draw.ellipse(ghost_surf, (20, 26, 25, 150), (30, 8, 90, 104))
+    pygame.draw.circle(ghost_surf, (225, 245, 230, 95), (58, 48), 6)
+    pygame.draw.circle(ghost_surf, (225, 245, 230, 95), (92, 48), 6)
+    pygame.draw.polygon(ghost_surf, (20, 26, 25, 150), [(32, 86), (48, 116), (64, 88), (82, 118), (98, 88), (118, 116), (120, 82)])
+    game.screen.blit(ghost_surf, ghost_surf.get_rect(center=(ghost_x, ghost_y)))
+
+    for y in range(0, SCREEN_HEIGHT, 5):
+        pygame.draw.line(game.screen, (0, 0, 0, 26), (0, y), (SCREEN_WIDTH, y))
 
     # Рисуем пины вместо обычных кнопок
     for button in game.menu_buttons:
@@ -938,6 +1092,8 @@ def draw_game(game):
         # Без фонарика: круг вокруг игрока, обрезанный по границам комнаты
         clipped_overlay = game._create_clipped_vignette_overlay()
         game.screen.blit(clipped_overlay, (0, 0))
+
+    _draw_crt_atmosphere(game)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
@@ -951,39 +1107,13 @@ def draw_game(game):
     }
     _draw_radio_feedback(game)
 
-    # Кнопки меню и магазина
+    # Верхние игровые кнопки: магазин убран, журнал вынесен как явная кнопка "Дело".
     for button in game.game_buttons:
-        button.draw(game.screen)
+        _draw_retro_button(game.screen, button)
+    if hasattr(game, "journal_button"):
+        _draw_retro_button(game.screen, game.journal_button, active=getattr(game, "journal_open", False))
 
-    # Единый левый HUD-блок
-    has_thermometer = game.inventory.get("градусник", False)
-    hud_x, hud_y, hud_w, hud_h = 24, 16, 340, 162 if has_thermometer else 140
-    hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
-    hud_bg.fill((236, 228, 210, 212))
-    game.screen.blit(hud_bg, (hud_x, hud_y))
-    pygame.draw.rect(game.screen, (95, 77, 56), (hud_x, hud_y, hud_w, hud_h), 2)
-
-    title_font = pygame.font.Font(None, 25)
-    row_font = pygame.font.Font(None, 24)
-    game.screen.blit(title_font.render("HUD", True, (44, 37, 30)), (hud_x + 10, hud_y + 8))
-    game.screen.blit(row_font.render(f"Деньги: {game.player_money}", True, (44, 37, 30)), (hud_x + 10, hud_y + 36))
-    game.screen.blit(row_font.render(f"Уровень: {game.player_level}", True, (44, 37, 30)), (hud_x + 10, hud_y + 58))
-    game.screen.blit(row_font.render(f"Жизни: {game.player_hp}", True, (44, 37, 30)), (hud_x + 10, hud_y + 80))
-    game.screen.blit(
-        row_font.render(f"УФ: {'вкл' if getattr(game, 'uv_mode', False) else 'выкл'}", True, (44, 37, 30)),
-        (hud_x + 175, hud_y + 80),
-    )
-    controls_y = hud_y + 110
-    if has_thermometer:
-        temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
-        temp_text = "Температура: -- °C" if temperature is None else f"Температура: {temperature:.1f} °C"
-        game.screen.blit(row_font.render(temp_text, True, (44, 37, 30)), (hud_x + 10, hud_y + 102))
-        controls_y = hud_y + 132
-    controls_font = pygame.font.Font(None, 22)
-    game.screen.blit(
-        controls_font.render("J журнал | R радио | E ЭМП | T УФ", True, (65, 52, 38)),
-        (hud_x + 10, controls_y),
-    )
+    _draw_compact_status_hud(game)
 
     # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
     slot_font = pygame.font.Font(None, 18)
