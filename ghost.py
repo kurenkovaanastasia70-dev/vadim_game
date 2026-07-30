@@ -44,6 +44,7 @@ class GhostAbilitiesConfig:
         "ultraviolet",
         "ghostorb",
         "radio",
+        "freezing_temperature",
     )
     FLOAT_KEYS = ("speed", "patrol_speed", "chase_speed", "search_speed", "activity_gain")
 
@@ -57,11 +58,12 @@ class GhostAbilitiesConfig:
         "patrol_speed": 2.0,
         "chase_speed": 2.0,
         "search_speed": 2.0,
-        "activity_gain": 1.0,
         "amp": False,
         "ultraviolet": False,
         "ghostorb": False,
         "radio": False,
+        "freezing_temperature": False,
+        "activity_gain": 1.0
     }
 
     def __init__(self, ini_path=None):
@@ -112,7 +114,7 @@ class GhostAbilitiesConfig:
 
 # Улики и наблюдаемые признаки, которые уже есть в ghost_abilities.ini. ghostorb в данных профиля есть, но
 # отдельного объекта «шар» в сцене нет — в журнал не выводим, чтобы не вводить в заблуждение.
-EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio", "can_walk", "can_fly")
+EVIDENCE_PROFILE_KEYS = ("amp", "ultraviolet", "radio", "freezing_temperature", "can_walk", "can_fly")
 
 
 def filter_profiles_by_evidence(abilities_config, marked):
@@ -336,6 +338,7 @@ class Ghost:
         self.ultraviolet = abilities.get("ultraviolet", False)
         self.ghostorb = abilities.get("ghostorb", False)
         self.radio = abilities.get("radio", False)
+        self.freezing_temperature = abilities.get("freezing_temperature", False)
         self.activity_gain = _to_float(abilities.get("activity_gain"), 1.0)
         self.aggression = 10  # 0..100, обновляется в update()
         

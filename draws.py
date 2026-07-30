@@ -14,7 +14,7 @@ from constants import (
 import assets
 import mechanics
 import level_config
-from inventory_system import ItemType
+from inventory_system import ItemType, MAX_CARRIED_ITEMS
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
 
 # Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
@@ -33,6 +33,11 @@ JOURNAL_EVIDENCE_HELP = [
         "radio",
         "Радиоприёмник  [R]",
         "Ответ или голос с радио: галка, если слышал. Снимай галку, если радио «молчит» в таком раунде.",
+    ),
+    (
+        "freezing_temperature",
+        "Низкая температура",
+        "Градусник показывает холод в любимой комнате: отметь, если температура резко ниже обычной.",
     ),
     (
         "can_walk",
@@ -88,7 +93,8 @@ def _draw_crt_atmosphere(game):
 
 
 def _draw_compact_status_hud(game):
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 378, 86
+    has_thermometer = game.inventory.get("градусник", False)
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 378, 108 if has_thermometer else 86
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -126,6 +132,12 @@ def _draw_compact_status_hud(game):
     if fill_w:
         pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
     pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
+
+    if has_thermometer:
+        temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
+        temp_value = "-- C" if temperature is None else f"{temperature:.1f} C"
+        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 76))
+        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 74))
 
 
 def _draw_pixel_heart(screen, x, y, scale, color):
@@ -209,8 +221,8 @@ def _blit_centered_icon(screen, icon, rect, size):
 
 
 def _journal_panel_rect():
-    w = min(640, max(400, SCREEN_WIDTH - 32))
-    h = min(520, max(380, SCREEN_HEIGHT - 20))
+    w = min(720, max(400, SCREEN_WIDTH - 32))
+    h = min(600, max(420, SCREEN_HEIGHT - 20))
     return pygame.Rect((SCREEN_WIDTH - w) // 2, (SCREEN_HEIGHT - h) // 2, w, h)
 
 
@@ -218,7 +230,7 @@ def _journal_content_width(panel):
     return panel.w - 28 * 2
 
 
-JOURNAL_ROW_H = 54
+JOURNAL_ROW_H = 50
 JOURNAL_CB_SIZE = 24
 EVIDENCE_STATE_UNKNOWN = "unknown"
 EVIDENCE_STATE_CONFIRMED = "confirmed"
@@ -681,11 +693,12 @@ def draw_shop(game):
         (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", ItemType.RADIO),
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
+        (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
     ]
 
-    card_w, card_h = 430, 82
+    card_w, card_h = 430, 78
     col_x = [62, 570]
-    row_y = [112, 214, 316, 418, 520]
+    row_y = [100, 185, 270, 355, 440, 525]
     mouse = pygame.mouse.get_pos()
 
     for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
@@ -710,7 +723,7 @@ def draw_shop(game):
         x = icon_rect.right + 14
         game.screen.blit(name_f.render(name, True, (238, 242, 248)), (x, card.y + 12))
         for i, line in enumerate(_wrap_lines(body_f, desc, 210)):
-            if i >= 2:
+            if i >= 1:
                 break
             game.screen.blit(body_f.render(line, True, (160, 170, 188)), (x, card.y + 38 + i * 18))
 
@@ -728,7 +741,7 @@ def draw_shop(game):
         game.screen.blit(status_surf, (side_x, card.y + 30))
 
         btn = game.shop_buttons[btn_index]
-        btn.rect = pygame.Rect(card.right - 104, card.y + 54, 90, 24)
+        btn.rect = pygame.Rect(card.right - 104, card.y + 51, 90, 24)
         hover = btn.rect.collidepoint(mouse)
         can_buy = game.player_money >= price
         if not count_type and bought:
@@ -1081,6 +1094,7 @@ def draw_game(game):
         game.screen.blit(clipped_overlay, (0, 0))
 
     _draw_crt_atmosphere(game)
+    game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
@@ -1108,43 +1122,48 @@ def draw_game(game):
     name_font = pygame.font.Font(None, 19)
     active_item = getattr(game.inventory_manager, "active_hand_item", None)
     hovered_name = None
-    for i, item_name in enumerate(purchased_items):
+    total_slots = max(MAX_CARRIED_ITEMS, len(purchased_items))
+    for i in range(total_slots):
+        item_name = purchased_items[i] if i < len(purchased_items) else None
         cx, cy, radius = mechanics.inventory_slot_screen(i)
         circle_rect = pygame.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
         hovered = ((mouse_pos[0] - cx) ** 2 + (mouse_pos[1] - cy) ** 2) <= radius ** 2
-        item_type = game.inventory_manager.item_type_from_name(item_name)
+        item_type = game.inventory_manager.item_type_from_name(item_name) if item_name else None
         is_active = item_type is not None and item_type == active_item
         fill = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        fill_alpha = 145 if hovered or is_active else 92
+        fill_alpha = 145 if hovered or is_active else (76 if item_name else 38)
         pygame.draw.circle(fill, (238, 244, 255, fill_alpha), (radius, radius), radius)
         game.screen.blit(fill, circle_rect.topleft)
-        border = (255, 235, 150) if is_active else ((235, 245, 255) if hovered else (160, 175, 190))
+        border = (255, 235, 150) if is_active else ((235, 245, 255) if hovered else ((160, 175, 190) if item_name else (92, 108, 120)))
         pygame.draw.circle(game.screen, border, (cx, cy), radius, 2)
 
-        icon = game.inventory_images.get(item_name)
-        if icon:
-            _blit_centered_icon(game.screen, icon, circle_rect, max(26, radius * 2 - 12))
+        if item_name:
+            icon = game.inventory_images.get(item_name)
+            if icon:
+                _blit_centered_icon(game.screen, icon, circle_rect, max(26, radius * 2 - 12))
+            else:
+                fallback = name_font.render(item_name[:1].upper(), True, (38, 43, 52))
+                game.screen.blit(fallback, fallback.get_rect(center=circle_rect.center))
         else:
-            fallback = name_font.render(item_name[:1].upper(), True, (38, 43, 52))
-            game.screen.blit(fallback, fallback.get_rect(center=circle_rect.center))
+            pygame.draw.circle(game.screen, (120, 138, 150), (cx, cy), max(3, radius // 8), 1)
 
         key_surf = slot_font.render(str(i + 1), True, (235, 240, 248))
         key_bg = pygame.Rect(circle_rect.left + 1, circle_rect.top + 1, 16, 15)
         pygame.draw.rect(game.screen, (35, 40, 50), key_bg, border_radius=4)
         game.screen.blit(key_surf, key_surf.get_rect(center=key_bg.center))
 
-        qty = consumable_name_to_count.get(item_name)
+        qty = consumable_name_to_count.get(item_name) if item_name else None
         if qty is not None:
             qty_surf = qty_font.render(f"x{qty}", True, (255, 245, 190))
             qty_bg = pygame.Rect(circle_rect.right - qty_surf.get_width() - 8, circle_rect.bottom - 18, qty_surf.get_width() + 6, 16)
             pygame.draw.rect(game.screen, (38, 34, 26), qty_bg, border_radius=5)
             game.screen.blit(qty_surf, qty_surf.get_rect(center=qty_bg.center))
 
-        if hovered:
+        if hovered and item_name:
             hovered_name = item_name
 
     if hovered_name:
-        label = name_font.render(hovered_name, True, (245, 248, 252))
+        label = name_font.render(f"{hovered_name}  |  ПКМ выбросить", True, (245, 248, 252))
         lx = max(8, min(SCREEN_WIDTH - label.get_width() - 18, mouse_pos[0] - label.get_width() // 2))
         ly = max(8, mouse_pos[1] - 34)
         tip_rect = pygame.Rect(lx - 7, ly - 5, label.get_width() + 14, label.get_height() + 8)

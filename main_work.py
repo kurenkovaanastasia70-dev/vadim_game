@@ -40,7 +40,6 @@ EVIDENCE_UNKNOWN = "unknown"
 EVIDENCE_CONFIRMED = "confirmed"
 EVIDENCE_EXCLUDED = "excluded"
 EVIDENCE_STATES = (EVIDENCE_UNKNOWN, EVIDENCE_CONFIRMED, EVIDENCE_EXCLUDED)
-
 DIFFICULTY_CONFIG = {
     0: {
         "name": "Лёгкая",
@@ -148,6 +147,7 @@ class Game:
             Button(794, 360, 116, 32, "Купить", BLUE),
             Button(794, 462, 116, 32, "Купить", BLUE),
             Button(794, 564, 116, 32, "Купить", BLUE),
+            Button(794, 650, 116, 32, "Купить", BLUE),
         ]
         
         # Создание кнопок для настроек
@@ -261,6 +261,7 @@ class Game:
             "радио": False,
             "эмп": False,
             "уф фонарь": False,
+            "градусник": False,
         }
         self.inventory_items = [
             "фонарик",
@@ -273,6 +274,7 @@ class Game:
             "радио",
             "эмп",
             "уф фонарь",
+            "градусник",
         ]
 
         # Состояние для плавного движения
@@ -350,6 +352,10 @@ class Game:
             )
         self.near_computer = False  # Флаг близости к компьютеру
         self.update_camera()
+
+        self.ghost_activity = 0
+        self.activity_event_cooldown_ticks = 0
+        self.activity_flash_until = 0
 
     def is_gameplay_paused(self):
         return bool(self.show_save_prompt or self.journal_open or self.state in (GameState.GAME_OVER, GameState.WIN))
@@ -517,6 +523,56 @@ class Game:
             return
         self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
         self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
+
+    def get_player_room_id(self):
+        if self.level_data and "rooms" in self.level_data:
+            for i, room_data in enumerate(self.level_data["rooms"]):
+                room_rect = pygame.Rect(
+                    room_data["x"],
+                    room_data["y"],
+                    room_data["width"],
+                    room_data["height"],
+                )
+                if room_rect.collidepoint(self.player_rect.center):
+                    return i
+        return -1
+
+    def get_current_temperature_c(self):
+        player_room_id = self.get_player_room_id()
+
+        if not hasattr(self, "_room_temperatures_c"):
+            self._room_temperatures_c = {}
+        if not hasattr(self, "_room_temperature_next_update_ms"):
+            self._room_temperature_next_update_ms = {}
+
+        update_interval_ms = 2000
+        now = pygame.time.get_ticks()
+
+        if player_room_id not in self._room_temperatures_c:
+            self._room_temperatures_c[player_room_id] = random.uniform(18.0, 22.5)
+            self._room_temperature_next_update_ms[player_room_id] = now + update_interval_ms
+
+        ghosts = getattr(self.ghost_manager, "ghosts", [])
+        ghost = ghosts[0] if ghosts else None
+        home_room_id = getattr(ghost, "home_room_id", -2) if ghost else -2
+        is_ghost_home_room = player_room_id == home_room_id
+        has_freezing = bool(getattr(ghost, "freezing_temperature", False)) if ghost else False
+
+        if now >= self._room_temperature_next_update_ms.get(player_room_id, 0):
+            current_temp = self._room_temperatures_c[player_room_id]
+
+            if is_ghost_home_room:
+                decrease = random.uniform(0.3, 1.0)
+                min_temp = -5.0 if has_freezing else 6.0
+                current_temp = max(min_temp, current_temp - decrease)
+            else:
+                fluctuation = random.uniform(-0.6, 0.6)
+                current_temp = max(16.0, min(24.0, current_temp + fluctuation))
+
+            self._room_temperatures_c[player_room_id] = current_temp
+            self._room_temperature_next_update_ms[player_room_id] = now + update_interval_ms
+
+        return round(self._room_temperatures_c[player_room_id], 1)
 
     def default_journal_evidence(self):
         return {k: EVIDENCE_UNKNOWN for k in EVIDENCE_PROFILE_KEYS}
@@ -894,6 +950,9 @@ class Game:
         #Todo: реализовать систему выкидывания при переполнении стека предметов
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
+        if item_type and not self.inventory_manager.can_receive_item(item_type):
+            self._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            return False
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
             self.inventory[item_name] = True

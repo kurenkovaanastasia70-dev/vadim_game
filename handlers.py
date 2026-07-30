@@ -169,6 +169,11 @@ def handle_shop_events(game, event):
                     print("Куплен УФ фонарь!")
                 else:
                     print("Недостаточно денег или предмет уже куплен!")
+            elif i == 11:  # Кнопка "Купить градусник"
+                if game.buy_item("градусник", 55):
+                    print("Куплен градусник!")
+                else:
+                    print("Недостаточно денег или предмет уже куплен!")
 
 def handle_settings_events(game, event):
     """
@@ -311,6 +316,15 @@ def handle_game_events(game, event):
             game.keys_pressed[event.key] = False
 
         
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+        mouse_pos = event.pos
+        purchased_items = game.inventory_manager.visible_inventory_names()
+        for i, item in enumerate(purchased_items):
+            circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
+            if ((mouse_pos[0] - circle_x) ** 2 + (mouse_pos[1] - inventory_y) ** 2) <= circle_radius ** 2:
+                game.inventory_manager.drop_item_by_index(i)
+                return
+
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         mouse_pos = event.pos
         world_mouse_pos = (mouse_pos[0] + game.camera_x, mouse_pos[1] + game.camera_y)
@@ -321,6 +335,8 @@ def handle_game_events(game, event):
         
         # Клик по проектору — зарядить аккумулятором (если не в режиме размещения)
         if game.inventory_manager.try_power_projector(world_mouse_pos[0], world_mouse_pos[1]):
+            return
+        if game.inventory_manager.pick_dropped_item_at(world_mouse_pos[0], world_mouse_pos[1]):
             return
         if game.inventory_manager.pick_existing_item_at(world_mouse_pos[0], world_mouse_pos[1]):
             return
