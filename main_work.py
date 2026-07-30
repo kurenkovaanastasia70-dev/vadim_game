@@ -539,17 +539,40 @@ class Game:
 
     def get_current_temperature_c(self):
         player_room_id = self.get_player_room_id()
-        room_seed = max(0, player_room_id)
-        base_temperature = 19.0 + (room_seed % 5) * 0.7
+
+        if not hasattr(self, "_room_temperatures_c"):
+            self._room_temperatures_c = {}
+        if not hasattr(self, "_room_temperature_next_update_ms"):
+            self._room_temperature_next_update_ms = {}
+
+        update_interval_ms = 2000
+        now = pygame.time.get_ticks()
+
+        if player_room_id not in self._room_temperatures_c:
+            self._room_temperatures_c[player_room_id] = random.uniform(18.0, 22.5)
+            self._room_temperature_next_update_ms[player_room_id] = now + update_interval_ms
+
         ghosts = getattr(self.ghost_manager, "ghosts", [])
-        if ghosts:
-            ghost = ghosts[0]
-            if (
-                getattr(ghost, "freezing_temperature", False)
-                and player_room_id == getattr(ghost, "home_room_id", -2)
-            ):
-                return -2.5 + (room_seed % 4) * 0.8
-        return base_temperature
+        ghost = ghosts[0] if ghosts else None
+        home_room_id = getattr(ghost, "home_room_id", -2) if ghost else -2
+        is_ghost_home_room = player_room_id == home_room_id
+        has_freezing = bool(getattr(ghost, "freezing_temperature", False)) if ghost else False
+
+        if now >= self._room_temperature_next_update_ms.get(player_room_id, 0):
+            current_temp = self._room_temperatures_c[player_room_id]
+
+            if is_ghost_home_room:
+                decrease = random.uniform(0.3, 1.0)
+                min_temp = -5.0 if has_freezing else 6.0
+                current_temp = max(min_temp, current_temp - decrease)
+            else:
+                fluctuation = random.uniform(-0.6, 0.6)
+                current_temp = max(16.0, min(24.0, current_temp + fluctuation))
+
+            self._room_temperatures_c[player_room_id] = current_temp
+            self._room_temperature_next_update_ms[player_room_id] = now + update_interval_ms
+
+        return round(self._room_temperatures_c[player_room_id], 1)
 
     def default_journal_evidence(self):
         return {k: EVIDENCE_UNKNOWN for k in EVIDENCE_PROFILE_KEYS}
