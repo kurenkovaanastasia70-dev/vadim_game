@@ -671,20 +671,37 @@ class Game:
             meta = level_config.get_level_by_number(self.player_level)
         return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
 
+    def get_level_complete_reward_breakdown(self):
+        """Считает денежную награду за победу: база + сложность + бонус за подтверждённые улики."""
+        base = 80 + max(0, self.player_level - 1) * 35
+        difficulty_bonus = int(self.difficulty_config()["reward_bonus"])
+        confirmed_count = sum(
+            1 for state in self.journal_evidence.values() if state == EVIDENCE_CONFIRMED
+        )
+        evidence_bonus = confirmed_count * 15
+        total = base + difficulty_bonus + evidence_bonus
+        return {
+            "base": base,
+            "difficulty_bonus": difficulty_bonus,
+            "evidence_bonus": evidence_bonus,
+            "confirmed_count": confirmed_count,
+            "total": total,
+        }
+
     def get_level_complete_reward(self):
-        return 80 + max(0, self.player_level - 1) * 35 + self.difficulty_config()["reward_bonus"]
+        return self.get_level_complete_reward_breakdown()["total"]
 
     def configure_win_buttons(self):
         if self.has_next_level():
             self.win_buttons = [
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 130, 300, 46, "Следующий уровень", GREEN),
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 188, 300, 46, "Заново", GRAY),
-                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 246, 300, 46, "В меню", BLUE),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 158, 300, 46, "Следующий уровень", GREEN),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 216, 300, 46, "Заново", GRAY),
+                Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 274, 300, 46, "В меню", BLUE),
             ]
         else:
             self.win_buttons = [
-                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 158, 260, 46, "Заново", GREEN),
-                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 218, 260, 46, "В меню", BLUE),
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 186, 260, 46, "Заново", GREEN),
+                Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 246, 260, 46, "В меню", BLUE),
             ]
 
     def advance_to_next_level(self):
@@ -987,7 +1004,8 @@ class Game:
     def enter_win(self, ghost_name=""):
         self.win_ghost_name = ghost_name or "призрак"
         self.win_next_level_id = self.get_next_level_id()
-        reward = self.get_level_complete_reward()
+        breakdown = self.get_level_complete_reward_breakdown()
+        reward = breakdown["total"]
         self.player_money += reward
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
@@ -998,8 +1016,14 @@ class Game:
             "level_name": self.get_level_name(),
             "found_evidence": found_evidence,
             "reward": reward,
+            "reward_base": breakdown["base"],
+            "reward_difficulty_bonus": breakdown["difficulty_bonus"],
+            "reward_evidence_bonus": breakdown["evidence_bonus"],
+            "confirmed_count": breakdown["confirmed_count"],
+            "money_after": self.player_money,
             "next_level_name": next_meta.get("name") if next_meta else None,
         }
+        self.win_entered_at = pygame.time.get_ticks()
         self.configure_win_buttons()
         self.moving = False
         self.show_save_prompt = False
@@ -1010,6 +1034,8 @@ class Game:
         self.inventory_manager.cancel_placement()
         for key in self.keys_pressed:
             self.keys_pressed[key] = False
+        if self.selected_save_slot:
+            self.save_game(self.selected_save_slot)
         self.set_state(GameState.WIN)
 
     def enter_game_over(self, reason="hp"):
@@ -1216,6 +1242,14 @@ class Game:
                     world_width=self.world_width,
                     world_height=self.world_height,
                 )
+                self.inventory_manager.update_dropped_items()
+                throw_event = getattr(self.ghost_manager, "last_throw_event", None)
+                if throw_event:
+                    self.ghost_manager.last_throw_event = None
+                    if throw_event.get("room_id") == self.get_player_room_id():
+                        count = int(throw_event.get("count", 1) or 1)
+                        word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
+                        self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
                 # Столкновение с приведением — отнимаем HP
                 now = pygame.time.get_ticks()
                 if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
@@ -1287,6 +1321,9 @@ class Game:
             if self.state == GameState.GAME and self.player_hp > 0 and not self.is_gameplay_paused():
                 self.inventory_manager.update_placed_items()
                 self.inventory_manager.update_projector()
+            elif self.state == GameState.GAME:
+                # Даже на паузе журнала доигрываем уже начатый бросок.
+                self.inventory_manager.update_dropped_items()
             
             self.draw()
 

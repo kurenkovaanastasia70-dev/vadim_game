@@ -1128,6 +1128,7 @@ class GhostManager:
         self.footprints = []  # [{"x": int, "y": int, "ttl": int}]
         self.footprint_sprites = None
         self.emf_hotspot = None  # {"x": int, "y": int, "level": int, "ttl": int}
+        self.last_throw_event = None
 
     def load_ghost_sprite(self):
         """Загружает спрайт приведения"""
@@ -1179,6 +1180,7 @@ class GhostManager:
         self.ghosts.clear()
         self.footprints.clear()
         self.emf_hotspot = None
+        self.last_throw_event = None
         
         if not self.ghost_sprite:
             self.load_ghost_sprite()
@@ -1366,26 +1368,34 @@ class GhostManager:
         ghost.item_throw_timer = max(0, getattr(ghost, "item_throw_timer", 1) - 1)
         if ghost.item_throw_timer > 0:
             return 0
-        ghost.item_throw_timer = random.randint(ITEM_THROW_MIN_TICKS, ITEM_THROW_MAX_TICKS)
 
         room_id = ghost.get_current_room_id()
         if room_id < 0 or room_id >= len(ghost.rooms):
+            ghost.item_throw_timer = random.randint(2 * 60, 4 * 60)
             return 0
 
         room = ghost.rooms[room_id]
         room_items = [
             item for item in dropped_items
             if room.rect.collidepoint(item.rect.center)
+            and not getattr(item, "throw_active", False)
+            and not getattr(item, "throw_pending", False)
         ]
         if not room_items:
+            # Короткий retry, чтобы не ждать ещё 12-28 сек в пустой комнате.
+            ghost.item_throw_timer = random.randint(2 * 60, 4 * 60)
             return 0
 
+        ghost.item_throw_timer = random.randint(ITEM_THROW_MIN_TICKS, ITEM_THROW_MAX_TICKS)
         random.shuffle(room_items)
         throw_count = min(len(room_items), random.randint(1, 3))
         last_position = None
-        for dropped in room_items[:throw_count]:
+        for index, dropped in enumerate(room_items[:throw_count]):
             x, y = self._random_point_for_dropped_item(room, dropped, level_hitboxes)
-            if hasattr(dropped, "move_to"):
+            delay_ms = index * random.randint(45, 90)
+            if hasattr(dropped, "start_throw"):
+                dropped.start_throw(x, y, delay_ms=delay_ms)
+            elif hasattr(dropped, "move_to"):
                 dropped.move_to(x, y)
             else:
                 dropped.x, dropped.y = int(x), int(y)
@@ -1399,6 +1409,13 @@ class GhostManager:
                 "y": last_position[1],
                 "level": event_level,
                 "ttl": random.randint(3 * 60, 6 * 60),
+            }
+            self.last_throw_event = {
+                "room_id": room_id,
+                "count": throw_count,
+                "x": last_position[0],
+                "y": last_position[1],
+                "emf_level": event_level,
             }
         return throw_count
 
