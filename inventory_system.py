@@ -337,6 +337,11 @@ class DroppedInventoryItem:
         self.rect = pygame.Rect(0, 0, self.radius * 2, self.radius * 2)
         self.rect.center = (self.x, self.y)
 
+    def move_to(self, x, y):
+        self.x = int(x)
+        self.y = int(y)
+        self.rect.center = (self.x, self.y)
+
     def to_dict(self):
         return {
             "type": self.item_type.name,

@@ -1212,6 +1212,7 @@ class Game:
                     self.walls,
                     self.level_hitboxes,
                     projector_zones=pz,
+                    dropped_items=self.inventory_manager.dropped_items,
                     world_width=self.world_width,
                     world_height=self.world_height,
                 )
