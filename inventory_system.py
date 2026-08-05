@@ -336,6 +336,101 @@ class DroppedInventoryItem:
         self.radius = max(26, int(TILE_SIZE * MAP_SCALE * 0.28))
         self.rect = pygame.Rect(0, 0, self.radius * 2, self.radius * 2)
         self.rect.center = (self.x, self.y)
+        self.throw_active = False
+        self.throw_pending = False
+        self.throw_start = (self.x, self.y)
+        self.throw_end = (self.x, self.y)
+        self.throw_started_ms = 0
+        self.throw_delay_until_ms = 0
+        self.throw_duration_ms = 480
+        self.throw_arc_height = 48
+        self.throw_spin = 0.0
+        self.draw_offset_y = 0.0
+        self.impact_until_ms = 0
+        self.particles = []
+
+    def move_to(self, x, y):
+        """Мгновенный перенос (сохранения / fallback)."""
+        self.throw_active = False
+        self.throw_pending = False
+        self.draw_offset_y = 0.0
+        self.throw_spin = 0.0
+        self.x = int(x)
+        self.y = int(y)
+        self.rect.center = (self.x, self.y)
+
+    def start_throw(self, x, y, delay_ms=0, duration_ms=None):
+        """Запускает полёт по дуге к новой точке в комнате."""
+        self.throw_start = (self.x, self.y)
+        self.throw_end = (int(x), int(y))
+        self.throw_duration_ms = int(duration_ms if duration_ms is not None else random.randint(420, 680))
+        self.throw_arc_height = random.randint(36, 64)
+        self.throw_spin = 0.0
+        self.draw_offset_y = 0.0
+        now = pygame.time.get_ticks()
+        self.throw_delay_until_ms = now + max(0, int(delay_ms))
+        self.throw_started_ms = self.throw_delay_until_ms
+        self.throw_pending = delay_ms > 0
+        self.throw_active = delay_ms <= 0
+        if self.throw_active:
+            self.throw_started_ms = now
+
+    def _spawn_impact_particles(self):
+        self.particles = []
+        for _ in range(10):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(1.2, 3.8)
+            self.particles.append(
+                {
+                    "x": float(self.x),
+                    "y": float(self.y),
+                    "vx": math.cos(angle) * speed,
+                    "vy": math.sin(angle) * speed - random.uniform(0.8, 2.2),
+                    "life": random.randint(14, 26),
+                    "ttl": 0,
+                    "size": random.randint(2, 4),
+                    "color": random.choice(
+                        ((180, 230, 255), (255, 220, 140), (210, 245, 255), (255, 255, 255))
+                    ),
+                }
+            )
+
+    def update(self):
+        now = pygame.time.get_ticks()
+        if self.throw_pending and now >= self.throw_delay_until_ms:
+            self.throw_pending = False
+            self.throw_active = True
+            self.throw_started_ms = now
+
+        if self.throw_active:
+            t = (now - self.throw_started_ms) / max(1, self.throw_duration_ms)
+            if t >= 1.0:
+                self.throw_active = False
+                self.x, self.y = self.throw_end
+                self.rect.center = (self.x, self.y)
+                self.draw_offset_y = 0.0
+                self.throw_spin = 0.0
+                self.impact_until_ms = now + 320
+                self._spawn_impact_particles()
+            else:
+                ease = 1.0 - (1.0 - t) ** 2
+                x = self.throw_start[0] + (self.throw_end[0] - self.throw_start[0]) * ease
+                y = self.throw_start[1] + (self.throw_end[1] - self.throw_start[1]) * ease
+                self.draw_offset_y = -math.sin(t * math.pi) * self.throw_arc_height
+                self.throw_spin = t * 540.0
+                self.x, self.y = int(x), int(y)
+                self.rect.center = (self.x, self.y)
+
+        alive = []
+        for particle in self.particles:
+            particle["ttl"] += 1
+            if particle["ttl"] >= particle["life"]:
+                continue
+            particle["x"] += particle["vx"]
+            particle["y"] += particle["vy"]
+            particle["vy"] += 0.18
+            alive.append(particle)
+        self.particles = alive
 
     def to_dict(self):
         return {
@@ -347,32 +442,62 @@ class DroppedInventoryItem:
     def draw(self, screen, icon=None, camera_x=0, camera_y=0):
         now = pygame.time.get_ticks()
         phase = now * 0.004 + (self.x + self.y) * 0.01
-        bob = math.sin(phase) * 4
+        bob = 0 if (self.throw_active or self.throw_pending) else math.sin(phase) * 4
         pulse = (math.sin(phase * 0.8) + 1.0) * 0.5
         cx = int(self.x - camera_x)
-        cy = int(self.y - camera_y + bob)
+        cy = int(self.y - camera_y + bob + self.draw_offset_y)
         size = self.radius * 2
         panel = pygame.Surface((size + 18, size + 18), pygame.SRCALPHA)
         center = (panel.get_width() // 2, panel.get_height() // 2)
-        shadow_w = int(self.radius * (1.5 - pulse * 0.15))
-        shadow_h = max(5, int(self.radius * 0.32))
-        shadow = pygame.Surface((shadow_w * 2, shadow_h * 2), pygame.SRCALPHA)
-        pygame.draw.ellipse(shadow, (0, 0, 0, 92), shadow.get_rect())
-        screen.blit(shadow, shadow.get_rect(center=(int(self.x - camera_x), int(self.y - camera_y + self.radius * 0.72))))
+        shadow_scale = 1.0 - min(0.55, abs(self.draw_offset_y) / 120.0)
+        shadow_w = int(self.radius * (1.5 - pulse * 0.15) * shadow_scale)
+        shadow_h = max(4, int(self.radius * 0.32 * shadow_scale))
+        shadow = pygame.Surface((max(2, shadow_w * 2), max(2, shadow_h * 2)), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, int(92 * shadow_scale)), shadow.get_rect())
+        screen.blit(
+            shadow,
+            shadow.get_rect(center=(int(self.x - camera_x), int(self.y - camera_y + self.radius * 0.72))),
+        )
 
-        pygame.draw.circle(panel, (120, 210, 230, int(56 + pulse * 30)), center, self.radius + 8)
+        glow_alpha = int(56 + pulse * 30)
+        if now < self.impact_until_ms:
+            impact_t = 1.0 - (self.impact_until_ms - now) / 320.0
+            glow_alpha = min(220, glow_alpha + int(90 * (1.0 - abs(impact_t - 0.35) * 2)))
+            ring = pygame.Surface((size + 40, size + 40), pygame.SRCALPHA)
+            ring_r = int(self.radius + 6 + impact_t * 18)
+            pygame.draw.circle(ring, (255, 230, 150, max(0, 160 - int(impact_t * 160))), ring.get_rect().center, ring_r, 2)
+            screen.blit(ring, ring.get_rect(center=(cx, int(self.y - camera_y))))
+
+        pygame.draw.circle(panel, (120, 210, 230, glow_alpha), center, self.radius + 8)
         pygame.draw.circle(panel, (235, 245, 255, 145), center, self.radius + 2)
         pygame.draw.circle(panel, (22, 30, 34, 205), center, self.radius)
         pygame.draw.circle(panel, (158, 222, 236, 210), center, self.radius, 2)
+
+        if self.throw_active and abs(self.throw_spin) > 0.1:
+            panel = pygame.transform.rotate(panel, self.throw_spin)
         screen.blit(panel, panel.get_rect(center=(cx, cy)))
+
         if icon:
             fitted = pygame.transform.smoothscale(icon, (max(22, size - 16), max(22, size - 16)))
+            if self.throw_active and abs(self.throw_spin) > 0.1:
+                fitted = pygame.transform.rotate(fitted, self.throw_spin)
             fitted.set_alpha(238)
             screen.blit(fitted, fitted.get_rect(center=(cx, cy)))
         else:
             font = pygame.font.Font(None, 24)
             label = font.render(self.item_type.value[:1].upper(), True, (228, 242, 246))
             screen.blit(label, label.get_rect(center=(cx, cy)))
+
+        for particle in self.particles:
+            life_left = 1.0 - particle["ttl"] / max(1, particle["life"])
+            radius = max(1, int(particle["size"] * life_left))
+            alpha = max(0, min(255, int(220 * life_left)))
+            blob = pygame.Surface((radius * 2 + 2, radius * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(blob, (*particle["color"], alpha), (radius + 1, radius + 1), radius)
+            screen.blit(
+                blob,
+                blob.get_rect(center=(int(particle["x"] - camera_x), int(particle["y"] - camera_y))),
+            )
 
 
 class InventoryManager:
@@ -864,6 +989,11 @@ class InventoryManager:
                     preview_source = self.moving_placed_item.current_sprite if self.moving_placed_item else item.sprite_active
                     preview = preview_source.copy()
                     screen.blit(preview, preview.get_rect(center=(mouse_x, mouse_y)))
+
+    def update_dropped_items(self):
+        """Обновляет анимации бросков и частиц у предметов на полу."""
+        for item in self.dropped_items:
+            item.update()
 
     def draw_dropped_items(self, screen, camera_x=0, camera_y=0):
         for item in self.dropped_items:

@@ -15,6 +15,8 @@ import heapq
 GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
 GHOST_SPEED_SCALE = MAP_SCALE
 GHOST_HITBOX_RATIO = 0.55
+ITEM_THROW_MIN_TICKS = 12 * 60
+ITEM_THROW_MAX_TICKS = 28 * 60
 
 
 def _to_bool(value, default=False):
@@ -385,6 +387,7 @@ class Ghost:
         # После первого появления: 30-60 секунд до исчезновения
         self.time_until_invisible = random.randint(2 * 60, 5 * 60)
         self.invisible_duration_range = (2 * 60, 5 * 60)  # 15-30 секунд невидимости
+        self.item_throw_timer = random.randint(ITEM_THROW_MIN_TICKS, ITEM_THROW_MAX_TICKS)
         
         # Пауза после появления (приведение стоит на месте ~1 секунду)
         self.appear_freeze_timer = 0
@@ -1125,6 +1128,7 @@ class GhostManager:
         self.footprints = []  # [{"x": int, "y": int, "ttl": int}]
         self.footprint_sprites = None
         self.emf_hotspot = None  # {"x": int, "y": int, "level": int, "ttl": int}
+        self.last_throw_event = None
 
     def load_ghost_sprite(self):
         """Загружает спрайт приведения"""
@@ -1176,6 +1180,7 @@ class GhostManager:
         self.ghosts.clear()
         self.footprints.clear()
         self.emf_hotspot = None
+        self.last_throw_event = None
         
         if not self.ghost_sprite:
             self.load_ghost_sprite()
@@ -1223,6 +1228,9 @@ class GhostManager:
         if not self.ghosts:
             return None
         ghost = self.ghosts[0]
+        item_throw_timer = getattr(ghost, "item_throw_timer", None)
+        if item_throw_timer is None:
+            item_throw_timer = random.randint(ITEM_THROW_MIN_TICKS, ITEM_THROW_MAX_TICKS)
         return {
             "ghost_kind": ghost.ghost_kind,
             "x": int(ghost.rect.x),
@@ -1240,6 +1248,7 @@ class GhostManager:
             "initial_appear_time": int(ghost.initial_appear_time),
             "is_first_appearance": bool(ghost.is_first_appearance),
             "time_until_invisible": int(ghost.time_until_invisible),
+            "item_throw_timer": int(item_throw_timer),
             "appear_freeze_timer": int(ghost.appear_freeze_timer),
             "is_frozen_after_appear": bool(ghost.is_frozen_after_appear),
             "alpha": int(ghost.alpha),
@@ -1294,6 +1303,7 @@ class GhostManager:
         ghost.initial_appear_time = max(0, safe_int(data.get("initial_appear_time"), ghost.initial_appear_time))
         ghost.is_first_appearance = bool(data.get("is_first_appearance", ghost.is_first_appearance))
         ghost.time_until_invisible = max(1, safe_int(data.get("time_until_invisible"), ghost.time_until_invisible))
+        ghost.item_throw_timer = max(1, safe_int(data.get("item_throw_timer"), ghost.item_throw_timer))
         ghost.appear_freeze_timer = max(0, safe_int(data.get("appear_freeze_timer"), ghost.appear_freeze_timer))
         ghost.is_frozen_after_appear = bool(data.get("is_frozen_after_appear", ghost.is_frozen_after_appear))
         ghost.alpha = max(0, min(255, safe_int(data.get("alpha"), ghost.alpha)))
@@ -1313,6 +1323,7 @@ class GhostManager:
         walls,
         level_hitboxes,
         projector_zones=None,
+        dropped_items=None,
         world_width=SCREEN_WIDTH,
         world_height=SCREEN_HEIGHT,
     ):
@@ -1329,7 +1340,84 @@ class GhostManager:
                 world_height=world_height,
             )
             self._update_ghost_abilities_runtime(ghost)
+            self._maybe_throw_dropped_items(ghost, dropped_items or [], level_hitboxes)
         self._tick_runtime_effects()
+
+    def _random_point_for_dropped_item(self, room, dropped_item, level_hitboxes):
+        margin = max(getattr(dropped_item, "radius", 24) + 8, int(24 * MAP_SCALE))
+        if room.width <= margin * 2 or room.height <= margin * 2:
+            return room.get_center()
+
+        radius = getattr(dropped_item, "radius", 24)
+        for _ in range(30):
+            x, y = room.get_random_point(margin=margin)
+            test_rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+            test_rect.center = (x, y)
+            if any(test_rect.colliderect(hitbox) for hitbox in level_hitboxes):
+                continue
+            return x, y
+        return room.get_center()
+
+    def _maybe_throw_dropped_items(self, ghost, dropped_items, level_hitboxes):
+        """Призрак иногда разбрасывает предметы, лежащие в его текущей комнате."""
+        if not dropped_items or ghost.state == GhostState.INVISIBLE:
+            return 0
+        if ghost.is_playing_spawn or ghost.is_frozen_after_appear:
+            return 0
+
+        ghost.item_throw_timer = max(0, getattr(ghost, "item_throw_timer", 1) - 1)
+        if ghost.item_throw_timer > 0:
+            return 0
+
+        room_id = ghost.get_current_room_id()
+        if room_id < 0 or room_id >= len(ghost.rooms):
+            ghost.item_throw_timer = random.randint(2 * 60, 4 * 60)
+            return 0
+
+        room = ghost.rooms[room_id]
+        room_items = [
+            item for item in dropped_items
+            if room.rect.collidepoint(item.rect.center)
+            and not getattr(item, "throw_active", False)
+            and not getattr(item, "throw_pending", False)
+        ]
+        if not room_items:
+            # Короткий retry, чтобы не ждать ещё 12-28 сек в пустой комнате.
+            ghost.item_throw_timer = random.randint(2 * 60, 4 * 60)
+            return 0
+
+        ghost.item_throw_timer = random.randint(ITEM_THROW_MIN_TICKS, ITEM_THROW_MAX_TICKS)
+        random.shuffle(room_items)
+        throw_count = min(len(room_items), random.randint(1, 3))
+        last_position = None
+        for index, dropped in enumerate(room_items[:throw_count]):
+            x, y = self._random_point_for_dropped_item(room, dropped, level_hitboxes)
+            delay_ms = index * random.randint(45, 90)
+            if hasattr(dropped, "start_throw"):
+                dropped.start_throw(x, y, delay_ms=delay_ms)
+            elif hasattr(dropped, "move_to"):
+                dropped.move_to(x, y)
+            else:
+                dropped.x, dropped.y = int(x), int(y)
+                dropped.rect.center = (dropped.x, dropped.y)
+            last_position = (int(x), int(y))
+
+        if last_position:
+            event_level = 5 if ghost.amp and random.random() < 0.25 else 3
+            self.emf_hotspot = {
+                "x": last_position[0],
+                "y": last_position[1],
+                "level": event_level,
+                "ttl": random.randint(3 * 60, 6 * 60),
+            }
+            self.last_throw_event = {
+                "room_id": room_id,
+                "count": throw_count,
+                "x": last_position[0],
+                "y": last_position[1],
+                "emf_level": event_level,
+            }
+        return throw_count
 
     def _update_ghost_abilities_runtime(self, ghost):
         """Генерирует runtime-события: следы и ЭМП-всплески."""

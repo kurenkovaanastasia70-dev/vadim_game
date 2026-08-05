@@ -887,7 +887,21 @@ def draw_win(game):
     evidence_names = [EVIDENCE_LABELS.get(key, key) for key in evidence_keys]
     evidence_text = ", ".join(evidence_names) if evidence_names else "улики не отмечены в журнале"
     reward = int(report.get("reward", 0) or 0)
+    reward_base = int(report.get("reward_base", reward) or 0)
+    reward_diff = int(report.get("reward_difficulty_bonus", 0) or 0)
+    reward_evidence = int(report.get("reward_evidence_bonus", 0) or 0)
+    money_after = int(report.get("money_after", getattr(game, "player_money", 0)) or 0)
     report_next_name = report.get("next_level_name") or ("финал кампании" if not has_next else next_name)
+
+    # Анимация начисления: сумма "набегает" за ~0.9 сек после победы.
+    win_started = getattr(game, "win_entered_at", None)
+    if win_started is None:
+        anim_t = 1.0
+    else:
+        anim_t = min(1.0, (pygame.time.get_ticks() - win_started) / 900.0)
+    ease = 1.0 - (1.0 - anim_t) ** 3
+    shown_reward = int(round(reward * ease))
+    shown_balance = money_after - reward + shown_reward
 
     title = title_font.render("Победа!", True, (172, 255, 194))
     game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 72)))
@@ -909,32 +923,40 @@ def draw_win(game):
         lines.append("Это финал текущей цепочки уровней.")
         hint_text = "Enter - заново | Esc - меню"
 
-    y = panel.y + 174
+    y = panel.y + 168
     for line in lines:
         for wrapped in _wrap_lines(body_font, line, panel.w - 104):
             text = body_font.render(wrapped, True, (230, 240, 232))
             game.screen.blit(text, text.get_rect(center=(panel.centerx, y)))
-            y += 34
+            y += 32
         y += 2
 
-    report_box = pygame.Rect(panel.x + 58, panel.y + 270, panel.w - 116, 94)
+    report_box = pygame.Rect(panel.x + 58, panel.y + 268, panel.w - 116, 128)
     pygame.draw.rect(game.screen, (19, 28, 30), report_box, border_radius=12)
     pygame.draw.rect(game.screen, (72, 117, 94), report_box, 1, border_radius=12)
+
+    # Подсветка строки с деньгами во время начисления.
+    money_glow = pygame.Surface((report_box.w - 16, 28), pygame.SRCALPHA)
+    money_glow.fill((255, 214, 120, int(40 + 50 * (1.0 - abs(ease - 0.55) * 1.6))))
+    game.screen.blit(money_glow, (report_box.x + 8, report_box.y + 52))
+
     report_lines = [
         f"Найденные улики: {evidence_text}",
-        f"Доход за уровень: +{reward}$",
+        f"Доход: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+        f"Баланс: {shown_balance}$",
         f"Дальше: {report_next_name}",
     ]
     ry = report_box.y + 10
-    for line in report_lines:
+    for idx, line in enumerate(report_lines):
+        color = (255, 230, 150) if idx in (1, 2) else (205, 226, 212)
         for wrapped in _wrap_lines(small_font, line, report_box.w - 28):
-            game.screen.blit(small_font.render(wrapped, True, (205, 226, 212)), (report_box.x + 14, ry))
+            game.screen.blit(small_font.render(wrapped, True, color), (report_box.x + 14, ry))
             ry += 22
 
-    pygame.draw.line(game.screen, (76, 116, 92), (panel.x + 70, panel.y + 380), (panel.right - 70, panel.y + 380), 2)
+    pygame.draw.line(game.screen, (76, 116, 92), (panel.x + 70, panel.y + 410), (panel.right - 70, panel.y + 410), 2)
 
     hint = small_font.render(hint_text, True, (166, 194, 174))
-    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.y + 410)))
+    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.y + 430)))
 
     for button in game.win_buttons:
         button.draw(game.screen)
