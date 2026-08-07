@@ -52,6 +52,10 @@ DIFFICULTY_CONFIG = {
         "event_chance_multiplier": 0.70,
         "reward_bonus": 0,
         "blood_heal": 4,
+        # Как Amateur в Phasmophobia: медленный drain, длинный setup, охота с ~50%.
+        "sanity_drain_multiplier": 0.70,
+        "hunt_sanity_threshold": 50,
+        "setup_phase_seconds": 90,
     },
     1: {
         "name": "Нормальная",
@@ -64,6 +68,9 @@ DIFFICULTY_CONFIG = {
         "event_chance_multiplier": 1.00,
         "reward_bonus": 20,
         "blood_heal": 3,
+        "sanity_drain_multiplier": 1.00,
+        "hunt_sanity_threshold": 50,
+        "setup_phase_seconds": 60,
     },
     2: {
         "name": "Сложная",
@@ -76,6 +83,9 @@ DIFFICULTY_CONFIG = {
         "event_chance_multiplier": 1.25,
         "reward_bonus": 40,
         "blood_heal": 2,
+        "sanity_drain_multiplier": 1.50,
+        "hunt_sanity_threshold": 50,
+        "setup_phase_seconds": 30,
     },
     3: {
         "name": "Хардкор",
@@ -88,8 +98,18 @@ DIFFICULTY_CONFIG = {
         "event_chance_multiplier": 1.60,
         "reward_bonus": 60,
         "blood_heal": 1,
+        "sanity_drain_multiplier": 2.00,
+        "hunt_sanity_threshold": 50,
+        "setup_phase_seconds": 0,
     },
 }
+
+# Базовый пассивный drain в темноте (%/сек) для "маленькой карты", как в Phasmophobia.
+SANITY_DARK_DRAIN_PER_SECOND = 0.12
+SANITY_SETUP_DRAIN_FACTOR = 0.70
+SANITY_SETUP_FLOOR = 50.0
+SANITY_NEAR_GHOST_DRAIN_PER_SECOND = 0.20
+SANITY_HUNT_DRAIN_PER_SECOND = 0.35
 
 class Game:
     def __init__(self):
@@ -179,6 +199,11 @@ class Game:
         self.player_money = 100
         self.player_level = 1
         self.player_hp = 5
+        self.player_sanity = 100.0
+        self.flashlight_on = False
+        self.setup_phase_ticks = 0
+        self.sanity_low_warned = False
+        self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
         self.radio_feedback_until = 0
@@ -461,11 +486,17 @@ class Game:
                 self.trigger_activity_event()
 
         if self.ghost_activity >= 100 and self.hunt_active_ticks <= 0:
-            self.start_activity_hunt()
+            if self.can_ghost_attempt_hunt():
+                self.start_activity_hunt()
+            else:
+                # Как в Phasmophobia: высокая активность без низкого sanity не стартует охоту.
+                self.ghost_activity = 96.0
 
     def trigger_activity_event(self):
         self.activity_event_cooldown_ticks = 10 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1000
+        # Ghost event в Phasmophobia часто снимает заметный кусок sanity.
+        self.drain_sanity(random.uniform(4.0, 8.0), reason="ghost_event")
         self._show_game_info(random.choice([
             "Температура резко упала.",
             "Связь искажается.",
@@ -474,6 +505,8 @@ class Game:
         ]), 1300)
 
     def start_activity_hunt(self):
+        if not self.can_ghost_attempt_hunt():
+            return False
         cfg = self.difficulty_config()
         self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
@@ -481,6 +514,7 @@ class Game:
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
         self._show_game_info("Активность достигла пика. Охота началась.", 1800)
+        return True
 
     def reset_hunt_timer(self):
         self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
@@ -495,7 +529,12 @@ class Game:
         if self.hunt_cooldown_ticks > 0:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
-                self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
+                if self.can_ghost_attempt_hunt():
+                    self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
+                    self._show_game_info("Охота началась.", 1400)
+                else:
+                    # Пока рассудок высокий — переводим таймер в ожидание, а не в охоту.
+                    self.hunt_cooldown_ticks = max(1, 5 * FPS)
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
@@ -653,6 +692,85 @@ class Game:
         self.activity_event_cooldown_ticks = 0
         self.activity_flash_until = 0
 
+    def reset_sanity(self, start_setup=True):
+        """Сбрасывает рассудок к 100% и опционально запускает setup-фазу как в Phasmophobia."""
+        self.player_sanity = 100.0
+        self.sanity_low_warned = False
+        self.flashlight_on = bool(self.inventory.get("фонарик", False))
+        if start_setup:
+            self.start_setup_phase()
+        else:
+            self.setup_phase_ticks = 0
+
+    def start_setup_phase(self):
+        seconds = int(self.difficulty_config().get("setup_phase_seconds", 0) or 0)
+        self.setup_phase_ticks = max(0, seconds * FPS)
+
+    def is_setup_phase(self):
+        return getattr(self, "setup_phase_ticks", 0) > 0
+
+    def is_flashlight_lit(self):
+        """Фонарик куплен и включён. В MVP играет роль 'основного света комнаты'."""
+        return bool(self.inventory.get("фонарик", False) and getattr(self, "flashlight_on", False))
+
+    def is_in_darkness(self):
+        """Пассивный drain идёт в темноте — когда нет включённого света/фонарика."""
+        return not self.is_flashlight_lit()
+
+    def hunt_sanity_threshold(self):
+        return float(self.difficulty_config().get("hunt_sanity_threshold", 50))
+
+    def can_ghost_attempt_hunt(self):
+        """Как в Phasmophobia: охота возможна только ниже порога рассудка и вне setup-фазы."""
+        if self.is_setup_phase():
+            return False
+        return self.player_sanity < self.hunt_sanity_threshold()
+
+    def drain_sanity(self, amount, reason="event"):
+        """Списывает рассудок. Во время setup не опускает ниже 50%."""
+        if amount <= 0:
+            return self.player_sanity
+        before = self.player_sanity
+        self.player_sanity = max(0.0, self.player_sanity - float(amount))
+        if self.is_setup_phase():
+            self.player_sanity = max(SANITY_SETUP_FLOOR, self.player_sanity)
+        if before >= self.hunt_sanity_threshold() > self.player_sanity and not self.sanity_low_warned:
+            self.sanity_low_warned = True
+            self._show_game_info("Рассудок ниже 50%. Охота теперь возможна.", 1600)
+        return self.player_sanity
+
+    def tick_sanity(self):
+        """Пассивный расход рассудка по правилам, близким к Phasmophobia."""
+        if self.setup_phase_ticks > 0:
+            self.setup_phase_ticks -= 1
+            if self.setup_phase_ticks == 0:
+                self._show_game_info("Setup-фаза окончена. Призрак может начать охоту.", 1600)
+
+        cfg = self.difficulty_config()
+        drain = 0.0
+
+        # 1) Темнота: основной пассивный drain.
+        if self.is_in_darkness():
+            drain += SANITY_DARK_DRAIN_PER_SECOND
+
+        # 2) Видимый призрак рядом дополнительно давит на психику.
+        distance = self.nearest_visible_ghost_distance()
+        if distance is not None and distance < 220:
+            drain += SANITY_NEAR_GHOST_DRAIN_PER_SECOND
+
+        # 3) Во время охоты рассудок падает быстрее.
+        if self.hunt_active_ticks > 0:
+            drain += SANITY_HUNT_DRAIN_PER_SECOND
+
+        if drain <= 0:
+            return self.player_sanity
+
+        drain *= float(cfg.get("sanity_drain_multiplier", 1.0))
+        if self.is_setup_phase():
+            drain *= SANITY_SETUP_DRAIN_FACTOR
+
+        return self.drain_sanity(drain / FPS, reason="passive")
+
     def get_next_level_id(self):
         """Возвращает следующий уровень для текущей позиции кампании."""
         level_id = self.current_level_id
@@ -723,6 +841,8 @@ class Game:
         self.loaded_ghost_state = None
         self.loaded_activity_state = None
         self.reset_ghost_activity()
+        self.loaded_sanity_state = None
+        self.reset_sanity(start_setup=True)
         self.set_state(GameState.GAME, reset_stack=True)
         if self.selected_save_slot:
             self.save_game(self.selected_save_slot)
@@ -744,9 +864,11 @@ class Game:
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
         self.loaded_activity_state = None
+        self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
         self.reset_ghost_activity()
+        self.reset_sanity(start_setup=True)
         self.set_state(GameState.GAME, reset_stack=True)
 
     def load_level(self, level_file_path):
@@ -825,6 +947,17 @@ class Game:
                 self.loaded_activity_state = None
             else:
                 self.reset_ghost_activity()
+            if self.loaded_sanity_state is not None:
+                try:
+                    self.player_sanity = max(0.0, min(100.0, float(self.loaded_sanity_state.get("sanity", 100))))
+                    self.flashlight_on = bool(self.loaded_sanity_state.get("flashlight_on", self.inventory.get("фонарик", False)))
+                    self.setup_phase_ticks = max(0, int(self.loaded_sanity_state.get("setup_phase_ticks", 0)))
+                    self.sanity_low_warned = bool(self.loaded_sanity_state.get("sanity_low_warned", False))
+                except (TypeError, ValueError, AttributeError):
+                    self.reset_sanity(start_setup=True)
+                self.loaded_sanity_state = None
+            else:
+                self.reset_sanity(start_setup=True)
             self.apply_difficulty_to_ghosts()
             # Создаём текстуру виньетки для эффекта затемнения (один раз при загрузке)
             self.vignette_texture = None
@@ -956,9 +1089,11 @@ class Game:
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
         self.loaded_activity_state = None
+        self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
         self.reset_ghost_activity()
+        self.reset_sanity(start_setup=True)
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
@@ -973,6 +1108,8 @@ class Game:
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
             self.inventory[item_name] = True
+            if item_name == "фонарик":
+                self.flashlight_on = True
             if is_consumable:
                 self.inventory_manager.increase_count(item_type)
             self.progress_event("buy_item", 1)
@@ -1072,6 +1209,10 @@ class Game:
             "level": self.player_level,
             "hp": self.player_hp,
             "money": self.player_money,
+            "sanity": round(float(getattr(self, "player_sanity", 100.0)), 2),
+            "flashlight_on": bool(getattr(self, "flashlight_on", False)),
+            "setup_phase_ticks": int(getattr(self, "setup_phase_ticks", 0)),
+            "sanity_low_warned": bool(getattr(self, "sanity_low_warned", False)),
             "inventory": self.inventory.copy(),
             "item_counts": item_counts_serial,
             "inventory_runtime": self.inventory_manager.serialize_runtime_state(),
@@ -1100,6 +1241,14 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            saved_inventory = save_data.get("inventory") or {}
+            default_light = bool(saved_inventory.get("фонарик", False))
+            self.loaded_sanity_state = {
+                "sanity": save_data.get("sanity", 100.0),
+                "flashlight_on": save_data.get("flashlight_on", default_light),
+                "setup_phase_ticks": save_data.get("setup_phase_ticks", 0),
+                "sanity_low_warned": save_data.get("sanity_low_warned", False),
+            }
             self.journal_evidence = self.normalize_journal_evidence(save_data.get("journal_evidence"))
             saved_discovered = save_data.get("discovered_evidence")
             if isinstance(saved_discovered, list):
@@ -1230,6 +1379,7 @@ class Game:
         elif self.state == GameState.GAME:
             if not self.is_gameplay_paused():
                 mechanics.update_player_movement(self)
+                self.tick_sanity()
                 self.tick_hunt_timer()
                 self.tick_ghost_activity()
                 pz = self.inventory_manager.get_projector_zones()
@@ -1250,12 +1400,14 @@ class Game:
                         count = int(throw_event.get("count", 1) or 1)
                         word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
                         self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
+                        self.drain_sanity(2.0, reason="item_throw")
                 # Столкновение с приведением — отнимаем HP
                 now = pygame.time.get_ticks()
                 if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.increase_ghost_activity(12, "player_hit")
+                    self.drain_sanity(10.0, reason="ghost_hit")
                     self.progress_event("take_hit", 1)
                     if self.player_hp <= 0:
                         self.enter_game_over()
