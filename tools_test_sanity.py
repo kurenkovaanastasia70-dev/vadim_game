@@ -41,13 +41,15 @@ def main():
     assert approx(game.player_sanity, expected), (game.player_sanity, expected)
     assert game.player_sanity >= SANITY_SETUP_FLOOR
 
-    # Свет останавливает пассивный drain.
+    # Как в Phasmophobia: включённый фонарик НЕ останавливает пассивный drain.
     game.inventory["фонарик"] = True
     game.flashlight_on = True
     lit_before = game.player_sanity
     for _ in range(FPS):
         game.tick_sanity()
-    assert approx(game.player_sanity, lit_before, eps=0.001)
+    expected_with_light = lit_before - SANITY_DARK_DRAIN_PER_SECOND * 1.0 * SANITY_SETUP_DRAIN_FACTOR
+    assert approx(game.player_sanity, expected_with_light), (game.player_sanity, expected_with_light)
+    assert game.player_sanity < lit_before
 
     # После setup и sanity < 50 охота разрешена.
     game.setup_phase_ticks = 0

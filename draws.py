@@ -1124,7 +1124,7 @@ def draw_game(game):
             text_rect = text_surface.get_rect(center=box_rect.center)
             game.screen.blit(text_surface, text_rect)
 
-    # Эффект затемнения: купленный И включённый фонарик = светлая комната (sanity не падает).
+    # Эффект затемнения: фонарик влияет только на видимость, не на sanity drain.
     flashlight_lit = bool(
         game.inventory.get("фонарик", False) and getattr(game, "flashlight_on", False)
     )

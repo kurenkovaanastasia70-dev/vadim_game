@@ -710,12 +710,15 @@ class Game:
         return getattr(self, "setup_phase_ticks", 0) > 0
 
     def is_flashlight_lit(self):
-        """Фонарик куплен и включён. В MVP играет роль 'основного света комнаты'."""
+        """Фонарик куплен и включён. Даёт видимость, но в Phasmophobia НЕ останавливает sanity drain."""
         return bool(self.inventory.get("фонарик", False) and getattr(self, "flashlight_on", False))
 
-    def is_in_darkness(self):
-        """Пассивный drain идёт в темноте — когда нет включённого света/фонарика."""
-        return not self.is_flashlight_lit()
+    def is_in_darkness_for_sanity(self):
+        """
+        Для sanity: пока нет комнатных выключателей, расследование считается "тёмной зоной".
+        Как в Phasmophobia: обычный фонарик не блокирует пассивный drain.
+        """
+        return True
 
     def hunt_sanity_threshold(self):
         return float(self.difficulty_config().get("hunt_sanity_threshold", 50))
@@ -740,7 +743,7 @@ class Game:
         return self.player_sanity
 
     def tick_sanity(self):
-        """Пассивный расход рассудка по правилам, близким к Phasmophobia."""
+        """Пассивный расход рассудка по правилам Phasmophobia (фонарик не спасает sanity)."""
         if self.setup_phase_ticks > 0:
             self.setup_phase_ticks -= 1
             if self.setup_phase_ticks == 0:
@@ -749,8 +752,9 @@ class Game:
         cfg = self.difficulty_config()
         drain = 0.0
 
-        # 1) Темнота: основной пассивный drain.
-        if self.is_in_darkness():
+        # 1) Базовый drain на локации без потолочного света комнаты.
+        # Фонарик тут намеренно не проверяем: в Phasmo он не останавливает sanity.
+        if self.is_in_darkness_for_sanity():
             drain += SANITY_DARK_DRAIN_PER_SECOND
 
         # 2) Видимый призрак рядом дополнительно давит на психику.

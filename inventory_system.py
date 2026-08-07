@@ -46,7 +46,7 @@ class Item(ABC):
 
 
 class Flashlight(Item):
-    """Фонарик — включает/выключает свет. В MVP sanity включённый фонарик = 'светлая комната'."""
+    """Фонарик — включает/выключает видимость. Как в Phasmophobia, sanity от него не защищает."""
 
     def __init__(self):
         super().__init__(ItemType.FLASHLIGHT)
@@ -59,8 +59,8 @@ class Flashlight(Item):
         if hasattr(game, "_show_game_info"):
             game._show_game_info(
                 f"Фонарик: {'вкл' if game.flashlight_on else 'выкл'} "
-                f"({'рассудок стабилен' if game.flashlight_on else 'рассудок падает в темноте'})",
-                1100,
+                f"(видимость {'лучше' if game.flashlight_on else 'хуже'}; рассудок всё равно падает)",
+                1200,
             )
         return True
 
