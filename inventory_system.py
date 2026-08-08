@@ -46,14 +46,22 @@ class Item(ABC):
 
 
 class Flashlight(Item):
-    """Фонарик — пассивный предмет, регулировка освещения реализована в другом месте"""
+    """Фонарик — включает/выключает видимость. Как в Phasmophobia, sanity от него не защищает."""
 
     def __init__(self):
         super().__init__(ItemType.FLASHLIGHT)
 
     def use(self, game):
-        # Освещение уже реализовано при регулировке (game.vignette_radius и т.п.)
+        if not game.inventory.get(self.item_type.value, False):
+            return False
         game.inventory_manager.active_hand_item = self.item_type
+        game.flashlight_on = not bool(getattr(game, "flashlight_on", False))
+        if hasattr(game, "_show_game_info"):
+            game._show_game_info(
+                f"Фонарик: {'вкл' if game.flashlight_on else 'выкл'} "
+                f"(видимость {'лучше' if game.flashlight_on else 'хуже'}; рассудок всё равно падает)",
+                1200,
+            )
         return True
 
 
@@ -83,6 +91,9 @@ class Radio(Item):
             game.progress_event("radio_answer", 1)
         if hasattr(game, "increase_ghost_activity"):
             game.increase_ghost_activity(9 if ok else 5, "radio")
+        if hasattr(game, "drain_sanity"):
+            # Контакт через spirit box / радио в Phasmophobia тоже бьёт по sanity.
+            game.drain_sanity(5.0 if ok else 2.0, reason="radio")
         game.inventory_manager.decrease_count(self.item_type)
         return True
 

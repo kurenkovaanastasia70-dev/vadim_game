@@ -94,7 +94,7 @@ def _draw_crt_atmosphere(game):
 
 def _draw_compact_status_hud(game):
     has_thermometer = game.inventory.get("градусник", False)
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 378, 108 if has_thermometer else 86
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 400, 132 if has_thermometer else 112
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -104,6 +104,13 @@ def _draw_compact_status_hud(game):
     small = pygame.font.Font(None, 20)
     hp = max(0, int(getattr(game, "player_hp", 0)))
     threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
+    sanity = max(0, min(100, int(round(getattr(game, "player_sanity", 100.0)))))
+    if sanity >= 70:
+        sanity_color = (146, 210, 178)
+    elif sanity >= 50:
+        sanity_color = (230, 206, 116)
+    else:
+        sanity_color = (225, 110, 90)
 
     game.screen.blit(small.render("HP", True, (145, 170, 160)), (hud_x + 12, hud_y + 10))
     for i in range(5):
@@ -113,18 +120,30 @@ def _draw_compact_status_hud(game):
     rows = [
         ("$", str(getattr(game, "player_money", 0)), (230, 206, 116)),
         ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
-        ("UV", "ON" if getattr(game, "uv_mode", False) else "OFF", (166, 132, 236)),
+        ("SAN", f"{sanity}%", sanity_color),
     ]
     x = hud_x + 132
     for label, value, color in rows:
         game.screen.blit(small.render(label, True, (145, 170, 160)), (x, hud_y + 10))
         val = font.render(value, True, color)
         game.screen.blit(val, (x, hud_y + 32))
-        x += 70
+        x += 78
 
     activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
-    activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
-    game.screen.blit(activity_label, (hud_x + 12, hud_y + 50))
+    setup_left = max(0, int(getattr(game, "setup_phase_ticks", 0) // max(1, 60)))
+    if setup_left > 0:
+        activity_label = small.render(f"Setup: {setup_left}s | Активность: {activity}%", True, (145, 170, 160))
+    else:
+        activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
+    game.screen.blit(activity_label, (hud_x + 12, hud_y + 52))
+
+    # Полоска рассудка (как sanity meter в Phasmophobia).
+    sanity_bar = pygame.Rect(hud_x + 12, hud_y + 72, hud_w - 24, 8)
+    pygame.draw.rect(game.screen, (42, 54, 49), sanity_bar, border_radius=4)
+    sanity_fill = int(sanity_bar.w * (sanity / 100))
+    if sanity_fill:
+        pygame.draw.rect(game.screen, sanity_color, (sanity_bar.x, sanity_bar.y, sanity_fill, sanity_bar.h), border_radius=4)
+    pygame.draw.rect(game.screen, (92, 118, 108), sanity_bar, 1, border_radius=4)
 
     bar = pygame.Rect(hud_x + 176, hud_y + 56, hud_w - 188, 8)
     pygame.draw.rect(game.screen, (42, 54, 49), bar, border_radius=4)
@@ -136,8 +155,8 @@ def _draw_compact_status_hud(game):
     if has_thermometer:
         temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
         temp_value = "-- C" if temperature is None else f"{temperature:.1f} C"
-        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 76))
-        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 74))
+        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 90))
+        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 88))
 
 
 def _draw_pixel_heart(screen, x, y, scale, color):
@@ -1105,13 +1124,14 @@ def draw_game(game):
             text_rect = text_surface.get_rect(center=box_rect.center)
             game.screen.blit(text_surface, text_rect)
 
-    # Эффект затемнения: зависит от наличия фонарика
-    if game.inventory.get("фонарик", False):
-        # С фонариком: видна текущая комната целиком
+    # Эффект затемнения: фонарик влияет только на видимость, не на sanity drain.
+    flashlight_lit = bool(
+        game.inventory.get("фонарик", False) and getattr(game, "flashlight_on", False)
+    )
+    if flashlight_lit:
         room_overlay = game._create_room_visibility_overlay()
         game.screen.blit(room_overlay, (0, 0))
     else:
-        # Без фонарика: круг вокруг игрока, обрезанный по границам комнаты
         clipped_overlay = game._create_clipped_vignette_overlay()
         game.screen.blit(clipped_overlay, (0, 0))
 
