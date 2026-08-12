@@ -271,23 +271,6 @@ def _draw_setup_truck_timer(game):
         game.screen.blit(msg, msg.get_rect(center=banner.center))
 
 
-def _draw_ghost_event_mist(game):
-    mist = getattr(game, "ghost_event_mist", None)
-    if not mist:
-        return
-    cx = int(mist["x"] - getattr(game, "camera_x", 0))
-    cy = int(mist["y"] - getattr(game, "camera_y", 0))
-    radius = int(mist.get("radius", 36))
-    now = pygame.time.get_ticks()
-    pulse = 0.75 + 0.25 * math.sin(now / 180.0)
-    cloud = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
-    center = (radius * 2, radius * 2)
-    pygame.draw.circle(cloud, (230, 240, 245, int(55 * pulse)), center, int(radius * 1.8))
-    pygame.draw.circle(cloud, (255, 255, 255, int(110 * pulse)), center, radius)
-    pygame.draw.circle(cloud, (200, 220, 230, 160), center, max(6, radius // 2))
-    game.screen.blit(cloud, cloud.get_rect(center=(cx, cy)))
-
-
 def _draw_lit_candles(game):
     candles = getattr(game, "lit_candles", None) or []
     if not candles:
@@ -1138,7 +1121,6 @@ def draw_game(game):
         camera_x=game.camera_x,
         camera_y=game.camera_y
     )
-    _draw_ghost_event_mist(game)
     _draw_lit_candles(game)
 
     player_screen_rect = game.player_rect.move(-game.camera_x, -game.camera_y)

@@ -80,23 +80,37 @@ def main():
     restored = game.restore_sanity(35, reason="pills")
     assert approx(restored, 75.0, eps=0.001)
 
-    # Ghost event: контакт списывает 10%, исчезновение без контакта — нет.
-    game.player_sanity = 80.0
-    game.start_ghost_event_mist()
-    assert game.ghost_event_mist is not None
-    game.ghost_event_mist["x"] = float(game.player_rect.centerx)
-    game.ghost_event_mist["y"] = float(game.player_rect.centery)
-    game.tick_ghost_event_mist()
-    assert game.ghost_event_mist is None
-    assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
+    # Ghost event: появление призрака, контакт −10%, исчезновение без контакта — 0.
+    from ghost import Ghost, Room
 
     game.player_sanity = 80.0
-    game.start_ghost_event_mist()
-    game.ghost_event_mist["x"] = float(game.player_rect.centerx + 400)
-    game.ghost_event_mist["y"] = float(game.player_rect.centery + 400)
-    game.ghost_event_mist["ticks_left"] = 1
-    game.tick_ghost_event_mist()
-    assert game.ghost_event_mist is None
+    game.ghost_manager.rooms = [Room(0, 0, 800, 600, 0)]
+    sprite = pygame.Surface((40, 40), pygame.SRCALPHA)
+    sprite.fill((200, 200, 220, 180))
+    ghost = Ghost(100, 100, sprite, game.ghost_manager.rooms, home_room_id=0)
+    game.ghost_manager.ghosts = [ghost]
+
+    assert game.start_ghost_appearance_event()
+    assert game.ghost_event_active
+    assert ghost.in_appearance_event
+    assert ghost.state.value != "invisible"
+
+    # Ставим призрака прямо на игрока → контакт.
+    ghost.rect.center = game.player_rect.center
+    ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+    game.tick_ghost_appearance_event()
+    assert not game.ghost_event_active
+    assert not ghost.in_appearance_event
+    assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
+
+    # Таймаут без контакта — sanity не меняется.
+    game.player_sanity = 80.0
+    assert game.start_ghost_appearance_event()
+    ghost.rect.center = (game.player_rect.centerx + 400, game.player_rect.centery + 400)
+    ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+    game.ghost_event_ticks_left = 1
+    game.tick_ghost_appearance_event()
+    assert not game.ghost_event_active
     assert approx(game.player_sanity, 80.0, eps=0.001)
 
     # Анонс конца setup: баннер + радио, без старого toast-only.

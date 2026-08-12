@@ -115,11 +115,11 @@ SANITY_SETUP_DRAIN_FACTOR = 0.70
 SANITY_SETUP_FLOOR = 50.0
 SANITY_NEAR_GHOST_DRAIN_PER_SECOND = 0.20
 SANITY_HUNT_DRAIN_PER_SECOND = 0.35
-# Ghost event: как в Phasmo, −10% только при контакте с проявлением/туманом.
+# Ghost event: появление призрака (manifestation). −10% только при контакте.
 SANITY_GHOST_EVENT_DRAIN = 10.0
 SANITY_GHOST_EVENT_DURATION_SECONDS = 5.5
-SANITY_GHOST_EVENT_SPEED = 1.35
-SANITY_GHOST_EVENT_HIT_RADIUS = 36
+SANITY_GHOST_EVENT_APPROACH_SPEED = 1.7
+SANITY_GHOST_EVENT_SPAWN_DISTANCE = 150
 # Свеча (firelight): сильно снижает пассивный drain в радиусе, но не как потолочный свет.
 SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
@@ -222,7 +222,8 @@ class Game:
         self.loaded_sanity_state = None
         self.setup_complete_banner_until = 0
         self.radio_announcement = None
-        self.ghost_event_mist = None
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
@@ -522,75 +523,110 @@ class Game:
     def trigger_activity_event(self):
         self.activity_event_cooldown_ticks = 10 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1000
-        # Как в Phasmo: сам факт ивента не списывает sanity — только контакт с проявлением.
-        self.start_ghost_event_mist()
-        self._show_game_info(random.choice([
-            "Холодный туман потянулся к тебе.",
-            "Призрак проявился рядом.",
-            "В воздухе сгустилась белая дымка.",
-            "Слышно тихое шипение.",
-        ]), 1300)
+        # Как в Phasmo: appearance-ивент. Sanity падает только при контакте с призраком.
+        started = self.start_ghost_appearance_event()
+        if started:
+            self._show_game_info(random.choice([
+                "Призрак проявился рядом.",
+                "Ты видишь силуэт привидения.",
+                "Привидение появилось и идёт к тебе.",
+                "Холод — призрак материализовался.",
+            ]), 1300)
+        else:
+            self._show_game_info(random.choice([
+                "Температура резко упала.",
+                "Связь искажается.",
+                "Где-то рядом сдвинулся предмет.",
+                "Воздух стал тяжелым.",
+            ]), 1300)
 
-    def start_ghost_event_mist(self):
-        """Запускает mist/appearance ghost event: шар тумана идёт к игроку."""
+    def start_ghost_appearance_event(self):
+        """Как manifestation ghost event в Phasmo: призрак появляется рядом и идёт к игроку."""
+        if not self.ghost_manager.ghosts:
+            return False
+        ghost = self.ghost_manager.ghosts[0]
         px = float(self.player_rect.centerx)
         py = float(self.player_rect.centery)
-        sx, sy = px, py
-        if self.ghost_manager.ghosts:
-            ghost = self.ghost_manager.ghosts[0]
-            sx = float(ghost.rect.centerx)
-            sy = float(ghost.rect.centery)
+        angle = random.uniform(0, math.tau)
+        sx = px + math.cos(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
+        sy = py + math.sin(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
+        duration = int(SANITY_GHOST_EVENT_DURATION_SECONDS * FPS)
+        if hasattr(ghost, "begin_appearance_event"):
+            ghost.begin_appearance_event(sx, sy, duration)
         else:
-            angle = random.uniform(0, math.tau)
-            sx = px + math.cos(angle) * 180
-            sy = py + math.sin(angle) * 180
-        self.ghost_event_mist = {
-            "x": sx,
-            "y": sy,
-            "ticks_left": int(SANITY_GHOST_EVENT_DURATION_SECONDS * FPS),
-            "hit": False,
-            "radius": SANITY_GHOST_EVENT_HIT_RADIUS,
-        }
+            ghost.rect.center = (int(sx), int(sy))
+            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+            from ghost import GhostState
+            ghost.state = GhostState.IDLE
+            if ghost.sprite:
+                ghost.sprite.set_alpha(getattr(ghost, "base_alpha", 180))
+        self.ghost_event_active = True
+        self.ghost_event_ticks_left = duration
+        return True
 
     def ghost_event_sanity_drain_amount(self):
         """Базово −10%, как в Phasmo; профиль может удвоить (Oni-like)."""
         amount = SANITY_GHOST_EVENT_DRAIN
         if self.ghost_manager.ghosts:
-            abilities = getattr(self.ghost_manager.ghosts[0], "abilities", {}) or {}
-            mult = float(abilities.get("ghost_event_sanity_mult", 1.0) or 1.0)
+            ghost = self.ghost_manager.ghosts[0]
+            mult = float(getattr(ghost, "ghost_event_sanity_mult", 1.0) or 1.0)
             amount *= max(0.5, mult)
         return amount
 
-    def tick_ghost_event_mist(self):
-        mist = getattr(self, "ghost_event_mist", None)
-        if not mist:
+    def end_ghost_appearance_event(self, hissed=False):
+        """Завершает appearance-ивент: призрак снова исчезает."""
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
+        if not self.ghost_manager.ghosts:
             return
+        ghost = self.ghost_manager.ghosts[0]
+        if hasattr(ghost, "end_appearance_event"):
+            ghost.end_appearance_event()
+        else:
+            from ghost import GhostState
+            ghost.state = GhostState.INVISIBLE
+            if ghost.sprite:
+                ghost.sprite.set_alpha(0)
+
+    def tick_ghost_appearance_event(self):
+        """Двигает проявившегося призрака к игроку; контакт = −10% sanity + шипение."""
+        if not getattr(self, "ghost_event_active", False):
+            return
+        if not self.ghost_manager.ghosts:
+            self.end_ghost_appearance_event(hissed=False)
+            return
+
+        ghost = self.ghost_manager.ghosts[0]
         px = float(self.player_rect.centerx)
         py = float(self.player_rect.centery)
-        dx = px - mist["x"]
-        dy = py - mist["y"]
+        gx = float(ghost.rect.centerx)
+        gy = float(ghost.rect.centery)
+        dx = px - gx
+        dy = py - gy
         dist = math.hypot(dx, dy)
         if dist > 1.0:
-            mist["x"] += (dx / dist) * SANITY_GHOST_EVENT_SPEED
-            mist["y"] += (dy / dist) * SANITY_GHOST_EVENT_SPEED
-            dist = math.hypot(px - mist["x"], py - mist["y"])
+            step = SANITY_GHOST_EVENT_APPROACH_SPEED
+            ghost.rect.centerx = int(gx + (dx / dist) * step)
+            ghost.rect.centery = int(gy + (dy / dist) * step)
+            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
 
-        if dist <= mist["radius"] and not mist["hit"]:
-            mist["hit"] = True
+        # Контакт с проявившимся призраком (не охота — HP не снимаем).
+        if ghost.rect.colliderect(self.player_rect):
             drained = self.ghost_event_sanity_drain_amount()
             self.drain_sanity(drained, reason="ghost_event")
             self.increase_ghost_activity(8, "ghost_event_hit")
             self._show_game_info(
-                f"Шипение! Проявление коснулось тебя. −{int(round(drained))}% рассудка.",
+                f"Шипение! Призрак коснулся тебя и исчез. −{int(round(drained))}% рассудка.",
                 1600,
             )
-            self.ghost_event_mist = None
+            self.end_ghost_appearance_event(hissed=True)
             return
 
-        mist["ticks_left"] -= 1
-        if mist["ticks_left"] <= 0:
-            # Как в Phasmo: туман исчез без контакта — sanity не трогаем.
-            self.ghost_event_mist = None
+        self.ghost_event_ticks_left -= 1
+        if self.ghost_event_ticks_left <= 0:
+            # Как в Phasmo: исчез без контакта — sanity не трогаем.
+            self._show_game_info("Призрак растворился в воздухе.", 1100)
+            self.end_ghost_appearance_event(hissed=False)
 
     def spawn_lit_candle(self, x, y):
         """Ставит lit firelight на карту (анти-drain в радиусе)."""
@@ -629,7 +665,8 @@ class Game:
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
-        self.ghost_event_mist = None
+        if getattr(self, "ghost_event_active", False):
+            self.end_ghost_appearance_event(hissed=False)
         self._show_game_info("Активность достигла пика. Охота началась.", 1800)
         return True
 
@@ -814,7 +851,8 @@ class Game:
         self.player_sanity = 100.0
         self.sanity_low_warned = False
         self.flashlight_on = bool(self.inventory.get("фонарик", False))
-        self.ghost_event_mist = None
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.setup_complete_banner_until = 0
         self.radio_announcement = None
@@ -1528,7 +1566,7 @@ class Game:
                 mechanics.update_player_movement(self)
                 self.tick_sanity()
                 self.tick_lit_candles()
-                self.tick_ghost_event_mist()
+                self.tick_ghost_appearance_event()
                 self.tick_hunt_timer()
                 self.tick_ghost_activity()
                 pz = self.inventory_manager.get_projector_zones()
@@ -1550,9 +1588,13 @@ class Game:
                         word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
                         self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
                         self.drain_sanity(2.0, reason="item_throw")
-                # Столкновение с приведением — отнимаем HP
+                # Столкновение с приведением — отнимаем HP (не во время appearance ghost event).
                 now = pygame.time.get_ticks()
-                if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
+                if (
+                    not getattr(self, "ghost_event_active", False)
+                    and self.ghost_manager.check_player_collision(self.player_rect)
+                    and now >= self.hit_invincible_until
+                ):
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.increase_ghost_activity(12, "player_hit")
