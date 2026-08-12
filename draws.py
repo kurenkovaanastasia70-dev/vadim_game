@@ -231,33 +231,25 @@ def _format_setup_mmss(game):
     return f"{mm:02d}:{ss:02d}", seconds
 
 
-def _setup_timer_panel_rect(computer_screen_rect):
-    """Таймер внутри экрана компьютера (верхняя полоса спрайта)."""
-    inset = max(6, computer_screen_rect.w // 12)
-    panel_h = max(28, min(44, computer_screen_rect.h // 3))
-    panel = pygame.Rect(
-        computer_screen_rect.x + inset,
-        computer_screen_rect.y + inset,
-        max(40, computer_screen_rect.w - inset * 2),
-        panel_h,
-    )
-    return panel
-
-
 def _computer_setup_timer_active(game):
     ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
     banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
     return ticks > 0 or pygame.time.get_ticks() < banner_until
 
 
-def _computer_visible_on_screen(computer_screen_rect):
-    return computer_screen_rect.colliderect(pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
-
-
-def _draw_setup_timer_face(game, panel, compact=False):
-    """Общая отрисовка циферблата setup (карта / магазин)."""
-    if panel is None or panel.w < 20 or panel.h < 16:
+def _draw_setup_shop_timer(game):
+    """Единственный setup-таймер: только внутри экрана компьютера (магазин)."""
+    if not _computer_setup_timer_active(game):
         return
+    # Между «Назад» и деньгами, без пересечения с title/карточками.
+    panel = pygame.Rect(620, 18, 160, 50)
+    money = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
+    back = pygame.Rect(36, 28, 120, 36)
+    if panel.colliderect(money):
+        panel.right = money.left - 10
+    if panel.colliderect(back):
+        panel.left = back.right + 10
+
     ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
     now = pygame.time.get_ticks()
     time_text, seconds = _format_setup_mmss(game)
@@ -269,11 +261,9 @@ def _draw_setup_timer_face(game, panel, compact=False):
     border = (120, 200, 160) if ticks > 0 else (220, 150, 90)
     pygame.draw.rect(game.screen, border, panel, 2, border_radius=6)
 
-    tiny = pygame.font.Font(None, 16 if compact else 18)
-    big = pygame.font.Font(None, 28 if compact else 36)
-    label = tiny.render("SETUP", True, (145, 170, 160))
-    game.screen.blit(label, (panel.x + 8, panel.y + 3))
-
+    tiny = pygame.font.Font(None, 18)
+    big = pygame.font.Font(None, 36)
+    game.screen.blit(tiny.render("SETUP", True, (145, 170, 160)), (panel.x + 8, panel.y + 3))
     pulse = (now // 250) % 2 == 0 if 0 < seconds <= 10 or show_end else True
     color = (255, 210, 120) if seconds <= 10 or show_end else (230, 240, 236)
     if pulse:
@@ -281,66 +271,34 @@ def _draw_setup_timer_face(game, panel, compact=False):
         game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + panel.h * 0.62)))
 
 
-def _draw_setup_computer_timer(game, panel):
-    """Рисует таймер на спрайте компьютера на карте."""
-    _draw_setup_timer_face(game, panel, compact=True)
-
-
-def _draw_setup_shop_timer(game):
-    """
-    Таймер на экране магазина (внутри «компьютера»).
-    Слот: между кнопкой Назад и блоком денег — без пересечений с title/карточками.
-    """
-    if not _computer_setup_timer_active(game):
+def _draw_computer_interact_tip(game, computer_screen_rect):
+    """Подсказка над компьютером на карте (без таймера)."""
+    if not getattr(game, "near_computer", False):
         return
-    # Назад: (36,28)-(156,64). Деньги: (794,24)-(982,66). Title по центру ~y48.
-    # Берём узкий слот слева от денег.
-    panel = pygame.Rect(620, 18, 160, 50)
-    money = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
-    back = pygame.Rect(36, 28, 120, 36)
-    if panel.colliderect(money):
-        panel.right = money.left - 10
-    if panel.colliderect(back):
-        panel.left = back.right + 10
-    _draw_setup_timer_face(game, panel, compact=False)
-
-
-def _layout_computer_labels(game, computer_screen_rect):
-    """
-    Подписи у компьютера на карте:
-    таймер внутри спрайта; tip магазина — над компьютером, без пересечения.
-    """
-    timer_rect = None
-    if _computer_setup_timer_active(game) and _computer_visible_on_screen(computer_screen_rect):
-        timer_rect = _setup_timer_panel_rect(computer_screen_rect)
-
-    tip_rect = None
-    tip_text = None
-    if getattr(game, "near_computer", False):
-        tip_text = "Клик: открыть компьютер"
-        font = pygame.font.Font(None, 24)
-        text_surface = font.render(tip_text, True, WHITE)
-        padding = 10
-        tip_rect = pygame.Rect(
-            0,
-            0,
-            text_surface.get_width() + padding * 2,
-            text_surface.get_height() + padding * 2,
-        )
-        tip_rect.centerx = computer_screen_rect.centerx
-        tip_rect.bottom = computer_screen_rect.top - 8
-        tip_rect.x = max(8, min(tip_rect.x, SCREEN_WIDTH - tip_rect.w - 8))
-        tip_rect.y = max(8, tip_rect.y)
-
-    return tip_rect, tip_text, timer_rect
+    tip_text = "Клик: открыть компьютер"
+    font = pygame.font.Font(None, 24)
+    text_surface = font.render(tip_text, True, WHITE)
+    padding = 10
+    tip_rect = pygame.Rect(
+        0,
+        0,
+        text_surface.get_width() + padding * 2,
+        text_surface.get_height() + padding * 2,
+    )
+    tip_rect.centerx = computer_screen_rect.centerx
+    tip_rect.bottom = computer_screen_rect.top - 8
+    tip_rect.x = max(8, min(tip_rect.x, SCREEN_WIDTH - tip_rect.w - 8))
+    tip_rect.y = max(8, tip_rect.y)
+    pygame.draw.rect(game.screen, DARK_GRAY, tip_rect)
+    pygame.draw.rect(game.screen, WHITE, tip_rect, 2)
+    game.screen.blit(text_surface, text_surface.get_rect(center=tip_rect.center))
 
 
 def _draw_setup_complete_banner(game):
-    """Экранный баннер конца setup — ниже радио-зоны, не пересекается с HUD/кнопками."""
+    """Баннер конца setup — ниже радио, без пересечения с HUD/кнопками."""
     banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
     if pygame.time.get_ticks() >= banner_until:
         return
-    # Радио занимает ~y170-242; баннер ниже.
     banner = pygame.Rect(SCREEN_WIDTH // 2 - 240, 256, 480, 44)
     banner_bg = pygame.Surface(banner.size, pygame.SRCALPHA)
     banner_bg.fill((28, 16, 14, 220))
@@ -354,42 +312,29 @@ def _draw_setup_complete_banner(game):
     game.screen.blit(msg, msg.get_rect(center=banner.center))
 
 
-def _draw_setup_timer_hint(game):
-    """Подсказка с живым countdown: таймер смотри в компьютере."""
-    setup_ticks = int(getattr(game, "setup_phase_ticks", 0) or 0)
-    if setup_ticks <= 0:
+def _draw_setup_find_computer_message(game):
+    """Короткое оранжевое предупреждение без цифр таймера (~2 сек)."""
+    until = int(getattr(game, "setup_timer_hint_until", 0) or 0)
+    if pygame.time.get_ticks() >= until:
         return
-    if bool(getattr(game, "setup_timer_shop_seen", False)):
-        return
-
+    # Под HUD слева, не пересекается с меню/журналом справа.
     has_thermometer = bool(game.inventory.get("градусник", False))
     hud_bottom = 16 + (132 if has_thermometer else 112)
-    hint = pygame.Rect(22, hud_bottom + 8, 420, 52)
-    bg = pygame.Surface(hint.size, pygame.SRCALPHA)
-    bg.fill((28, 24, 14, 220))
-    game.screen.blit(bg, hint.topleft)
-    pygame.draw.rect(game.screen, (220, 180, 90), hint, 2, border_radius=6)
-    font = pygame.font.Font(None, 22)
-    small = pygame.font.Font(None, 20)
-    time_text, _seconds = _format_setup_mmss(game)
-    game.screen.blit(
-        font.render(f"Setup {time_text} — смотри в компьютере", True, (255, 230, 170)),
-        (hint.x + 12, hint.y + 8),
-    )
-    game.screen.blit(
-        small.render("Найди компьютер на карте и открой его кликом.", True, (210, 195, 150)),
-        (hint.x + 12, hint.y + 28),
-    )
-
-
-def _draw_computer_interact_tip(game, tip_rect, tip_text):
-    if tip_rect is None or not tip_text:
-        return
+    panel = pygame.Rect(22, hud_bottom + 8, 440, 48)
+    bg = pygame.Surface(panel.size, pygame.SRCALPHA)
+    bg.fill((40, 22, 8, 230))
+    game.screen.blit(bg, panel.topleft)
+    pygame.draw.rect(game.screen, (255, 150, 40), panel, 2, border_radius=6)
     font = pygame.font.Font(None, 24)
-    text_surface = font.render(tip_text, True, WHITE)
-    pygame.draw.rect(game.screen, DARK_GRAY, tip_rect)
-    pygame.draw.rect(game.screen, WHITE, tip_rect, 2)
-    game.screen.blit(text_surface, text_surface.get_rect(center=tip_rect.center))
+    small = pygame.font.Font(None, 20)
+    game.screen.blit(
+        font.render("Таймер setup — внутри компьютера", True, (255, 180, 80)),
+        (panel.x + 12, panel.y + 6),
+    )
+    game.screen.blit(
+        small.render("Найди компьютер на карте и открой его.", True, (255, 200, 140)),
+        (panel.x + 12, panel.y + 26),
+    )
 
 
 def _draw_lit_candles(game):
@@ -1314,11 +1259,9 @@ def draw_game(game):
     _draw_crt_atmosphere(game)
     game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
 
-    # Подписи у компьютера — после затемнения, чтобы таймер/tip были читаемы.
+    # Подпись у компьютера (без таймера — таймер только в магазине).
     if computer_screen_rect is not None:
-        tip_rect, tip_text, timer_rect = _layout_computer_labels(game, computer_screen_rect)
-        _draw_setup_computer_timer(game, timer_rect)
-        _draw_computer_interact_tip(game, tip_rect, tip_text)
+        _draw_computer_interact_tip(game, computer_screen_rect)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
@@ -1340,7 +1283,7 @@ def draw_game(game):
         _draw_retro_button(game.screen, game.journal_button, active=getattr(game, "journal_open", False))
 
     _draw_compact_status_hud(game)
-    _draw_setup_timer_hint(game)
+    _draw_setup_find_computer_message(game)
     _draw_radio_feedback(game)
     _draw_setup_complete_banner(game)
 

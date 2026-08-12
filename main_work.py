@@ -870,9 +870,9 @@ class Game:
         self.setup_phase_ticks = max(0, seconds * FPS)
         self.setup_complete_banner_until = 0
         self.setup_timer_shop_seen = False
-        # Подсказка: таймер живёт в компьютере — игрок должен его открыть.
+        # Оранжевое предупреждение без цифр, ~2 секунды.
         if self.setup_phase_ticks > 0:
-            self.setup_timer_hint_until = pygame.time.get_ticks() + 20000
+            self.setup_timer_hint_until = pygame.time.get_ticks() + 2000
         else:
             self.setup_timer_hint_until = 0
 
