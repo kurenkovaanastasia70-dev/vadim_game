@@ -174,6 +174,16 @@ def handle_shop_events(game, event):
                     print("Куплен градусник!")
                 else:
                     print("Недостаточно денег или предмет уже куплен!")
+            elif i == 12:  # Кнопка "Купить таблетки рассудка"
+                if game.buy_item("таблетки", 45):
+                    print("Куплены таблетки рассудка!")
+                else:
+                    print("Недостаточно денег!")
+            elif i == 13:  # Кнопка "Купить свечу"
+                if game.buy_item("свеча", 25):
+                    print("Куплена свеча!")
+                else:
+                    print("Недостаточно денег!")
 
 def handle_settings_events(game, event):
     """

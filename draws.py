@@ -1,4 +1,5 @@
 import pygame
+import math
 from constants import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -130,11 +131,7 @@ def _draw_compact_status_hud(game):
         x += 78
 
     activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
-    setup_left = max(0, int(getattr(game, "setup_phase_ticks", 0) // max(1, 60)))
-    if setup_left > 0:
-        activity_label = small.render(f"Setup: {setup_left}s | Активность: {activity}%", True, (145, 170, 160))
-    else:
-        activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
+    activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
     game.screen.blit(activity_label, (hud_x + 12, hud_y + 52))
 
     # Полоска рассудка (как sanity meter в Phasmophobia).
@@ -195,7 +192,9 @@ EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in 
 def _draw_radio_feedback(game):
     if pygame.time.get_ticks() >= getattr(game, "radio_feedback_until", 0):
         return
-    panel = pygame.Rect(SCREEN_WIDTH // 2 - 190, 112, 380, 54)
+    announcement = getattr(game, "radio_announcement", None)
+    panel_h = 72 if announcement else 54
+    panel = pygame.Rect(SCREEN_WIDTH // 2 - 220, 112, 440, panel_h)
     surf = pygame.Surface(panel.size, pygame.SRCALPHA)
     surf.fill((14, 18, 24, 210))
     game.screen.blit(surf, panel.topleft)
@@ -203,6 +202,16 @@ def _draw_radio_feedback(game):
     pygame.draw.rect(game.screen, border, panel, 2, border_radius=7)
 
     font = pygame.font.Font(None, 22)
+    small = pygame.font.Font(None, 20)
+    if announcement:
+        label = "Радио — база"
+        game.screen.blit(font.render(label, True, (230, 236, 240)), (panel.x + 14, panel.y + 8))
+        for i, line in enumerate(_wrap_lines(small, announcement, panel.w - 28)):
+            if i >= 2:
+                break
+            game.screen.blit(small.render(line, True, (190, 210, 200)), (panel.x + 14, panel.y + 32 + i * 18))
+        return
+
     label = "Радио: частота поймана" if getattr(game, "radio_feedback_ok", False) else "Радио: шум и помехи"
     game.screen.blit(font.render(label, True, (230, 236, 240)), (panel.x + 14, panel.y + 8))
 
@@ -212,6 +221,88 @@ def _draw_radio_feedback(game):
         h = 4 + ((i * 7 + tick * 5) % 16)
         x = panel.x + 14 + i * 17
         pygame.draw.line(game.screen, border, (x, base_y - h // 2), (x, base_y + h // 2), 2)
+
+
+def _draw_setup_truck_timer(game):
+    """Таймер setup-фазы в стиле Phasmophobia (экран фургона) + баннер окончания."""
+    ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
+    banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
+    now = pygame.time.get_ticks()
+    show_banner = now < banner_until
+
+    if ticks <= 0 and not show_banner:
+        return
+
+    panel = pygame.Rect(SCREEN_WIDTH // 2 - 108, 18, 216, 58)
+    bg = pygame.Surface(panel.size, pygame.SRCALPHA)
+    bg.fill((12, 16, 18, 230))
+    game.screen.blit(bg, panel.topleft)
+    border = (120, 200, 160) if ticks > 0 else (220, 150, 90)
+    pygame.draw.rect(game.screen, border, panel, 2, border_radius=6)
+
+    tiny = pygame.font.Font(None, 18)
+    big = pygame.font.Font(None, 40)
+    game.screen.blit(tiny.render("SETUP TIMER", True, (145, 170, 160)), (panel.x + 14, panel.y + 6))
+
+    if ticks > 0:
+        seconds = ticks // max(1, 60)
+        mm, ss = divmod(seconds, 60)
+        # Мигание в последние 10 секунд, как у дедлайна в фургоне.
+        pulse = (now // 250) % 2 == 0 if seconds <= 10 else True
+        color = (255, 210, 120) if seconds <= 10 else (230, 240, 236)
+        if pulse:
+            value = big.render(f"{mm:02d}:{ss:02d}", True, color)
+            game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + 38)))
+    elif show_banner:
+        value = big.render("00:00", True, (225, 140, 90))
+        game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + 38)))
+
+    if show_banner:
+        banner = pygame.Rect(SCREEN_WIDTH // 2 - 260, 84, 520, 46)
+        banner_bg = pygame.Surface(banner.size, pygame.SRCALPHA)
+        banner_bg.fill((28, 16, 14, 220))
+        game.screen.blit(banner_bg, banner.topleft)
+        pygame.draw.rect(game.screen, (220, 120, 80), banner, 2, border_radius=6)
+        msg = pygame.font.Font(None, 26).render(
+            "ФАЗА ПОДГОТОВКИ ОКОНЧЕНА",
+            True,
+            (255, 220, 190),
+        )
+        game.screen.blit(msg, msg.get_rect(center=banner.center))
+
+
+def _draw_ghost_event_mist(game):
+    mist = getattr(game, "ghost_event_mist", None)
+    if not mist:
+        return
+    cx = int(mist["x"] - getattr(game, "camera_x", 0))
+    cy = int(mist["y"] - getattr(game, "camera_y", 0))
+    radius = int(mist.get("radius", 36))
+    now = pygame.time.get_ticks()
+    pulse = 0.75 + 0.25 * math.sin(now / 180.0)
+    cloud = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
+    center = (radius * 2, radius * 2)
+    pygame.draw.circle(cloud, (230, 240, 245, int(55 * pulse)), center, int(radius * 1.8))
+    pygame.draw.circle(cloud, (255, 255, 255, int(110 * pulse)), center, radius)
+    pygame.draw.circle(cloud, (200, 220, 230, 160), center, max(6, radius // 2))
+    game.screen.blit(cloud, cloud.get_rect(center=(cx, cy)))
+
+
+def _draw_lit_candles(game):
+    candles = getattr(game, "lit_candles", None) or []
+    if not candles:
+        return
+    now = pygame.time.get_ticks()
+    for candle in candles:
+        cx = int(candle["x"] - getattr(game, "camera_x", 0))
+        cy = int(candle["y"] - getattr(game, "camera_y", 0))
+        flicker = 0.7 + 0.3 * abs(math.sin(now / 140.0 + candle["x"] * 0.01))
+        glow = pygame.Surface((120, 120), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 170, 60, int(45 * flicker)), (60, 60), 48)
+        pygame.draw.circle(glow, (255, 220, 120, int(90 * flicker)), (60, 60), 18)
+        game.screen.blit(glow, glow.get_rect(center=(cx, cy)))
+        pygame.draw.rect(game.screen, (180, 140, 70), (cx - 4, cy - 2, 8, 14), border_radius=2)
+        pygame.draw.circle(game.screen, (255, 220, 90), (cx, cy - 8), 4)
 
 
 def _wrap_lines(font, text, max_width):
@@ -713,16 +804,18 @@ def draw_shop(game):
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
         (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
+        (12, "Таблетки", "таблетки", 45, "Восстанавливает рассудок (Sanity Pills).", ItemType.SANITY_PILLS),
+        (13, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
     ]
 
-    card_w, card_h = 430, 78
+    card_w, card_h = 430, 68
     col_x = [62, 570]
-    row_y = [100, 185, 270, 355, 440, 525]
+    row_y = [88, 162, 236, 310, 384, 458, 532]
     mouse = pygame.mouse.get_pos()
 
     for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
-        col = 0 if pos < 5 else 1
-        row = pos if pos < 5 else pos - 5
+        col = 0 if pos < 7 else 1
+        row = pos if pos < 7 else pos - 7
         card = pygame.Rect(col_x[col], row_y[row], card_w, card_h)
         bought = bool(game.inventory.get(inv_key, False))
         count = game.inventory_manager.item_counts.get(count_type, 0) if count_type else 0
@@ -1045,6 +1138,8 @@ def draw_game(game):
         camera_x=game.camera_x,
         camera_y=game.camera_y
     )
+    _draw_ghost_event_mist(game)
+    _draw_lit_candles(game)
 
     player_screen_rect = game.player_rect.move(-game.camera_x, -game.camera_y)
     player_visual_size = getattr(game, "player_visual_size", game.player_size)
@@ -1143,12 +1238,15 @@ def draw_game(game):
     consumable_name_to_count = {
         "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
         "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
+        "таблетки": game.inventory_manager.get_count(ItemType.SANITY_PILLS),
+        "свеча": game.inventory_manager.get_count(ItemType.CANDLE),
         "крест": game.inventory_manager.get_count(ItemType.CROSS),
         "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
         "соль": game.inventory_manager.get_count(ItemType.SALT),
         "радио": game.inventory_manager.get_count(ItemType.RADIO),
     }
     _draw_radio_feedback(game)
+    _draw_setup_truck_timer(game)
 
     # Верхние игровые кнопки: магазин убран, журнал вынесен как явная кнопка "Дело".
     for button in game.game_buttons:

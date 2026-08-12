@@ -16,7 +16,10 @@ from main_work import (
     SANITY_DARK_DRAIN_PER_SECOND,
     SANITY_SETUP_DRAIN_FACTOR,
     SANITY_SETUP_FLOOR,
+    SANITY_GHOST_EVENT_DRAIN,
+    SANITY_CANDLE_DRAIN_FACTOR,
 )
+from inventory_system import ItemType
 
 
 def approx(a, b, eps=0.08):
@@ -51,6 +54,17 @@ def main():
     assert approx(game.player_sanity, expected_with_light), (game.player_sanity, expected_with_light)
     assert game.player_sanity < lit_before
 
+    # Свеча (firelight) сильно снижает пассивный drain.
+    game.spawn_lit_candle(game.player_rect.centerx, game.player_rect.centery)
+    assert game.is_near_firelight()
+    candle_before = game.player_sanity
+    for _ in range(FPS):
+        game.tick_sanity()
+    expected_candle = candle_before - (
+        SANITY_DARK_DRAIN_PER_SECOND * SANITY_CANDLE_DRAIN_FACTOR * SANITY_SETUP_DRAIN_FACTOR
+    )
+    assert approx(game.player_sanity, expected_candle), (game.player_sanity, expected_candle)
+
     # После setup и sanity < 50 охота разрешена.
     game.setup_phase_ticks = 0
     game.player_sanity = 49.0
@@ -61,6 +75,40 @@ def main():
     # Burst drain.
     game.drain_sanity(10, reason="test")
     assert approx(game.player_sanity, 40.0, eps=0.001)
+
+    # Таблетки восстанавливают sanity.
+    restored = game.restore_sanity(35, reason="pills")
+    assert approx(restored, 75.0, eps=0.001)
+
+    # Ghost event: контакт списывает 10%, исчезновение без контакта — нет.
+    game.player_sanity = 80.0
+    game.start_ghost_event_mist()
+    assert game.ghost_event_mist is not None
+    game.ghost_event_mist["x"] = float(game.player_rect.centerx)
+    game.ghost_event_mist["y"] = float(game.player_rect.centery)
+    game.tick_ghost_event_mist()
+    assert game.ghost_event_mist is None
+    assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
+
+    game.player_sanity = 80.0
+    game.start_ghost_event_mist()
+    game.ghost_event_mist["x"] = float(game.player_rect.centerx + 400)
+    game.ghost_event_mist["y"] = float(game.player_rect.centery + 400)
+    game.ghost_event_mist["ticks_left"] = 1
+    game.tick_ghost_event_mist()
+    assert game.ghost_event_mist is None
+    assert approx(game.player_sanity, 80.0, eps=0.001)
+
+    # Анонс конца setup: баннер + радио, без старого toast-only.
+    game.setup_phase_ticks = 1
+    game.tick_sanity()
+    assert game.setup_phase_ticks == 0
+    assert game.setup_complete_banner_until > 0
+    assert game.radio_announcement
+
+    # Магазинные расходники зарегистрированы.
+    assert ItemType.SANITY_PILLS in game.inventory_manager.item_counts
+    assert ItemType.CANDLE in game.inventory_manager.item_counts
 
     print("sanity tests OK")
     return 0

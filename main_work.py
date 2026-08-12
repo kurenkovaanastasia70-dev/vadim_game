@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 import sys
 import os
 import json
@@ -56,6 +57,7 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 0.70,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 90,
+        "sanity_pill_restore": 40,
     },
     1: {
         "name": "Нормальная",
@@ -71,6 +73,7 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 1.00,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 60,
+        "sanity_pill_restore": 35,
     },
     2: {
         "name": "Сложная",
@@ -86,6 +89,7 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 1.50,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 30,
+        "sanity_pill_restore": 25,
     },
     3: {
         "name": "Хардкор",
@@ -101,6 +105,7 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 2.00,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 0,
+        "sanity_pill_restore": 20,
     },
 }
 
@@ -110,6 +115,15 @@ SANITY_SETUP_DRAIN_FACTOR = 0.70
 SANITY_SETUP_FLOOR = 50.0
 SANITY_NEAR_GHOST_DRAIN_PER_SECOND = 0.20
 SANITY_HUNT_DRAIN_PER_SECOND = 0.35
+# Ghost event: как в Phasmo, −10% только при контакте с проявлением/туманом.
+SANITY_GHOST_EVENT_DRAIN = 10.0
+SANITY_GHOST_EVENT_DURATION_SECONDS = 5.5
+SANITY_GHOST_EVENT_SPEED = 1.35
+SANITY_GHOST_EVENT_HIT_RADIUS = 36
+# Свеча (firelight): сильно снижает пассивный drain в радиусе, но не как потолочный свет.
+SANITY_CANDLE_DRAIN_FACTOR = 0.20
+SANITY_CANDLE_RADIUS = 140
+SANITY_CANDLE_DURATION_SECONDS = 90
 
 class Game:
     def __init__(self):
@@ -168,6 +182,8 @@ class Game:
             Button(794, 462, 116, 32, "Купить", BLUE),
             Button(794, 564, 116, 32, "Купить", BLUE),
             Button(794, 650, 116, 32, "Купить", BLUE),
+            Button(286, 650, 116, 32, "Купить", GREEN),
+            Button(570, 650, 116, 32, "Купить", GREEN),
         ]
         
         # Создание кнопок для настроек
@@ -204,6 +220,10 @@ class Game:
         self.setup_phase_ticks = 0
         self.sanity_low_warned = False
         self.loaded_sanity_state = None
+        self.setup_complete_banner_until = 0
+        self.radio_announcement = None
+        self.ghost_event_mist = None
+        self.lit_candles = []
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
         self.radio_feedback_until = 0
@@ -287,6 +307,8 @@ class Game:
             "эмп": False,
             "уф фонарь": False,
             "градусник": False,
+            "таблетки": False,
+            "свеча": False,
         }
         self.inventory_items = [
             "фонарик",
@@ -300,6 +322,8 @@ class Game:
             "эмп",
             "уф фонарь",
             "градусник",
+            "таблетки",
+            "свеча",
         ]
 
         # Состояние для плавного движения
@@ -427,9 +451,10 @@ class Game:
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
 
-    def trigger_radio_feedback(self, ok):
+    def trigger_radio_feedback(self, ok, announcement=None):
         self.radio_feedback_ok = bool(ok)
-        self.radio_feedback_until = pygame.time.get_ticks() + 900
+        self.radio_feedback_until = pygame.time.get_ticks() + (2200 if announcement else 900)
+        self.radio_announcement = announcement
         if self.radio_static_sound:
             self.radio_static_sound.set_volume(max(0, min(100, self.volume)) / 100)
             self.radio_static_sound.play()
@@ -481,7 +506,9 @@ class Game:
             self.activity_event_cooldown_ticks -= 1
 
         if self.ghost_activity >= 75 and self.activity_event_cooldown_ticks <= 0:
-            chance = 0.012 * cfg["event_chance_multiplier"]
+            # Как в Phasmophobia: чем ниже рассудок, тем чаще ghost events.
+            sanity_factor = 1.0 + max(0.0, (100.0 - float(self.player_sanity)) / 100.0)
+            chance = 0.012 * cfg["event_chance_multiplier"] * sanity_factor
             if random.random() < chance:
                 self.trigger_activity_event()
 
@@ -495,14 +522,103 @@ class Game:
     def trigger_activity_event(self):
         self.activity_event_cooldown_ticks = 10 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1000
-        # Ghost event в Phasmophobia часто снимает заметный кусок sanity.
-        self.drain_sanity(random.uniform(4.0, 8.0), reason="ghost_event")
+        # Как в Phasmo: сам факт ивента не списывает sanity — только контакт с проявлением.
+        self.start_ghost_event_mist()
         self._show_game_info(random.choice([
-            "Температура резко упала.",
-            "Связь искажается.",
-            "Где-то рядом сдвинулся предмет.",
-            "Воздух стал тяжелым.",
+            "Холодный туман потянулся к тебе.",
+            "Призрак проявился рядом.",
+            "В воздухе сгустилась белая дымка.",
+            "Слышно тихое шипение.",
         ]), 1300)
+
+    def start_ghost_event_mist(self):
+        """Запускает mist/appearance ghost event: шар тумана идёт к игроку."""
+        px = float(self.player_rect.centerx)
+        py = float(self.player_rect.centery)
+        sx, sy = px, py
+        if self.ghost_manager.ghosts:
+            ghost = self.ghost_manager.ghosts[0]
+            sx = float(ghost.rect.centerx)
+            sy = float(ghost.rect.centery)
+        else:
+            angle = random.uniform(0, math.tau)
+            sx = px + math.cos(angle) * 180
+            sy = py + math.sin(angle) * 180
+        self.ghost_event_mist = {
+            "x": sx,
+            "y": sy,
+            "ticks_left": int(SANITY_GHOST_EVENT_DURATION_SECONDS * FPS),
+            "hit": False,
+            "radius": SANITY_GHOST_EVENT_HIT_RADIUS,
+        }
+
+    def ghost_event_sanity_drain_amount(self):
+        """Базово −10%, как в Phasmo; профиль может удвоить (Oni-like)."""
+        amount = SANITY_GHOST_EVENT_DRAIN
+        if self.ghost_manager.ghosts:
+            abilities = getattr(self.ghost_manager.ghosts[0], "abilities", {}) or {}
+            mult = float(abilities.get("ghost_event_sanity_mult", 1.0) or 1.0)
+            amount *= max(0.5, mult)
+        return amount
+
+    def tick_ghost_event_mist(self):
+        mist = getattr(self, "ghost_event_mist", None)
+        if not mist:
+            return
+        px = float(self.player_rect.centerx)
+        py = float(self.player_rect.centery)
+        dx = px - mist["x"]
+        dy = py - mist["y"]
+        dist = math.hypot(dx, dy)
+        if dist > 1.0:
+            mist["x"] += (dx / dist) * SANITY_GHOST_EVENT_SPEED
+            mist["y"] += (dy / dist) * SANITY_GHOST_EVENT_SPEED
+            dist = math.hypot(px - mist["x"], py - mist["y"])
+
+        if dist <= mist["radius"] and not mist["hit"]:
+            mist["hit"] = True
+            drained = self.ghost_event_sanity_drain_amount()
+            self.drain_sanity(drained, reason="ghost_event")
+            self.increase_ghost_activity(8, "ghost_event_hit")
+            self._show_game_info(
+                f"Шипение! Проявление коснулось тебя. −{int(round(drained))}% рассудка.",
+                1600,
+            )
+            self.ghost_event_mist = None
+            return
+
+        mist["ticks_left"] -= 1
+        if mist["ticks_left"] <= 0:
+            # Как в Phasmo: туман исчез без контакта — sanity не трогаем.
+            self.ghost_event_mist = None
+
+    def spawn_lit_candle(self, x, y):
+        """Ставит lit firelight на карту (анти-drain в радиусе)."""
+        if not hasattr(self, "lit_candles") or self.lit_candles is None:
+            self.lit_candles = []
+        self.lit_candles.append({
+            "x": float(x),
+            "y": float(y),
+            "ticks_left": int(SANITY_CANDLE_DURATION_SECONDS * FPS),
+        })
+
+    def tick_lit_candles(self):
+        candles = getattr(self, "lit_candles", None) or []
+        alive = []
+        for candle in candles:
+            candle["ticks_left"] -= 1
+            if candle["ticks_left"] > 0:
+                alive.append(candle)
+        self.lit_candles = alive
+
+    def is_near_firelight(self):
+        """Есть ли рядом горящая свеча (firelight из Phasmophobia)."""
+        px = float(self.player_rect.centerx)
+        py = float(self.player_rect.centery)
+        for candle in getattr(self, "lit_candles", None) or []:
+            if math.hypot(px - candle["x"], py - candle["y"]) <= SANITY_CANDLE_RADIUS:
+                return True
+        return False
 
     def start_activity_hunt(self):
         if not self.can_ghost_attempt_hunt():
@@ -513,6 +629,7 @@ class Game:
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
+        self.ghost_event_mist = None
         self._show_game_info("Активность достигла пика. Охота началась.", 1800)
         return True
 
@@ -697,6 +814,10 @@ class Game:
         self.player_sanity = 100.0
         self.sanity_low_warned = False
         self.flashlight_on = bool(self.inventory.get("фонарик", False))
+        self.ghost_event_mist = None
+        self.lit_candles = []
+        self.setup_complete_banner_until = 0
+        self.radio_announcement = None
         if start_setup:
             self.start_setup_phase()
         else:
@@ -705,9 +826,18 @@ class Game:
     def start_setup_phase(self):
         seconds = int(self.difficulty_config().get("setup_phase_seconds", 0) or 0)
         self.setup_phase_ticks = max(0, seconds * FPS)
+        self.setup_complete_banner_until = 0
 
     def is_setup_phase(self):
         return getattr(self, "setup_phase_ticks", 0) > 0
+
+    def announce_setup_complete(self):
+        """Как в Phasmophobia: конец setup виден по таймеру фургона + радио-анонс базы."""
+        self.setup_complete_banner_until = pygame.time.get_ticks() + 3200
+        self.trigger_radio_feedback(
+            True,
+            announcement="База: фаза подготовки окончена. Призрак теперь может начать охоту.",
+        )
 
     def is_flashlight_lit(self):
         """Фонарик куплен и включён. Даёт видимость, но в Phasmophobia НЕ останавливает sanity drain."""
@@ -742,20 +872,33 @@ class Game:
             self._show_game_info("Рассудок ниже 50%. Охота теперь возможна.", 1600)
         return self.player_sanity
 
+    def restore_sanity(self, amount, reason="pills"):
+        """Восстанавливает рассудок (таблетки и т.п.), не выше 100%."""
+        if amount <= 0:
+            return self.player_sanity
+        self.player_sanity = min(100.0, self.player_sanity + float(amount))
+        if self.player_sanity >= self.hunt_sanity_threshold():
+            self.sanity_low_warned = False
+        return self.player_sanity
+
     def tick_sanity(self):
         """Пассивный расход рассудка по правилам Phasmophobia (фонарик не спасает sanity)."""
         if self.setup_phase_ticks > 0:
             self.setup_phase_ticks -= 1
             if self.setup_phase_ticks == 0:
-                self._show_game_info("Setup-фаза окончена. Призрак может начать охоту.", 1600)
+                self.announce_setup_complete()
 
         cfg = self.difficulty_config()
         drain = 0.0
 
         # 1) Базовый drain на локации без потолочного света комнаты.
         # Фонарик тут намеренно не проверяем: в Phasmo он не останавливает sanity.
+        # Свеча (firelight) сильно снижает, но не обнуляет drain полностью.
         if self.is_in_darkness_for_sanity():
-            drain += SANITY_DARK_DRAIN_PER_SECOND
+            dark = SANITY_DARK_DRAIN_PER_SECOND
+            if self.is_near_firelight():
+                dark *= SANITY_CANDLE_DRAIN_FACTOR
+            drain += dark
 
         # 2) Видимый призрак рядом дополнительно давит на психику.
         distance = self.nearest_visible_ghost_distance()
@@ -1384,6 +1527,8 @@ class Game:
             if not self.is_gameplay_paused():
                 mechanics.update_player_movement(self)
                 self.tick_sanity()
+                self.tick_lit_candles()
+                self.tick_ghost_event_mist()
                 self.tick_hunt_timer()
                 self.tick_ghost_activity()
                 pz = self.inventory_manager.get_projector_zones()
