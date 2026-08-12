@@ -222,6 +222,7 @@ class Game:
         self.loaded_sanity_state = None
         self.setup_complete_banner_until = 0
         self.setup_timer_hint_until = 0
+        self.setup_timer_shop_seen = False
         self.radio_announcement = None
         self.ghost_event_active = False
         self.ghost_event_ticks_left = 0
@@ -857,6 +858,7 @@ class Game:
         self.lit_candles = []
         self.setup_complete_banner_until = 0
         self.setup_timer_hint_until = 0
+        self.setup_timer_shop_seen = False
         self.radio_announcement = None
         if start_setup:
             self.start_setup_phase()
@@ -867,9 +869,10 @@ class Game:
         seconds = int(self.difficulty_config().get("setup_phase_seconds", 0) or 0)
         self.setup_phase_ticks = max(0, seconds * FPS)
         self.setup_complete_banner_until = 0
-        # Подсказка: таймер живёт на компьютере — игрок должен его искать.
+        self.setup_timer_shop_seen = False
+        # Подсказка: таймер живёт в компьютере — игрок должен его открыть.
         if self.setup_phase_ticks > 0:
-            self.setup_timer_hint_until = pygame.time.get_ticks() + 12000
+            self.setup_timer_hint_until = pygame.time.get_ticks() + 20000
         else:
             self.setup_timer_hint_until = 0
 
@@ -927,12 +930,17 @@ class Game:
             self.sanity_low_warned = False
         return self.player_sanity
 
+    def tick_setup_phase_clock(self):
+        """Только countdown setup (для магазина/компьютера без пассивного drain)."""
+        if self.setup_phase_ticks <= 0:
+            return
+        self.setup_phase_ticks -= 1
+        if self.setup_phase_ticks == 0:
+            self.announce_setup_complete()
+
     def tick_sanity(self):
         """Пассивный расход рассудка по правилам Phasmophobia (фонарик не спасает sanity)."""
-        if self.setup_phase_ticks > 0:
-            self.setup_phase_ticks -= 1
-            if self.setup_phase_ticks == 0:
-                self.announce_setup_complete()
+        self.tick_setup_phase_clock()
 
         cfg = self.difficulty_config()
         drain = 0.0
@@ -1620,6 +1628,9 @@ class Game:
             draws.draw_game(self)
         elif self.state == GameState.SHOP:
             self.moving = False
+            # Как таймер в фургоне Phasmo: countdown идёт, пока смотришь «компьютер».
+            if self.player_hp > 0:
+                self.tick_setup_phase_clock()
             draws.draw_shop(self)
         elif self.state == GameState.SETTINGS:
             draws.draw_settings(self)

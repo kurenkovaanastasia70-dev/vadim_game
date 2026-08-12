@@ -355,6 +355,8 @@ def handle_game_events(game, event):
             pad = int(48 * MAP_SCALE)
             click_zone = game.computer_rect.inflate(pad * 2, pad * 2)
             if click_zone.collidepoint(world_mouse_pos):
+                game.setup_timer_shop_seen = True
+                game.setup_timer_hint_until = 0
                 game.push_state(GameState.SHOP)
         
         # Обработка кликов по инвентарю (та же сетка, что в draws.draw_game)
