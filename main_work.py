@@ -221,6 +221,7 @@ class Game:
         self.sanity_low_warned = False
         self.loaded_sanity_state = None
         self.setup_complete_banner_until = 0
+        self.setup_timer_hint_until = 0
         self.radio_announcement = None
         self.ghost_event_active = False
         self.ghost_event_ticks_left = 0
@@ -855,6 +856,7 @@ class Game:
         self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.setup_complete_banner_until = 0
+        self.setup_timer_hint_until = 0
         self.radio_announcement = None
         if start_setup:
             self.start_setup_phase()
@@ -865,13 +867,19 @@ class Game:
         seconds = int(self.difficulty_config().get("setup_phase_seconds", 0) or 0)
         self.setup_phase_ticks = max(0, seconds * FPS)
         self.setup_complete_banner_until = 0
+        # Подсказка: таймер живёт на компьютере — игрок должен его искать.
+        if self.setup_phase_ticks > 0:
+            self.setup_timer_hint_until = pygame.time.get_ticks() + 12000
+        else:
+            self.setup_timer_hint_until = 0
 
     def is_setup_phase(self):
         return getattr(self, "setup_phase_ticks", 0) > 0
 
     def announce_setup_complete(self):
-        """Как в Phasmophobia: конец setup виден по таймеру фургона + радио-анонс базы."""
+        """Конец setup: 00:00 на компьютере + радио-анонс + баннер (прямоугольники не пересекаются)."""
         self.setup_complete_banner_until = pygame.time.get_ticks() + 3200
+        self.setup_timer_hint_until = 0
         self.trigger_radio_feedback(
             True,
             announcement="База: фаза подготовки окончена. Призрак теперь может начать охоту.",
