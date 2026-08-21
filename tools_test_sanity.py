@@ -76,7 +76,7 @@ def main():
     game.drain_sanity(10, reason="test")
     assert approx(game.player_sanity, 40.0, eps=0.001)
 
-    # Таблетки восстанавливают sanity.
+    # restore_sanity остаётся API (таблетки убраны из магазина).
     restored = game.restore_sanity(35, reason="pills")
     assert approx(restored, 75.0, eps=0.001)
 
@@ -120,9 +120,40 @@ def main():
     assert game.setup_complete_banner_until > 0
     assert game.radio_announcement
 
-    # Магазинные расходники зарегистрированы.
-    assert ItemType.SANITY_PILLS in game.inventory_manager.item_counts
+    # Свеча зарегистрирована; таблетки убраны из магазина/инвентаря урока.
     assert ItemType.CANDLE in game.inventory_manager.item_counts
+    assert ItemType.SANITY_PILLS not in game.inventory_manager.item_counts
+
+    # Анти-фарм: повторная победа по тому же level_id — урезанная награда.
+    from main_work import REPEAT_LEVEL_REWARD_FACTOR
+    game.current_level_id = "level_1"
+    game.rewarded_level_ids = set()
+    money_before = game.player_money
+    game.enter_win("тест")
+    first_reward = game.win_report["reward"]
+    assert first_reward > 0
+    assert not game.win_report.get("reward_is_repeat")
+    assert game.player_money == money_before + first_reward
+    game.enter_win("тест")
+    second_reward = game.win_report["reward"]
+    expected_repeat = max(1, int(round(first_reward * REPEAT_LEVEL_REWARD_FACTOR)))
+    assert second_reward == expected_repeat
+    assert game.win_report.get("reward_is_repeat")
+    assert game.player_money == money_before + first_reward + second_reward
+
+    # Cursed hunt (wiki): ignores sanity/cooldown; grace 1s; +20s contract extension.
+    from main_work import CURSED_HUNT_EXTENSION_SECONDS, CURSED_HUNT_GRACE_SECONDS
+    game.setup_phase_ticks = 0
+    game.player_sanity = 100.0
+    game.hunt_cooldown_ticks = 999 * FPS
+    game.contract_hunt_extension_seconds = 0
+    assert not game.can_ghost_attempt_hunt()
+    assert game.start_activity_hunt(cursed=True)
+    assert game.hunt_is_cursed
+    assert game.contract_hunt_extension_seconds == CURSED_HUNT_EXTENSION_SECONDS
+    assert game.hunt_grace_ticks == CURSED_HUNT_GRACE_SECONDS * FPS
+    base = int(game.difficulty_config()["hunt_duration_seconds"])
+    assert game.hunt_active_ticks == (base + CURSED_HUNT_EXTENSION_SECONDS) * FPS
 
     print("sanity tests OK")
     return 0

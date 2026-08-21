@@ -124,6 +124,18 @@ SANITY_GHOST_EVENT_SPAWN_DISTANCE = 150
 SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
 SANITY_CANDLE_DURATION_SECONDS = 90
+# Cursed hunt (Phasmophobia wiki / Hunt):
+# - started only by cursed possessions;
+# - ignores sanity threshold and hunt cooldown;
+# - grace period = 1 second;
+# - after a cursed hunt is initiated, all subsequent hunts in the contract
+#   (including the ongoing cursed hunt) last 20 seconds longer.
+CURSED_HUNT_EXTENSION_SECONDS = 20
+CURSED_HUNT_GRACE_SECONDS = 1
+# Normal hunt grace by difficulty (wiki Amateur→Insanity mapped to our 4 tiers).
+HUNT_GRACE_SECONDS_BY_DIFFICULTY = {0: 5, 1: 4, 2: 3, 3: 2}
+# Повторное прохождение уже награждённого level_id: меньше денег, но не ноль.
+REPEAT_LEVEL_REWARD_FACTOR = 0.35
 
 class Game:
     def __init__(self):
@@ -183,7 +195,6 @@ class Game:
             Button(794, 564, 116, 32, "Купить", BLUE),
             Button(794, 650, 116, 32, "Купить", BLUE),
             Button(286, 650, 116, 32, "Купить", GREEN),
-            Button(570, 650, 116, 32, "Купить", GREEN),
         ]
         
         # Создание кнопок для настроек
@@ -310,7 +321,6 @@ class Game:
             "эмп": False,
             "уф фонарь": False,
             "градусник": False,
-            "таблетки": False,
             "свеча": False,
         }
         self.inventory_items = [
@@ -325,7 +335,6 @@ class Game:
             "эмп",
             "уф фонарь",
             "градусник",
-            "таблетки",
             "свеча",
         ]
 
@@ -363,6 +372,12 @@ class Game:
         self.activity_flash_until = 0
         self.hunt_cooldown_ticks = 0
         self.hunt_active_ticks = 0
+        self.hunt_grace_ticks = 0
+        self.hunt_is_cursed = False
+        # Wiki: after a cursed hunt starts, +20s for all hunts in this contract.
+        self.contract_hunt_extension_seconds = 0
+        # Анти-фарм денег: награда за level_id один раз за кампанию/сейв.
+        self.rewarded_level_ids = set()
         self.reset_hunt_timer()
 
         self.inventory_images = assets.load_inventory_images()
@@ -443,8 +458,10 @@ class Game:
             proximity = max(0.0, min(1.0, 1.0 - distance / 520.0))
 
         hunt_pressure = 0.0
-        if getattr(self, "hunt_active_ticks", 0) > 0:
+        if self.is_hunt_chasing():
             hunt_pressure = 0.45
+        elif getattr(self, "hunt_active_ticks", 0) > 0:
+            hunt_pressure = 0.15  # grace: охота объявлена, но призрак ещё не видит
         activity_pressure = max(0.0, min(1.0, getattr(self, "ghost_activity", 0.0) / 100.0))
         if pygame.time.get_ticks() < getattr(self, "activity_flash_until", 0):
             activity_pressure = min(1.0, activity_pressure + 0.18)
@@ -658,42 +675,110 @@ class Game:
                 return True
         return False
 
-    def start_activity_hunt(self):
-        if not self.can_ghost_attempt_hunt():
+    def is_hunt_grace_period(self):
+        """Wiki: during grace the ghost does not detect/see players yet."""
+        return getattr(self, "hunt_grace_ticks", 0) > 0 and getattr(self, "hunt_active_ticks", 0) > 0
+
+    def is_hunt_chasing(self):
+        """Охота уже после grace — призрак опасен."""
+        return getattr(self, "hunt_active_ticks", 0) > 0 and not self.is_hunt_grace_period()
+
+    def current_hunt_duration_seconds(self):
+        base = int(self.difficulty_config().get("hunt_duration_seconds", 35) or 35)
+        return base + int(getattr(self, "contract_hunt_extension_seconds", 0) or 0)
+
+    def normal_hunt_grace_seconds(self):
+        return int(HUNT_GRACE_SECONDS_BY_DIFFICULTY.get(self.difficulty_index, 3))
+
+    def start_activity_hunt(self, cursed=False):
+        """
+        Обычная охота: нужен sanity ниже порога и нет setup.
+        Cursed hunt (wiki): ignore sanity thresholds and hunt cooldowns;
+        grace = 1s; sets +20s duration for this and all later hunts in the contract.
+        """
+        if getattr(self, "hunt_active_ticks", 0) > 0:
+            # Wiki: cursed possession during an ongoing normal hunt keeps current duration,
+            # but subsequent hunts get the +20s extension.
+            if cursed:
+                self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
             return False
+
+        if cursed:
+            # Wiki: cursed hunts ignore sanity thresholds and hunt cooldowns.
+            self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
+            self.hunt_is_cursed = True
+            grace_seconds = CURSED_HUNT_GRACE_SECONDS
+        else:
+            if not self.can_ghost_attempt_hunt():
+                return False
+            if self.hunt_cooldown_ticks > 0:
+                return False
+            self.hunt_is_cursed = False
+            grace_seconds = self.normal_hunt_grace_seconds()
+
         cfg = self.difficulty_config()
-        self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
+        duration = self.current_hunt_duration_seconds()
+        self.hunt_active_ticks = duration * FPS
+        self.hunt_grace_ticks = max(0, int(grace_seconds * FPS))
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
         if getattr(self, "ghost_event_active", False):
             self.end_ghost_appearance_event(hissed=False)
-        self._show_game_info("Активность достигла пика. Охота началась.", 1800)
+        if cursed:
+            self._show_game_info(
+                "Проклятая охота! Sanity и кулдаун не важны. Grace 1 с, длительность +20 с.",
+                2200,
+            )
+        else:
+            self._show_game_info("Активность достигла пика. Охота началась.", 1800)
         return True
+
+    def try_start_cursed_hunt_from_possession(self, source="radio"):
+        """
+        Wiki: cursed hunts can only be initiated directly by using cursed possessions.
+        Учебный аналог cursed possession — радио (пока нет Ouija/карт).
+        """
+        if self.is_setup_phase():
+            return False
+        started = self.start_activity_hunt(cursed=True)
+        if started:
+            self._show_game_info(f"Проклятый предмет ({source}) вызвал охоту!", 1800)
+        return started
 
     def reset_hunt_timer(self):
         self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
         self.hunt_active_ticks = 0
+        self.hunt_grace_ticks = 0
+        self.hunt_is_cursed = False
 
     def tick_hunt_timer(self):
+        if self.hunt_grace_ticks > 0:
+            self.hunt_grace_ticks -= 1
         if self.hunt_active_ticks > 0:
             self.hunt_active_ticks -= 1
             if self.hunt_active_ticks <= 0:
+                # Wiki: normal hunts respect the cooldown after cursed hunts.
+                was_cursed = self.hunt_is_cursed
                 self.reset_hunt_timer()
+                if was_cursed:
+                    # Cooldown already set in reset; keep it.
+                    pass
             return
         if self.hunt_cooldown_ticks > 0:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
                 if self.can_ghost_attempt_hunt():
-                    self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
-                    self._show_game_info("Охота началась.", 1400)
+                    self.start_activity_hunt(cursed=False)
                 else:
-                    # Пока рассудок высокий — переводим таймер в ожидание, а не в охоту.
+                    # Пока рассудок высокий — ждём, а не стартуем охоту.
                     self.hunt_cooldown_ticks = max(1, 5 * FPS)
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
+            if self.hunt_is_cursed:
+                return "Проклятая охота уже идёт."
             return "Оно здесь. Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
         error = self.difficulty_config()["radio_time_error_seconds"]
@@ -710,14 +795,21 @@ class Game:
         return {
             "cooldown_ticks": self.hunt_cooldown_ticks,
             "active_ticks": self.hunt_active_ticks,
+            "grace_ticks": int(getattr(self, "hunt_grace_ticks", 0) or 0),
+            "is_cursed": bool(getattr(self, "hunt_is_cursed", False)),
+            "contract_extension_seconds": int(getattr(self, "contract_hunt_extension_seconds", 0) or 0),
         }
 
     def restore_hunt_state(self, data):
         if not isinstance(data, dict):
             self.reset_hunt_timer()
+            self.contract_hunt_extension_seconds = 0
             return
         self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
         self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
+        self.hunt_grace_ticks = max(0, int(data.get("grace_ticks", 0)))
+        self.hunt_is_cursed = bool(data.get("is_cursed", False))
+        self.contract_hunt_extension_seconds = max(0, int(data.get("contract_extension_seconds", 0)))
 
     def get_player_room_id(self):
         if self.level_data and "rooms" in self.level_data:
@@ -1044,6 +1136,7 @@ class Game:
         self.reset_ghost_activity()
         self.loaded_sanity_state = None
         self.reset_sanity(start_setup=True)
+        self.contract_hunt_extension_seconds = 0
         self.set_state(GameState.GAME, reset_stack=True)
         if self.selected_save_slot:
             self.save_game(self.selected_save_slot)
@@ -1068,6 +1161,7 @@ class Game:
         self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
+        self.contract_hunt_extension_seconds = 0
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
         self.set_state(GameState.GAME, reset_stack=True)
@@ -1293,6 +1387,8 @@ class Game:
         self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
+        self.contract_hunt_extension_seconds = 0
+        self.rewarded_level_ids = set()
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
         self.tasks, self.achievements_table = self.progress_manager.new_state()
@@ -1343,7 +1439,14 @@ class Game:
         self.win_ghost_name = ghost_name or "призрак"
         self.win_next_level_id = self.get_next_level_id()
         breakdown = self.get_level_complete_reward_breakdown()
-        reward = breakdown["total"]
+        level_key = self.current_level_id or f"level_{self.player_level}"
+        already_rewarded = level_key in getattr(self, "rewarded_level_ids", set())
+        full_reward = int(breakdown["total"])
+        if already_rewarded:
+            reward = max(1, int(round(full_reward * REPEAT_LEVEL_REWARD_FACTOR)))
+        else:
+            reward = full_reward
+            self.rewarded_level_ids.add(level_key)
         self.player_money += reward
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
@@ -1354,6 +1457,9 @@ class Game:
             "level_name": self.get_level_name(),
             "found_evidence": found_evidence,
             "reward": reward,
+            "reward_full": full_reward,
+            "reward_is_repeat": already_rewarded,
+            "reward_repeat_factor": REPEAT_LEVEL_REWARD_FACTOR if already_rewarded else 1.0,
             "reward_base": breakdown["base"],
             "reward_difficulty_bonus": breakdown["difficulty_bonus"],
             "reward_evidence_bonus": breakdown["evidence_bonus"],
@@ -1424,6 +1530,7 @@ class Game:
             "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected,
+            "rewarded_level_ids": sorted(getattr(self, "rewarded_level_ids", set())),
             "tasks": self.tasks,
             "achievements_table": self.achievements_table,
         }
@@ -1442,6 +1549,11 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            saved_rewarded = save_data.get("rewarded_level_ids") or []
+            if isinstance(saved_rewarded, list):
+                self.rewarded_level_ids = {str(x) for x in saved_rewarded}
+            else:
+                self.rewarded_level_ids = set()
             saved_inventory = save_data.get("inventory") or {}
             default_light = bool(saved_inventory.get("фонарик", False))
             self.loaded_sanity_state = {
@@ -1608,6 +1720,7 @@ class Game:
                 now = pygame.time.get_ticks()
                 if (
                     not getattr(self, "ghost_event_active", False)
+                    and not self.is_hunt_grace_period()
                     and self.ghost_manager.check_player_collision(self.player_rect)
                     and now >= self.hit_invincible_until
                 ):

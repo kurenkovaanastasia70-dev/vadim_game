@@ -62,11 +62,12 @@ def _draw_crt_atmosphere(game):
     tint.fill((18, 45, 38, 34))
     game.screen.blit(tint, (0, 0))
 
-    if threat > 0:
-        pulse = 0.5 + 0.5 * ((now // 120) % 2)
-        danger_alpha = int(28 + 74 * threat * pulse)
+    # Красная вспышка только при реальной угрозе и заметно слабее прежней.
+    if threat > 0.45:
+        pulse = 0.5 + 0.5 * ((now // 180) % 2)
+        danger_alpha = int(8 + 22 * (threat - 0.45) / 0.55 * pulse)
         danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        danger.fill((110, 12, 18, danger_alpha))
+        danger.fill((96, 28, 32, danger_alpha))
         game.screen.blit(danger, (0, 0))
 
     line_alpha = 34 + int(18 * threat)
@@ -855,8 +856,7 @@ def draw_shop(game):
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
         (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
-        (12, "Таблетки", "таблетки", 45, "Восстанавливает рассудок (Sanity Pills).", ItemType.SANITY_PILLS),
-        (13, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
+        (12, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
     ]
 
     card_w, card_h = 430, 68
@@ -1106,6 +1106,12 @@ def draw_win(game):
     report_lines = [
         f"Найденные улики: {evidence_text}",
         f"Доход: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+    ]
+    if report.get("reward_is_repeat"):
+        full = int(report.get("reward_full", reward) or reward)
+        pct = int(round(float(report.get("reward_repeat_factor", 0.35)) * 100))
+        report_lines.append(f"Повтор уровня: {pct}% от полной награды ({full}$).")
+    report_lines += [
         f"Баланс: {shown_balance}$",
         f"Дальше: {report_next_name}",
     ]
@@ -1268,7 +1274,6 @@ def draw_game(game):
     consumable_name_to_count = {
         "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
         "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
-        "таблетки": game.inventory_manager.get_count(ItemType.SANITY_PILLS),
         "свеча": game.inventory_manager.get_count(ItemType.CANDLE),
         "крест": game.inventory_manager.get_count(ItemType.CROSS),
         "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
