@@ -586,6 +586,7 @@ class InventoryManager:
             ItemType.PROJECTOR: Projector(),
             ItemType.CROSS: Cross(),
             ItemType.BLOOD: Blood(),
+            ItemType.SANITY_PILLS: SanityPills(),
             ItemType.CANDLE: Candle(),
             ItemType.RADIO: Radio(),
             ItemType.EMF: EmfDetector(),
@@ -599,6 +600,7 @@ class InventoryManager:
         self.item_counts = {
             ItemType.BATTERY: 0,
             ItemType.BLOOD: 0,
+            ItemType.SANITY_PILLS: 0,
             ItemType.CANDLE: 0,
             ItemType.CROSS: 0,
             ItemType.RED_DUST: 0,

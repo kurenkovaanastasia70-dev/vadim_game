@@ -76,7 +76,7 @@ def main():
     game.drain_sanity(10, reason="test")
     assert approx(game.player_sanity, 40.0, eps=0.001)
 
-    # restore_sanity остаётся API (таблетки убраны из магазина).
+    # Таблетки восстанавливают sanity.
     restored = game.restore_sanity(35, reason="pills")
     assert approx(restored, 75.0, eps=0.001)
 
@@ -120,9 +120,9 @@ def main():
     assert game.setup_complete_banner_until > 0
     assert game.radio_announcement
 
-    # Свеча зарегистрирована; таблетки убраны из магазина/инвентаря урока.
+    # Магазинные расходники зарегистрированы.
+    assert ItemType.SANITY_PILLS in game.inventory_manager.item_counts
     assert ItemType.CANDLE in game.inventory_manager.item_counts
-    assert ItemType.SANITY_PILLS not in game.inventory_manager.item_counts
 
     # Анти-фарм: повторная победа по тому же level_id — урезанная награда.
     from main_work import REPEAT_LEVEL_REWARD_FACTOR

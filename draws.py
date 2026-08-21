@@ -856,7 +856,8 @@ def draw_shop(game):
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
         (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
-        (12, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
+        (12, "Таблетки", "таблетки", 45, "Восстанавливает рассудок (Sanity Pills).", ItemType.SANITY_PILLS),
+        (13, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
     ]
 
     card_w, card_h = 430, 68
@@ -1274,6 +1275,7 @@ def draw_game(game):
     consumable_name_to_count = {
         "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
         "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
+        "таблетки": game.inventory_manager.get_count(ItemType.SANITY_PILLS),
         "свеча": game.inventory_manager.get_count(ItemType.CANDLE),
         "крест": game.inventory_manager.get_count(ItemType.CROSS),
         "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
