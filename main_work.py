@@ -57,7 +57,6 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 0.70,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 90,
-        "sanity_pill_restore": 40,
     },
     1: {
         "name": "Нормальная",
@@ -73,7 +72,6 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 1.00,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 60,
-        "sanity_pill_restore": 35,
     },
     2: {
         "name": "Сложная",
@@ -89,7 +87,6 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 1.50,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 30,
-        "sanity_pill_restore": 25,
     },
     3: {
         "name": "Хардкор",
@@ -105,7 +102,6 @@ DIFFICULTY_CONFIG = {
         "sanity_drain_multiplier": 2.00,
         "hunt_sanity_threshold": 50,
         "setup_phase_seconds": 0,
-        "sanity_pill_restore": 20,
     },
 }
 
@@ -195,7 +191,6 @@ class Game:
             Button(794, 564, 116, 32, "Купить", BLUE),
             Button(794, 650, 116, 32, "Купить", BLUE),
             Button(286, 650, 116, 32, "Купить", GREEN),
-            Button(570, 650, 116, 32, "Купить", GREEN),
         ]
         
         # Создание кнопок для настроек
@@ -322,7 +317,6 @@ class Game:
             "эмп": False,
             "уф фонарь": False,
             "градусник": False,
-            "таблетки": False,
             "свеча": False,
         }
         self.inventory_items = [
@@ -337,7 +331,6 @@ class Game:
             "эмп",
             "уф фонарь",
             "градусник",
-            "таблетки",
             "свеча",
         ]
 
@@ -1017,7 +1010,7 @@ class Game:
         return self.player_sanity
 
     def restore_sanity(self, amount, reason="pills"):
-        """Восстанавливает рассудок (таблетки и т.п.), не выше 100%."""
+        """Восстанавливает рассудок (например от предметов), не выше 100%."""
         if amount <= 0:
             return self.player_sanity
         self.player_sanity = min(100.0, self.player_sanity + float(amount))

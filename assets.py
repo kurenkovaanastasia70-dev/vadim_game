@@ -132,7 +132,6 @@ def load_inventory_images():
         inventory_images["эмп"] = load_or_placeholder(["amp.png", "amp1.png", "emf.png", "emp.png"], (100, 220, 120))
         inventory_images["уф фонарь"] = load_or_placeholder(["yltrafiolet.png", "uv.png", "uv_flashlight.png"], (130, 90, 220))
         inventory_images["градусник"] = load_or_placeholder(["thermometer.png", "gradusnik.png"], (105, 185, 210))
-        inventory_images["таблетки"] = load_or_placeholder(["pills.png", "sanity_pills.png", "tablets.png"], (120, 190, 150))
         inventory_images["свеча"] = load_or_placeholder(["candle.png", "svecha.png"], (220, 160, 70))
     except Exception as e:
         print(f"Не удалось загрузить изображения инвентаря: {e}")

@@ -24,7 +24,6 @@ class ItemType(Enum):
     EMF = "эмп"                  # скан уровней ЭМП 1..5
     UV_FLASHLIGHT = "уф фонарь"  # подсветка следов
     THERMOMETER = "градусник"    # показывает температуру текущей комнаты
-    SANITY_PILLS = "таблетки"    # восстанавливает рассудок (как Sanity Pills в Phasmo)
     CANDLE = "свеча"             # firelight: снижает пассивный drain в радиусе
 
 
@@ -181,34 +180,6 @@ class Blood(Item):
         heal = game.difficulty_config().get("blood_heal", 3) if hasattr(game, "difficulty_config") else 3
         game.player_hp = min(5, game.player_hp + heal)
         game.inventory_manager.decrease_count(self.item_type)
-        return True
-
-
-class SanityPills(Item):
-    """Таблетки рассудка — как Sanity Pills в Phasmophobia: поднимают индивидуальный sanity."""
-
-    def __init__(self):
-        super().__init__(ItemType.SANITY_PILLS)
-
-    def use(self, game):
-        if game.inventory_manager.get_count(self.item_type) <= 0:
-            return False
-        if float(getattr(game, "player_sanity", 100.0)) >= 100.0:
-            if hasattr(game, "_show_game_info"):
-                game._show_game_info("Рассудок уже полный.", 900)
-            return False
-        amount = 35
-        if hasattr(game, "difficulty_config"):
-            amount = int(game.difficulty_config().get("sanity_pill_restore", 35) or 35)
-        before = float(game.player_sanity)
-        if hasattr(game, "restore_sanity"):
-            game.restore_sanity(amount, reason="pills")
-        else:
-            game.player_sanity = min(100.0, before + amount)
-        gained = max(0, int(round(float(game.player_sanity) - before)))
-        game.inventory_manager.decrease_count(self.item_type)
-        if hasattr(game, "_show_game_info"):
-            game._show_game_info(f"Таблетки: +{gained}% рассудка.", 1200)
         return True
 
 
@@ -586,7 +557,6 @@ class InventoryManager:
             ItemType.PROJECTOR: Projector(),
             ItemType.CROSS: Cross(),
             ItemType.BLOOD: Blood(),
-            ItemType.SANITY_PILLS: SanityPills(),
             ItemType.CANDLE: Candle(),
             ItemType.RADIO: Radio(),
             ItemType.EMF: EmfDetector(),
@@ -600,7 +570,6 @@ class InventoryManager:
         self.item_counts = {
             ItemType.BATTERY: 0,
             ItemType.BLOOD: 0,
-            ItemType.SANITY_PILLS: 0,
             ItemType.CANDLE: 0,
             ItemType.CROSS: 0,
             ItemType.RED_DUST: 0,
