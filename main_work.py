@@ -1326,4 +1326,251 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            saved_inventory = save_data.get("inventory") or {}
+            default_light = bool(saved_inventory.get("фонарик", False))
+            self.loaded_sanity_state = {
+                "sanity": save_data.get("sanity", 100.0),
+                "flashlight_on": save_data.get("flashlight_on", default_light),
+                "setup_phase_ticks": save_data.get("setup_phase_ticks", 0),
+                "sanity_low_warned": save_data.get("sanity_low_warned", False),
+            }
+            self.journal_evidence = self.normalize_journal_evidence(save_data.get("journal_evidence"))
+            saved_discovered = save_data.get("discovered_evidence")
+            if isinstance(saved_discovered, list):
+                self.discovered_evidence = {k for k in saved_discovered if k in EVIDENCE_PROFILE_KEYS}
+            else:
+                self.discovered_evidence = self.default_discovered_evidence()
+            self._refresh_discovered_evidence()
+            self.loaded_journal_evidence = self.journal_evidence.copy()
+            # Загружаем инвентарь (с fallback для старых сохранений)
+            saved_inventory = save_data.get("inventory", None)
+            if saved_inventory:
+                base_inventory = {key: False for key in self.inventory_items}
+                base_inventory.update(saved_inventory)
+                self.inventory = base_inventory
+            else:
+                self.reset_inventory()
             
+            # Загружаем количество предметов (аккумуляторы, кровь)
+            saved_counts = save_data.get("item_counts", None)
+            if saved_counts:
+                from inventory_system import ItemType
+                self.inventory_manager.item_counts[ItemType.BATTERY] = saved_counts.get("BATTERY", saved_counts.get("аккумулятор", 0))
+                self.inventory_manager.item_counts[ItemType.BLOOD] = saved_counts.get("BLOOD", 0)
+                self.inventory_manager.item_counts[ItemType.CROSS] = saved_counts.get("CROSS", 0)
+                self.inventory_manager.item_counts[ItemType.RED_DUST] = saved_counts.get("RED_DUST", 0)
+                self.inventory_manager.item_counts[ItemType.SALT] = saved_counts.get("SALT", 0)
+                self.inventory_manager.item_counts[ItemType.RADIO] = saved_counts.get("RADIO", int(self.inventory.get("радио", False)))
+            else:
+                from inventory_system import ItemType
+                self.inventory_manager.item_counts[ItemType.BATTERY] = 0
+                self.inventory_manager.item_counts[ItemType.BLOOD] = 0
+                self.inventory_manager.item_counts[ItemType.CROSS] = 0
+                self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
+                self.inventory_manager.item_counts[ItemType.SALT] = 0
+                self.inventory_manager.item_counts[ItemType.RADIO] = int(self.inventory.get("радио", False))
+            self.tasks, self.achievements_table = self.progress_manager.normalize_state(
+                save_data.get("tasks"),
+                save_data.get("achievements_table"),
+            )
+            self.loaded_inventory_runtime = save_data.get("inventory_runtime")
+            self.loaded_hunt_state = save_data.get("hunt_state")
+            self.loaded_ghost_state = save_data.get("ghost_state")
+            self.loaded_activity_state = save_data.get("ghost_activity", 0.0)
+            
+            return True
+        return False
+
+    def delete_save(self, slot):
+        key = f"slot{slot}"
+        if key in self.saves:
+            self.saves[key] = None
+            with open(self.save_file, 'w', encoding='utf-8') as f:
+                json.dump(self.saves, f, ensure_ascii=False, indent=2)
+        if self.selected_save_slot == slot:
+            self.selected_save_slot = None
+    
+
+    def apply_display_mode(self):
+        flags = pygame.FULLSCREEN if self.fullscreen else 0
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+        # Перезагружаем фон меню под новый размер экрана
+        self.cork_board_bg = assets.load_cork_board(
+            screen_width=self.screen.get_width(),
+            screen_height=self.screen.get_height()
+        )
+
+    def toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        self.apply_display_mode()
+        self.update_settings_button_texts()
+
+    def exit_game(self):
+        self.running = False
+
+    def set_state(self, new_state, reset_stack = False):
+        if reset_stack:
+            self.state_stack.clear()
+        if new_state != self.state:
+            self.previous_state = self.state
+            # Останавливаем движение при выходе из игры
+            if self.state == GameState.GAME and new_state != GameState.GAME:
+                self.moving = False
+                for key in self.keys_pressed:
+                    self.keys_pressed[key] = False
+            self.state = new_state
+            # Сбрасываем позицию персонажа при переходе в игру
+            if new_state == GameState.GAME:
+                self.reset_player_position()
+                # Перезагружаем уровень для текущего уровня
+                self.load_level_for_current_level()
+
+    def push_state(self, new_state):
+        if new_state != self.state:
+            self.state_stack.append(self.state)
+            self.previous_state = self.state
+            # Останавливаем движение при выходе из игры
+            if self.state == GameState.GAME and new_state != GameState.GAME:
+                self.moving = False
+                for key in self.keys_pressed:
+                    self.keys_pressed[key] = False
+            self.state = new_state
+            # Сбрасываем позицию персонажа при переходе в игру
+            if new_state == GameState.GAME:
+                self.reset_player_position()
+                # Перезагружаем уровень для текущего уровня
+                self.load_level_for_current_level()
+    def go_back(self):
+        if self.state_stack:
+            target_state = self.state_stack.pop()
+            self.previous_state = self.state
+            self.state = target_state
+        else:
+            self.set_state(GameState.MENU, reset_stack = True)
+
+    def change_state(self, new_state):
+        if new_state != self.state:
+            self.previous_state = self.state
+            self.state = new_state
+
+    def update_settings_button_texts(self):
+        # Индексы: 0 Назад, 1 Громкость, 2 Полноэкранный, 3 Сброс
+        self.settings_buttons[1].text = f"Громкость: {self.volume}%"
+        self.settings_buttons[2].text = "Полноэкранный: Вкл" if self.fullscreen else "Полноэкранный: Выкл"
+
+    def draw(self):
+        if self.state == GameState.MENU:
+            draws.draw_menu(self)
+        elif self.state == GameState.GAME:
+            if not self.is_gameplay_paused():
+                mechanics.update_player_movement(self)
+                self.tick_sanity()
+                self.tick_lit_candles()
+                self.tick_hunt_timer()
+                self.tick_ghost_activity()
+                pz = self.inventory_manager.get_projector_zones()
+                self.ghost_manager.update(
+                    self.player_rect,
+                    self.walls,
+                    self.level_hitboxes,
+                    projector_zones=pz,
+                    dropped_items=self.inventory_manager.dropped_items,
+                    world_width=self.world_width,
+                    world_height=self.world_height,
+                )
+                self.inventory_manager.update_dropped_items()
+                throw_event = getattr(self.ghost_manager, "last_throw_event", None)
+                if throw_event:
+                    self.ghost_manager.last_throw_event = None
+                    if throw_event.get("room_id") == self.get_player_room_id():
+                        count = int(throw_event.get("count", 1) or 1)
+                        word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
+                        self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
+                        self.drain_sanity(2.0, reason="item_throw")
+                # Столкновение с приведением — отнимаем HP
+                now = pygame.time.get_ticks()
+                if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
+                    self.player_hp = max(0, self.player_hp - 1)
+                    self.hit_invincible_until = now + 1500
+                    self.increase_ghost_activity(12, "player_hit")
+                    self.drain_sanity(10.0, reason="ghost_hit")
+                    self.progress_event("take_hit", 1)
+                    if self.player_hp <= 0:
+                        self.enter_game_over()
+                        draws.draw_game_over(self)
+                        pygame.display.flip()
+                        return
+            else:
+                self.moving = False
+                for key in self.keys_pressed:
+                    self.keys_pressed[key]=False
+            draws.draw_game(self)
+        elif self.state == GameState.SHOP:
+            self.moving = False
+            # Как таймер в фургоне Phasmo: countdown идёт, пока смотришь «компьютер».
+            if self.player_hp > 0:
+                self.tick_setup_phase_clock()
+            draws.draw_shop(self)
+        elif self.state == GameState.SETTINGS:
+            draws.draw_settings(self)
+        elif self.state == GameState.DIFF:
+            draws.draw_difficulty(self)
+        elif self.state == GameState.SAVES:
+            draws.draw_saves(self)
+        elif self.state == GameState.HOWTO:
+            draws.draw_howto(self)
+        elif self.state == GameState.GAME_OVER:
+            self.moving = False
+            draws.draw_game_over(self)
+        elif self.state == GameState.WIN:
+            self.moving = False
+            draws.draw_win(self)
+        # Отображаем информационное сообщение поверх всех экранов
+        if self.info_message and pygame.time.get_ticks() < self.info_until:
+            # Полупрозрачный фон
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            overlay.set_alpha(128)
+            overlay.fill(BLACK)
+            self.screen.blit(overlay, (0, 0))
+            
+            # Диалоговое окно для сообщения
+            lines = str(self.info_message).splitlines() or [str(self.info_message)]
+            line_height = 30
+            info_rect = pygame.Rect(
+                SCREEN_WIDTH // 2 - 330,
+                SCREEN_HEIGHT // 2 - max(45, 18 + len(lines) * line_height // 2),
+                660,
+                max(84, 36 + len(lines) * line_height),
+            )
+            pygame.draw.rect(self.screen, DARK_GRAY, info_rect)
+            pygame.draw.rect(self.screen, WHITE, info_rect, 3)
+            
+            info_font = pygame.font.Font(None, 32)
+            start_y = info_rect.centery - (len(lines) - 1) * line_height // 2
+            for i, line in enumerate(lines):
+                info_text = info_font.render(line, True, WHITE)
+                info_text_rect = info_text.get_rect(center=(info_rect.centerx, start_y + i * line_height))
+                self.screen.blit(info_text, info_text_rect)
+        elif self.info_message and pygame.time.get_ticks() >= self.info_until:
+            self.info_message = None
+        
+        pygame.display.flip()
+    def run(self):
+        while self.running:
+            handlers.handle_event(self)
+            
+            if self.state == GameState.GAME and self.player_hp > 0 and not self.is_gameplay_paused():
+                self.inventory_manager.update_placed_items()
+                self.inventory_manager.update_projector()
+            elif self.state == GameState.GAME:
+                # Даже на паузе журнала доигрываем уже начатый бросок.
+                self.inventory_manager.update_dropped_items()
+            
+            self.draw()
+
+            self.clock.tick(FPS)
+        pygame.quit()
+        sys.exit()
+if __name__ == "__main__":
+    game = Game()
+    game.run()
