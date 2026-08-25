@@ -95,13 +95,6 @@ class Radio(Item):
         if hasattr(game, "drain_sanity"):
             # Контакт через spirit box / радио в Phasmophobia тоже бьёт по sanity.
             game.drain_sanity(5.0 if ok else 2.0, reason="radio")
-        # Учебный cursed possession: радио может вызвать cursed hunt (wiki: только от cursed items).
-        if (
-            hasattr(game, "try_start_cursed_hunt_from_possession")
-            and not getattr(game, "is_setup_phase", lambda: False)()
-            and random.random() < 0.22
-        ):
-            game.try_start_cursed_hunt_from_possession(source="радио")
         game.inventory_manager.decrease_count(self.item_type)
         return True
 

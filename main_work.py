@@ -111,27 +111,10 @@ SANITY_SETUP_DRAIN_FACTOR = 0.70
 SANITY_SETUP_FLOOR = 50.0
 SANITY_NEAR_GHOST_DRAIN_PER_SECOND = 0.20
 SANITY_HUNT_DRAIN_PER_SECOND = 0.35
-# Ghost event: появление призрака (manifestation). −10% только при контакте.
-SANITY_GHOST_EVENT_DRAIN = 10.0
-SANITY_GHOST_EVENT_DURATION_SECONDS = 5.5
-SANITY_GHOST_EVENT_APPROACH_SPEED = 1.7
-SANITY_GHOST_EVENT_SPAWN_DISTANCE = 150
 # Свеча (firelight): сильно снижает пассивный drain в радиусе, но не как потолочный свет.
 SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
 SANITY_CANDLE_DURATION_SECONDS = 90
-# Cursed hunt (Phasmophobia wiki / Hunt):
-# - started only by cursed possessions;
-# - ignores sanity threshold and hunt cooldown;
-# - grace period = 1 second;
-# - after a cursed hunt is initiated, all subsequent hunts in the contract
-#   (including the ongoing cursed hunt) last 20 seconds longer.
-CURSED_HUNT_EXTENSION_SECONDS = 20
-CURSED_HUNT_GRACE_SECONDS = 1
-# Normal hunt grace by difficulty (wiki Amateur→Insanity mapped to our 4 tiers).
-HUNT_GRACE_SECONDS_BY_DIFFICULTY = {0: 5, 1: 4, 2: 3, 3: 2}
-# Повторное прохождение уже награждённого level_id: меньше денег, но не ноль.
-REPEAT_LEVEL_REWARD_FACTOR = 0.35
 
 class Game:
     def __init__(self):
@@ -231,8 +214,6 @@ class Game:
         self.setup_timer_hint_until = 0
         self.setup_timer_shop_seen = False
         self.radio_announcement = None
-        self.ghost_event_active = False
-        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
@@ -368,12 +349,6 @@ class Game:
         self.activity_flash_until = 0
         self.hunt_cooldown_ticks = 0
         self.hunt_active_ticks = 0
-        self.hunt_grace_ticks = 0
-        self.hunt_is_cursed = False
-        # Wiki: after a cursed hunt starts, +20s for all hunts in this contract.
-        self.contract_hunt_extension_seconds = 0
-        # Анти-фарм денег: награда за level_id один раз за кампанию/сейв.
-        self.rewarded_level_ids = set()
         self.reset_hunt_timer()
 
         self.inventory_images = assets.load_inventory_images()
@@ -454,10 +429,8 @@ class Game:
             proximity = max(0.0, min(1.0, 1.0 - distance / 520.0))
 
         hunt_pressure = 0.0
-        if self.is_hunt_chasing():
+        if getattr(self, "hunt_active_ticks", 0) > 0:
             hunt_pressure = 0.45
-        elif getattr(self, "hunt_active_ticks", 0) > 0:
-            hunt_pressure = 0.15  # grace: охота объявлена, но призрак ещё не видит
         activity_pressure = max(0.0, min(1.0, getattr(self, "ghost_activity", 0.0) / 100.0))
         if pygame.time.get_ticks() < getattr(self, "activity_flash_until", 0):
             activity_pressure = min(1.0, activity_pressure + 0.18)
@@ -538,110 +511,13 @@ class Game:
     def trigger_activity_event(self):
         self.activity_event_cooldown_ticks = 10 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1000
-        # Как в Phasmo: appearance-ивент. Sanity падает только при контакте с призраком.
-        started = self.start_ghost_appearance_event()
-        if started:
-            self._show_game_info(random.choice([
-                "Призрак проявился рядом.",
-                "Ты видишь силуэт привидения.",
-                "Привидение появилось и идёт к тебе.",
-                "Холод — призрак материализовался.",
-            ]), 1300)
-        else:
-            self._show_game_info(random.choice([
-                "Температура резко упала.",
-                "Связь искажается.",
-                "Где-то рядом сдвинулся предмет.",
-                "Воздух стал тяжелым.",
-            ]), 1300)
-
-    def start_ghost_appearance_event(self):
-        """Как manifestation ghost event в Phasmo: призрак появляется рядом и идёт к игроку."""
-        if not self.ghost_manager.ghosts:
-            return False
-        ghost = self.ghost_manager.ghosts[0]
-        px = float(self.player_rect.centerx)
-        py = float(self.player_rect.centery)
-        angle = random.uniform(0, math.tau)
-        sx = px + math.cos(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
-        sy = py + math.sin(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
-        duration = int(SANITY_GHOST_EVENT_DURATION_SECONDS * FPS)
-        if hasattr(ghost, "begin_appearance_event"):
-            ghost.begin_appearance_event(sx, sy, duration)
-        else:
-            ghost.rect.center = (int(sx), int(sy))
-            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
-            from ghost import GhostState
-            ghost.state = GhostState.IDLE
-            if ghost.sprite:
-                ghost.sprite.set_alpha(getattr(ghost, "base_alpha", 180))
-        self.ghost_event_active = True
-        self.ghost_event_ticks_left = duration
-        return True
-
-    def ghost_event_sanity_drain_amount(self):
-        """Базово −10%, как в Phasmo; профиль может удвоить (Oni-like)."""
-        amount = SANITY_GHOST_EVENT_DRAIN
-        if self.ghost_manager.ghosts:
-            ghost = self.ghost_manager.ghosts[0]
-            mult = float(getattr(ghost, "ghost_event_sanity_mult", 1.0) or 1.0)
-            amount *= max(0.5, mult)
-        return amount
-
-    def end_ghost_appearance_event(self, hissed=False):
-        """Завершает appearance-ивент: призрак снова исчезает."""
-        self.ghost_event_active = False
-        self.ghost_event_ticks_left = 0
-        if not self.ghost_manager.ghosts:
-            return
-        ghost = self.ghost_manager.ghosts[0]
-        if hasattr(ghost, "end_appearance_event"):
-            ghost.end_appearance_event()
-        else:
-            from ghost import GhostState
-            ghost.state = GhostState.INVISIBLE
-            if ghost.sprite:
-                ghost.sprite.set_alpha(0)
-
-    def tick_ghost_appearance_event(self):
-        """Двигает проявившегося призрака к игроку; контакт = −10% sanity + шипение."""
-        if not getattr(self, "ghost_event_active", False):
-            return
-        if not self.ghost_manager.ghosts:
-            self.end_ghost_appearance_event(hissed=False)
-            return
-
-        ghost = self.ghost_manager.ghosts[0]
-        px = float(self.player_rect.centerx)
-        py = float(self.player_rect.centery)
-        gx = float(ghost.rect.centerx)
-        gy = float(ghost.rect.centery)
-        dx = px - gx
-        dy = py - gy
-        dist = math.hypot(dx, dy)
-        if dist > 1.0:
-            step = SANITY_GHOST_EVENT_APPROACH_SPEED
-            ghost.rect.centerx = int(gx + (dx / dist) * step)
-            ghost.rect.centery = int(gy + (dy / dist) * step)
-            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
-
-        # Контакт с проявившимся призраком (не охота — HP не снимаем).
-        if ghost.rect.colliderect(self.player_rect):
-            drained = self.ghost_event_sanity_drain_amount()
-            self.drain_sanity(drained, reason="ghost_event")
-            self.increase_ghost_activity(8, "ghost_event_hit")
-            self._show_game_info(
-                f"Шипение! Призрак коснулся тебя и исчез. −{int(round(drained))}% рассудка.",
-                1600,
-            )
-            self.end_ghost_appearance_event(hissed=True)
-            return
-
-        self.ghost_event_ticks_left -= 1
-        if self.ghost_event_ticks_left <= 0:
-            # Как в Phasmo: исчез без контакта — sanity не трогаем.
-            self._show_game_info("Призрак растворился в воздухе.", 1100)
-            self.end_ghost_appearance_event(hissed=False)
+        self.drain_sanity(random.uniform(4.0, 8.0), reason="ghost_event")
+        self._show_game_info(random.choice([
+            "Температура резко упала.",
+            "Связь искажается.",
+            "Где-то рядом сдвинулся предмет.",
+            "Воздух стал тяжелым.",
+        ]), 1300)
 
     def spawn_lit_candle(self, x, y):
         """Ставит lit firelight на карту (анти-drain в радиусе)."""
@@ -671,110 +547,39 @@ class Game:
                 return True
         return False
 
-    def is_hunt_grace_period(self):
-        """Wiki: during grace the ghost does not detect/see players yet."""
-        return getattr(self, "hunt_grace_ticks", 0) > 0 and getattr(self, "hunt_active_ticks", 0) > 0
-
-    def is_hunt_chasing(self):
-        """Охота уже после grace — призрак опасен."""
-        return getattr(self, "hunt_active_ticks", 0) > 0 and not self.is_hunt_grace_period()
-
-    def current_hunt_duration_seconds(self):
-        base = int(self.difficulty_config().get("hunt_duration_seconds", 35) or 35)
-        return base + int(getattr(self, "contract_hunt_extension_seconds", 0) or 0)
-
-    def normal_hunt_grace_seconds(self):
-        return int(HUNT_GRACE_SECONDS_BY_DIFFICULTY.get(self.difficulty_index, 3))
-
-    def start_activity_hunt(self, cursed=False):
-        """
-        Обычная охота: нужен sanity ниже порога и нет setup.
-        Cursed hunt (wiki): ignore sanity thresholds and hunt cooldowns;
-        grace = 1s; sets +20s duration for this and all later hunts in the contract.
-        """
-        if getattr(self, "hunt_active_ticks", 0) > 0:
-            # Wiki: cursed possession during an ongoing normal hunt keeps current duration,
-            # but subsequent hunts get the +20s extension.
-            if cursed:
-                self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
+    def start_activity_hunt(self):
+        if not self.can_ghost_attempt_hunt():
             return False
-
-        if cursed:
-            # Wiki: cursed hunts ignore sanity thresholds and hunt cooldowns.
-            self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
-            self.hunt_is_cursed = True
-            grace_seconds = CURSED_HUNT_GRACE_SECONDS
-        else:
-            if not self.can_ghost_attempt_hunt():
-                return False
-            if self.hunt_cooldown_ticks > 0:
-                return False
-            self.hunt_is_cursed = False
-            grace_seconds = self.normal_hunt_grace_seconds()
-
         cfg = self.difficulty_config()
-        duration = self.current_hunt_duration_seconds()
-        self.hunt_active_ticks = duration * FPS
-        self.hunt_grace_ticks = max(0, int(grace_seconds * FPS))
+        self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
-        if getattr(self, "ghost_event_active", False):
-            self.end_ghost_appearance_event(hissed=False)
-        if cursed:
-            self._show_game_info(
-                "Проклятая охота! Sanity и кулдаун не важны. Grace 1 с, длительность +20 с.",
-                2200,
-            )
-        else:
-            self._show_game_info("Активность достигла пика. Охота началась.", 1800)
+        self._show_game_info("Активность достигла пика. Охота началась.", 1800)
         return True
-
-    def try_start_cursed_hunt_from_possession(self, source="radio"):
-        """
-        Wiki: cursed hunts can only be initiated directly by using cursed possessions.
-        Учебный аналог cursed possession — радио (пока нет Ouija/карт).
-        """
-        if self.is_setup_phase():
-            return False
-        started = self.start_activity_hunt(cursed=True)
-        if started:
-            self._show_game_info(f"Проклятый предмет ({source}) вызвал охоту!", 1800)
-        return started
 
     def reset_hunt_timer(self):
         self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
         self.hunt_active_ticks = 0
-        self.hunt_grace_ticks = 0
-        self.hunt_is_cursed = False
 
     def tick_hunt_timer(self):
-        if self.hunt_grace_ticks > 0:
-            self.hunt_grace_ticks -= 1
         if self.hunt_active_ticks > 0:
             self.hunt_active_ticks -= 1
             if self.hunt_active_ticks <= 0:
-                # Wiki: normal hunts respect the cooldown after cursed hunts.
-                was_cursed = self.hunt_is_cursed
                 self.reset_hunt_timer()
-                if was_cursed:
-                    # Cooldown already set in reset; keep it.
-                    pass
             return
         if self.hunt_cooldown_ticks > 0:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
                 if self.can_ghost_attempt_hunt():
-                    self.start_activity_hunt(cursed=False)
+                    self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
+                    self._show_game_info("Охота началась.", 1400)
                 else:
-                    # Пока рассудок высокий — ждём, а не стартуем охоту.
                     self.hunt_cooldown_ticks = max(1, 5 * FPS)
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
-            if self.hunt_is_cursed:
-                return "Проклятая охота уже идёт."
             return "Оно здесь. Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
         error = self.difficulty_config()["radio_time_error_seconds"]
@@ -791,21 +596,14 @@ class Game:
         return {
             "cooldown_ticks": self.hunt_cooldown_ticks,
             "active_ticks": self.hunt_active_ticks,
-            "grace_ticks": int(getattr(self, "hunt_grace_ticks", 0) or 0),
-            "is_cursed": bool(getattr(self, "hunt_is_cursed", False)),
-            "contract_extension_seconds": int(getattr(self, "contract_hunt_extension_seconds", 0) or 0),
         }
 
     def restore_hunt_state(self, data):
         if not isinstance(data, dict):
             self.reset_hunt_timer()
-            self.contract_hunt_extension_seconds = 0
             return
         self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
         self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
-        self.hunt_grace_ticks = max(0, int(data.get("grace_ticks", 0)))
-        self.hunt_is_cursed = bool(data.get("is_cursed", False))
-        self.contract_hunt_extension_seconds = max(0, int(data.get("contract_extension_seconds", 0)))
 
     def get_player_room_id(self):
         if self.level_data and "rooms" in self.level_data:
@@ -941,8 +739,6 @@ class Game:
         self.player_sanity = 100.0
         self.sanity_low_warned = False
         self.flashlight_on = bool(self.inventory.get("фонарик", False))
-        self.ghost_event_active = False
-        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.setup_complete_banner_until = 0
         self.setup_timer_hint_until = 0
@@ -1132,7 +928,6 @@ class Game:
         self.reset_ghost_activity()
         self.loaded_sanity_state = None
         self.reset_sanity(start_setup=True)
-        self.contract_hunt_extension_seconds = 0
         self.set_state(GameState.GAME, reset_stack=True)
         if self.selected_save_slot:
             self.save_game(self.selected_save_slot)
@@ -1157,7 +952,6 @@ class Game:
         self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
-        self.contract_hunt_extension_seconds = 0
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
         self.set_state(GameState.GAME, reset_stack=True)
@@ -1383,8 +1177,6 @@ class Game:
         self.loaded_sanity_state = None
         self.radio_cooldown_until = 0
         self.reset_hunt_timer()
-        self.contract_hunt_extension_seconds = 0
-        self.rewarded_level_ids = set()
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
         self.tasks, self.achievements_table = self.progress_manager.new_state()
@@ -1435,14 +1227,7 @@ class Game:
         self.win_ghost_name = ghost_name or "призрак"
         self.win_next_level_id = self.get_next_level_id()
         breakdown = self.get_level_complete_reward_breakdown()
-        level_key = self.current_level_id or f"level_{self.player_level}"
-        already_rewarded = level_key in getattr(self, "rewarded_level_ids", set())
-        full_reward = int(breakdown["total"])
-        if already_rewarded:
-            reward = max(1, int(round(full_reward * REPEAT_LEVEL_REWARD_FACTOR)))
-        else:
-            reward = full_reward
-            self.rewarded_level_ids.add(level_key)
+        reward = int(breakdown["total"])
         self.player_money += reward
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
@@ -1453,9 +1238,6 @@ class Game:
             "level_name": self.get_level_name(),
             "found_evidence": found_evidence,
             "reward": reward,
-            "reward_full": full_reward,
-            "reward_is_repeat": already_rewarded,
-            "reward_repeat_factor": REPEAT_LEVEL_REWARD_FACTOR if already_rewarded else 1.0,
             "reward_base": breakdown["base"],
             "reward_difficulty_bonus": breakdown["difficulty_bonus"],
             "reward_evidence_bonus": breakdown["evidence_bonus"],
@@ -1526,7 +1308,6 @@ class Game:
             "discovered_evidence": sorted(self.discovered_evidence),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected,
-            "rewarded_level_ids": sorted(getattr(self, "rewarded_level_ids", set())),
             "tasks": self.tasks,
             "achievements_table": self.achievements_table,
         }
@@ -1545,262 +1326,4 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
-            saved_rewarded = save_data.get("rewarded_level_ids") or []
-            if isinstance(saved_rewarded, list):
-                self.rewarded_level_ids = {str(x) for x in saved_rewarded}
-            else:
-                self.rewarded_level_ids = set()
-            saved_inventory = save_data.get("inventory") or {}
-            default_light = bool(saved_inventory.get("фонарик", False))
-            self.loaded_sanity_state = {
-                "sanity": save_data.get("sanity", 100.0),
-                "flashlight_on": save_data.get("flashlight_on", default_light),
-                "setup_phase_ticks": save_data.get("setup_phase_ticks", 0),
-                "sanity_low_warned": save_data.get("sanity_low_warned", False),
-            }
-            self.journal_evidence = self.normalize_journal_evidence(save_data.get("journal_evidence"))
-            saved_discovered = save_data.get("discovered_evidence")
-            if isinstance(saved_discovered, list):
-                self.discovered_evidence = {k for k in saved_discovered if k in EVIDENCE_PROFILE_KEYS}
-            else:
-                self.discovered_evidence = self.default_discovered_evidence()
-            self._refresh_discovered_evidence()
-            self.loaded_journal_evidence = self.journal_evidence.copy()
-            # Загружаем инвентарь (с fallback для старых сохранений)
-            saved_inventory = save_data.get("inventory", None)
-            if saved_inventory:
-                base_inventory = {key: False for key in self.inventory_items}
-                base_inventory.update(saved_inventory)
-                self.inventory = base_inventory
-            else:
-                self.reset_inventory()
             
-            # Загружаем количество предметов (аккумуляторы, кровь)
-            saved_counts = save_data.get("item_counts", None)
-            if saved_counts:
-                from inventory_system import ItemType
-                self.inventory_manager.item_counts[ItemType.BATTERY] = saved_counts.get("BATTERY", saved_counts.get("аккумулятор", 0))
-                self.inventory_manager.item_counts[ItemType.BLOOD] = saved_counts.get("BLOOD", 0)
-                self.inventory_manager.item_counts[ItemType.CROSS] = saved_counts.get("CROSS", 0)
-                self.inventory_manager.item_counts[ItemType.RED_DUST] = saved_counts.get("RED_DUST", 0)
-                self.inventory_manager.item_counts[ItemType.SALT] = saved_counts.get("SALT", 0)
-                self.inventory_manager.item_counts[ItemType.RADIO] = saved_counts.get("RADIO", int(self.inventory.get("радио", False)))
-            else:
-                from inventory_system import ItemType
-                self.inventory_manager.item_counts[ItemType.BATTERY] = 0
-                self.inventory_manager.item_counts[ItemType.BLOOD] = 0
-                self.inventory_manager.item_counts[ItemType.CROSS] = 0
-                self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
-                self.inventory_manager.item_counts[ItemType.SALT] = 0
-                self.inventory_manager.item_counts[ItemType.RADIO] = int(self.inventory.get("радио", False))
-            self.tasks, self.achievements_table = self.progress_manager.normalize_state(
-                save_data.get("tasks"),
-                save_data.get("achievements_table"),
-            )
-            self.loaded_inventory_runtime = save_data.get("inventory_runtime")
-            self.loaded_hunt_state = save_data.get("hunt_state")
-            self.loaded_ghost_state = save_data.get("ghost_state")
-            self.loaded_activity_state = save_data.get("ghost_activity", 0.0)
-            
-            return True
-        return False
-
-    def delete_save(self, slot):
-        key = f"slot{slot}"
-        if key in self.saves:
-            self.saves[key] = None
-            with open(self.save_file, 'w', encoding='utf-8') as f:
-                json.dump(self.saves, f, ensure_ascii=False, indent=2)
-        if self.selected_save_slot == slot:
-            self.selected_save_slot = None
-    
-
-    def apply_display_mode(self):
-        flags = pygame.FULLSCREEN if self.fullscreen else 0
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
-        # Перезагружаем фон меню под новый размер экрана
-        self.cork_board_bg = assets.load_cork_board(
-            screen_width=self.screen.get_width(),
-            screen_height=self.screen.get_height()
-        )
-
-    def toggle_fullscreen(self):
-        self.fullscreen = not self.fullscreen
-        self.apply_display_mode()
-        self.update_settings_button_texts()
-
-    def exit_game(self):
-        self.running = False
-
-    def set_state(self, new_state, reset_stack = False):
-        if reset_stack:
-            self.state_stack.clear()
-        if new_state != self.state:
-            self.previous_state = self.state
-            # Останавливаем движение при выходе из игры
-            if self.state == GameState.GAME and new_state != GameState.GAME:
-                self.moving = False
-                for key in self.keys_pressed:
-                    self.keys_pressed[key] = False
-            self.state = new_state
-            # Сбрасываем позицию персонажа при переходе в игру
-            if new_state == GameState.GAME:
-                self.reset_player_position()
-                # Перезагружаем уровень для текущего уровня
-                self.load_level_for_current_level()
-
-    def push_state(self, new_state):
-        if new_state != self.state:
-            self.state_stack.append(self.state)
-            self.previous_state = self.state
-            # Останавливаем движение при выходе из игры
-            if self.state == GameState.GAME and new_state != GameState.GAME:
-                self.moving = False
-                for key in self.keys_pressed:
-                    self.keys_pressed[key] = False
-            self.state = new_state
-            # Сбрасываем позицию персонажа при переходе в игру
-            if new_state == GameState.GAME:
-                self.reset_player_position()
-                # Перезагружаем уровень для текущего уровня
-                self.load_level_for_current_level()
-    def go_back(self):
-        if self.state_stack:
-            target_state = self.state_stack.pop()
-            self.previous_state = self.state
-            self.state = target_state
-        else:
-            self.set_state(GameState.MENU, reset_stack = True)
-
-    def change_state(self, new_state):
-        if new_state != self.state:
-            self.previous_state = self.state
-            self.state = new_state
-
-    def update_settings_button_texts(self):
-        # Индексы: 0 Назад, 1 Громкость, 2 Полноэкранный, 3 Сброс
-        self.settings_buttons[1].text = f"Громкость: {self.volume}%"
-        self.settings_buttons[2].text = "Полноэкранный: Вкл" if self.fullscreen else "Полноэкранный: Выкл"
-
-    def draw(self):
-        if self.state == GameState.MENU:
-            draws.draw_menu(self)
-        elif self.state == GameState.GAME:
-            if not self.is_gameplay_paused():
-                mechanics.update_player_movement(self)
-                self.tick_sanity()
-                self.tick_lit_candles()
-                self.tick_ghost_appearance_event()
-                self.tick_hunt_timer()
-                self.tick_ghost_activity()
-                pz = self.inventory_manager.get_projector_zones()
-                self.ghost_manager.update(
-                    self.player_rect,
-                    self.walls,
-                    self.level_hitboxes,
-                    projector_zones=pz,
-                    dropped_items=self.inventory_manager.dropped_items,
-                    world_width=self.world_width,
-                    world_height=self.world_height,
-                )
-                self.inventory_manager.update_dropped_items()
-                throw_event = getattr(self.ghost_manager, "last_throw_event", None)
-                if throw_event:
-                    self.ghost_manager.last_throw_event = None
-                    if throw_event.get("room_id") == self.get_player_room_id():
-                        count = int(throw_event.get("count", 1) or 1)
-                        word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
-                        self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
-                        self.drain_sanity(2.0, reason="item_throw")
-                # Столкновение с приведением — отнимаем HP (не во время appearance ghost event).
-                now = pygame.time.get_ticks()
-                if (
-                    not getattr(self, "ghost_event_active", False)
-                    and not self.is_hunt_grace_period()
-                    and self.ghost_manager.check_player_collision(self.player_rect)
-                    and now >= self.hit_invincible_until
-                ):
-                    self.player_hp = max(0, self.player_hp - 1)
-                    self.hit_invincible_until = now + 1500
-                    self.increase_ghost_activity(12, "player_hit")
-                    self.drain_sanity(10.0, reason="ghost_hit")
-                    self.progress_event("take_hit", 1)
-                    if self.player_hp <= 0:
-                        self.enter_game_over()
-                        draws.draw_game_over(self)
-                        pygame.display.flip()
-                        return
-            else:
-                self.moving = False
-                for key in self.keys_pressed:
-                    self.keys_pressed[key]=False
-            draws.draw_game(self)
-        elif self.state == GameState.SHOP:
-            self.moving = False
-            # Как таймер в фургоне Phasmo: countdown идёт, пока смотришь «компьютер».
-            if self.player_hp > 0:
-                self.tick_setup_phase_clock()
-            draws.draw_shop(self)
-        elif self.state == GameState.SETTINGS:
-            draws.draw_settings(self)
-        elif self.state == GameState.DIFF:
-            draws.draw_difficulty(self)
-        elif self.state == GameState.SAVES:
-            draws.draw_saves(self)
-        elif self.state == GameState.HOWTO:
-            draws.draw_howto(self)
-        elif self.state == GameState.GAME_OVER:
-            self.moving = False
-            draws.draw_game_over(self)
-        elif self.state == GameState.WIN:
-            self.moving = False
-            draws.draw_win(self)
-        # Отображаем информационное сообщение поверх всех экранов
-        if self.info_message and pygame.time.get_ticks() < self.info_until:
-            # Полупрозрачный фон
-            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-            overlay.set_alpha(128)
-            overlay.fill(BLACK)
-            self.screen.blit(overlay, (0, 0))
-            
-            # Диалоговое окно для сообщения
-            lines = str(self.info_message).splitlines() or [str(self.info_message)]
-            line_height = 30
-            info_rect = pygame.Rect(
-                SCREEN_WIDTH // 2 - 330,
-                SCREEN_HEIGHT // 2 - max(45, 18 + len(lines) * line_height // 2),
-                660,
-                max(84, 36 + len(lines) * line_height),
-            )
-            pygame.draw.rect(self.screen, DARK_GRAY, info_rect)
-            pygame.draw.rect(self.screen, WHITE, info_rect, 3)
-            
-            info_font = pygame.font.Font(None, 32)
-            start_y = info_rect.centery - (len(lines) - 1) * line_height // 2
-            for i, line in enumerate(lines):
-                info_text = info_font.render(line, True, WHITE)
-                info_text_rect = info_text.get_rect(center=(info_rect.centerx, start_y + i * line_height))
-                self.screen.blit(info_text, info_text_rect)
-        elif self.info_message and pygame.time.get_ticks() >= self.info_until:
-            self.info_message = None
-        
-        pygame.display.flip()
-    def run(self):
-        while self.running:
-            handlers.handle_event(self)
-            
-            if self.state == GameState.GAME and self.player_hp > 0 and not self.is_gameplay_paused():
-                self.inventory_manager.update_placed_items()
-                self.inventory_manager.update_projector()
-            elif self.state == GameState.GAME:
-                # Даже на паузе журнала доигрываем уже начатый бросок.
-                self.inventory_manager.update_dropped_items()
-            
-            self.draw()
-
-            self.clock.tick(FPS)
-        pygame.quit()
-        sys.exit()
-if __name__ == "__main__":
-    game = Game()
-    game.run()

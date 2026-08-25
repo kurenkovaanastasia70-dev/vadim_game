@@ -1107,10 +1107,6 @@ def draw_win(game):
         f"Найденные улики: {evidence_text}",
         f"Доход: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
     ]
-    if report.get("reward_is_repeat"):
-        full = int(report.get("reward_full", reward) or reward)
-        pct = int(round(float(report.get("reward_repeat_factor", 0.35)) * 100))
-        report_lines.append(f"Повтор уровня: {pct}% от полной награды ({full}$).")
     report_lines += [
         f"Баланс: {shown_balance}$",
         f"Дальше: {report_next_name}",
