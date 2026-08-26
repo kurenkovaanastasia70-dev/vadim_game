@@ -174,6 +174,11 @@ def handle_shop_events(game, event):
                     print("Куплен градусник!")
                 else:
                     print("Недостаточно денег или предмет уже куплен!")
+            elif i == 12:  # Кнопка "Купить свечу"
+                if game.buy_item("свеча", 25):
+                    print("Куплена свеча!")
+                else:
+                    print("Недостаточно денег!")
 
 def handle_settings_events(game, event):
     """
@@ -345,6 +350,8 @@ def handle_game_events(game, event):
             pad = int(48 * MAP_SCALE)
             click_zone = game.computer_rect.inflate(pad * 2, pad * 2)
             if click_zone.collidepoint(world_mouse_pos):
+                game.setup_timer_shop_seen = True
+                game.setup_timer_hint_until = 0
                 game.push_state(GameState.SHOP)
         
         # Обработка кликов по инвентарю (та же сетка, что в draws.draw_game)

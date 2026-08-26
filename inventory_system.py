@@ -24,6 +24,7 @@ class ItemType(Enum):
     EMF = "эмп"                  # скан уровней ЭМП 1..5
     UV_FLASHLIGHT = "уф фонарь"  # подсветка следов
     THERMOMETER = "градусник"    # показывает температуру текущей комнаты
+    CANDLE = "свеча"             # firelight: снижает пассивный drain в радиусе
 
 
 class Item(ABC):
@@ -172,6 +173,23 @@ class Blood(Item):
         heal = game.difficulty_config().get("blood_heal", 3) if hasattr(game, "difficulty_config") else 3
         game.player_hp = min(5, game.player_hp + heal)
         game.inventory_manager.decrease_count(self.item_type)
+        return True
+
+
+class Candle(Item):
+    """Свеча — firelight: ставится у ног и снижает пассивный sanity drain в радиусе."""
+
+    def __init__(self):
+        super().__init__(ItemType.CANDLE)
+
+    def use(self, game):
+        if game.inventory_manager.get_count(self.item_type) <= 0:
+            return False
+        if hasattr(game, "spawn_lit_candle"):
+            game.spawn_lit_candle(game.player_rect.centerx, game.player_rect.centery)
+        game.inventory_manager.decrease_count(self.item_type)
+        if hasattr(game, "_show_game_info"):
+            game._show_game_info("Свеча зажжена. Рядом рассудок падает медленнее.", 1300)
         return True
 
 
@@ -532,6 +550,7 @@ class InventoryManager:
             ItemType.PROJECTOR: Projector(),
             ItemType.CROSS: Cross(),
             ItemType.BLOOD: Blood(),
+            ItemType.CANDLE: Candle(),
             ItemType.RADIO: Radio(),
             ItemType.EMF: EmfDetector(),
             ItemType.UV_FLASHLIGHT: UVFlashlight(),
@@ -544,6 +563,7 @@ class InventoryManager:
         self.item_counts = {
             ItemType.BATTERY: 0,
             ItemType.BLOOD: 0,
+            ItemType.CANDLE: 0,
             ItemType.CROSS: 0,
             ItemType.RED_DUST: 0,
             ItemType.SALT: 0,

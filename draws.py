@@ -1,4 +1,5 @@
 import pygame
+import math
 from constants import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -61,11 +62,12 @@ def _draw_crt_atmosphere(game):
     tint.fill((18, 45, 38, 34))
     game.screen.blit(tint, (0, 0))
 
-    if threat > 0:
-        pulse = 0.5 + 0.5 * ((now // 120) % 2)
-        danger_alpha = int(28 + 74 * threat * pulse)
+    # Красная вспышка только при реальной угрозе и заметно слабее прежней.
+    if threat > 0.45:
+        pulse = 0.5 + 0.5 * ((now // 180) % 2)
+        danger_alpha = int(8 + 22 * (threat - 0.45) / 0.55 * pulse)
         danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        danger.fill((110, 12, 18, danger_alpha))
+        danger.fill((96, 28, 32, danger_alpha))
         game.screen.blit(danger, (0, 0))
 
     line_alpha = 34 + int(18 * threat)
@@ -130,11 +132,7 @@ def _draw_compact_status_hud(game):
         x += 78
 
     activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
-    setup_left = max(0, int(getattr(game, "setup_phase_ticks", 0) // max(1, 60)))
-    if setup_left > 0:
-        activity_label = small.render(f"Setup: {setup_left}s | Активность: {activity}%", True, (145, 170, 160))
-    else:
-        activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
+    activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
     game.screen.blit(activity_label, (hud_x + 12, hud_y + 52))
 
     # Полоска рассудка (как sanity meter в Phasmophobia).
@@ -195,7 +193,10 @@ EVIDENCE_LABELS = {key: label.split("[", 1)[0].strip() for key, label, _help in 
 def _draw_radio_feedback(game):
     if pygame.time.get_ticks() >= getattr(game, "radio_feedback_until", 0):
         return
-    panel = pygame.Rect(SCREEN_WIDTH // 2 - 190, 112, 380, 54)
+    announcement = getattr(game, "radio_announcement", None)
+    panel_h = 72 if announcement else 54
+    # Ниже журнала/меню и не пересекается с левым HUD (HUD ~ x0-420, y16-148).
+    panel = pygame.Rect(SCREEN_WIDTH // 2 - 220, 170, 440, panel_h)
     surf = pygame.Surface(panel.size, pygame.SRCALPHA)
     surf.fill((14, 18, 24, 210))
     game.screen.blit(surf, panel.topleft)
@@ -203,6 +204,16 @@ def _draw_radio_feedback(game):
     pygame.draw.rect(game.screen, border, panel, 2, border_radius=7)
 
     font = pygame.font.Font(None, 22)
+    small = pygame.font.Font(None, 20)
+    if announcement:
+        label = "Радио — база"
+        game.screen.blit(font.render(label, True, (230, 236, 240)), (panel.x + 14, panel.y + 8))
+        for i, line in enumerate(_wrap_lines(small, announcement, panel.w - 28)):
+            if i >= 2:
+                break
+            game.screen.blit(small.render(line, True, (190, 210, 200)), (panel.x + 14, panel.y + 32 + i * 18))
+        return
+
     label = "Радио: частота поймана" if getattr(game, "radio_feedback_ok", False) else "Радио: шум и помехи"
     game.screen.blit(font.render(label, True, (230, 236, 240)), (panel.x + 14, panel.y + 8))
 
@@ -212,6 +223,136 @@ def _draw_radio_feedback(game):
         h = 4 + ((i * 7 + tick * 5) % 16)
         x = panel.x + 14 + i * 17
         pygame.draw.line(game.screen, border, (x, base_y - h // 2), (x, base_y + h // 2), 2)
+
+
+def _format_setup_mmss(game):
+    ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
+    seconds = ticks // max(1, 60)
+    mm, ss = divmod(seconds, 60)
+    return f"{mm:02d}:{ss:02d}", seconds
+
+
+def _computer_setup_timer_active(game):
+    ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
+    banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
+    return ticks > 0 or pygame.time.get_ticks() < banner_until
+
+
+def _draw_setup_shop_timer(game):
+    """Единственный setup-таймер: только внутри экрана компьютера (магазин)."""
+    if not _computer_setup_timer_active(game):
+        return
+    # Между «Назад» и деньгами, без пересечения с title/карточками.
+    panel = pygame.Rect(620, 18, 160, 50)
+    money = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
+    back = pygame.Rect(36, 28, 120, 36)
+    if panel.colliderect(money):
+        panel.right = money.left - 10
+    if panel.colliderect(back):
+        panel.left = back.right + 10
+
+    ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
+    now = pygame.time.get_ticks()
+    time_text, seconds = _format_setup_mmss(game)
+    show_end = ticks <= 0
+
+    bg = pygame.Surface(panel.size, pygame.SRCALPHA)
+    bg.fill((12, 16, 18, 235))
+    game.screen.blit(bg, panel.topleft)
+    border = (120, 200, 160) if ticks > 0 else (220, 150, 90)
+    pygame.draw.rect(game.screen, border, panel, 2, border_radius=6)
+
+    tiny = pygame.font.Font(None, 18)
+    big = pygame.font.Font(None, 36)
+    game.screen.blit(tiny.render("SETUP", True, (145, 170, 160)), (panel.x + 8, panel.y + 3))
+    pulse = (now // 250) % 2 == 0 if 0 < seconds <= 10 or show_end else True
+    color = (255, 210, 120) if seconds <= 10 or show_end else (230, 240, 236)
+    if pulse:
+        value = big.render(time_text, True, color)
+        game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + panel.h * 0.62)))
+
+
+def _draw_computer_interact_tip(game, computer_screen_rect):
+    """Подсказка над компьютером на карте (без таймера)."""
+    if not getattr(game, "near_computer", False):
+        return
+    tip_text = "Клик: открыть компьютер"
+    font = pygame.font.Font(None, 24)
+    text_surface = font.render(tip_text, True, WHITE)
+    padding = 10
+    tip_rect = pygame.Rect(
+        0,
+        0,
+        text_surface.get_width() + padding * 2,
+        text_surface.get_height() + padding * 2,
+    )
+    tip_rect.centerx = computer_screen_rect.centerx
+    tip_rect.bottom = computer_screen_rect.top - 8
+    tip_rect.x = max(8, min(tip_rect.x, SCREEN_WIDTH - tip_rect.w - 8))
+    tip_rect.y = max(8, tip_rect.y)
+    pygame.draw.rect(game.screen, DARK_GRAY, tip_rect)
+    pygame.draw.rect(game.screen, WHITE, tip_rect, 2)
+    game.screen.blit(text_surface, text_surface.get_rect(center=tip_rect.center))
+
+
+def _draw_setup_complete_banner(game):
+    """Баннер конца setup — ниже радио, без пересечения с HUD/кнопками."""
+    banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
+    if pygame.time.get_ticks() >= banner_until:
+        return
+    banner = pygame.Rect(SCREEN_WIDTH // 2 - 240, 256, 480, 44)
+    banner_bg = pygame.Surface(banner.size, pygame.SRCALPHA)
+    banner_bg.fill((28, 16, 14, 220))
+    game.screen.blit(banner_bg, banner.topleft)
+    pygame.draw.rect(game.screen, (220, 120, 80), banner, 2, border_radius=6)
+    msg = pygame.font.Font(None, 26).render(
+        "ФАЗА ПОДГОТОВКИ ОКОНЧЕНА",
+        True,
+        (255, 220, 190),
+    )
+    game.screen.blit(msg, msg.get_rect(center=banner.center))
+
+
+def _draw_setup_find_computer_message(game):
+    """Короткое оранжевое предупреждение без цифр таймера (~2 сек)."""
+    until = int(getattr(game, "setup_timer_hint_until", 0) or 0)
+    if pygame.time.get_ticks() >= until:
+        return
+    # Под HUD слева, не пересекается с меню/журналом справа.
+    has_thermometer = bool(game.inventory.get("градусник", False))
+    hud_bottom = 16 + (132 if has_thermometer else 112)
+    panel = pygame.Rect(22, hud_bottom + 8, 440, 48)
+    bg = pygame.Surface(panel.size, pygame.SRCALPHA)
+    bg.fill((40, 22, 8, 230))
+    game.screen.blit(bg, panel.topleft)
+    pygame.draw.rect(game.screen, (255, 150, 40), panel, 2, border_radius=6)
+    font = pygame.font.Font(None, 24)
+    small = pygame.font.Font(None, 20)
+    game.screen.blit(
+        font.render("Таймер setup — внутри компьютера", True, (255, 180, 80)),
+        (panel.x + 12, panel.y + 6),
+    )
+    game.screen.blit(
+        small.render("Найди компьютер на карте и открой его.", True, (255, 200, 140)),
+        (panel.x + 12, panel.y + 26),
+    )
+
+
+def _draw_lit_candles(game):
+    candles = getattr(game, "lit_candles", None) or []
+    if not candles:
+        return
+    now = pygame.time.get_ticks()
+    for candle in candles:
+        cx = int(candle["x"] - getattr(game, "camera_x", 0))
+        cy = int(candle["y"] - getattr(game, "camera_y", 0))
+        flicker = 0.7 + 0.3 * abs(math.sin(now / 140.0 + candle["x"] * 0.01))
+        glow = pygame.Surface((120, 120), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 170, 60, int(45 * flicker)), (60, 60), 48)
+        pygame.draw.circle(glow, (255, 220, 120, int(90 * flicker)), (60, 60), 18)
+        game.screen.blit(glow, glow.get_rect(center=(cx, cy)))
+        pygame.draw.rect(game.screen, (180, 140, 70), (cx - 4, cy - 2, 8, 14), border_radius=2)
+        pygame.draw.circle(game.screen, (255, 220, 90), (cx, cy - 8), 4)
 
 
 def _wrap_lines(font, text, max_width):
@@ -694,6 +835,8 @@ def draw_shop(game):
     money = money_f.render(f"$ {game.player_money}", True, (240, 226, 150))
     game.screen.blit(money, money.get_rect(center=money_box.center))
 
+    _draw_setup_shop_timer(game)
+
     back = game.shop_buttons[0]
     back_hover = back.rect.collidepoint(pygame.mouse.get_pos())
     pygame.draw.rect(game.screen, (126, 48, 52) if not back_hover else (166, 66, 70), back.rect, border_radius=7)
@@ -713,16 +856,17 @@ def draw_shop(game):
         (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
         (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
+        (12, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
     ]
 
-    card_w, card_h = 430, 78
+    card_w, card_h = 430, 68
     col_x = [62, 570]
-    row_y = [100, 185, 270, 355, 440, 525]
+    row_y = [88, 162, 236, 310, 384, 458, 532]
     mouse = pygame.mouse.get_pos()
 
     for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
-        col = 0 if pos < 5 else 1
-        row = pos if pos < 5 else pos - 5
+        col = 0 if pos < 7 else 1
+        row = pos if pos < 7 else pos - 7
         card = pygame.Rect(col_x[col], row_y[row], card_w, card_h)
         bought = bool(game.inventory.get(inv_key, False))
         count = game.inventory_manager.item_counts.get(count_type, 0) if count_type else 0
@@ -962,6 +1106,8 @@ def draw_win(game):
     report_lines = [
         f"Найденные улики: {evidence_text}",
         f"Доход: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+    ]
+    report_lines += [
         f"Баланс: {shown_balance}$",
         f"Дальше: {report_next_name}",
     ]
@@ -1045,6 +1191,7 @@ def draw_game(game):
         camera_x=game.camera_x,
         camera_y=game.camera_y
     )
+    _draw_lit_candles(game)
 
     player_screen_rect = game.player_rect.move(-game.camera_x, -game.camera_y)
     player_visual_size = getattr(game, "player_visual_size", game.player_size)
@@ -1092,37 +1239,13 @@ def draw_game(game):
 
 
     # Отрисовка компьютера
+    computer_screen_rect = None
     if game.computer and game.computer_rect:
         computer_screen_rect = game.computer_rect.move(-game.camera_x, -game.camera_y)
         comp_img = game.computer
         if comp_img.get_size() != computer_screen_rect.size:
             comp_img = pygame.transform.smoothscale(comp_img, computer_screen_rect.size)
         game.screen.blit(comp_img, computer_screen_rect.topleft)
-        
-        # Показываем текстовое окно при приближении
-        if game.near_computer:
-            # Создаем текстовое окно над компьютером
-            text = "Нажми на меня, тут магазин"
-            font = pygame.font.Font(None, 24)
-            text_surface = font.render(text, True, WHITE)
-            
-            # Размеры окна с отступами
-            padding = 10
-            box_width = text_surface.get_width() + padding * 2
-            box_height = text_surface.get_height() + padding * 2
-            
-            # Позиция окна над компьютером
-            box_x = computer_screen_rect.centerx - box_width // 2
-            box_y = computer_screen_rect.y - box_height - 10
-            
-            # Рисуем фон окна
-            box_rect = pygame.Rect(box_x, box_y, box_width, box_height)
-            pygame.draw.rect(game.screen, DARK_GRAY, box_rect)
-            pygame.draw.rect(game.screen, WHITE, box_rect, 2)
-            
-            # Рисуем текст
-            text_rect = text_surface.get_rect(center=box_rect.center)
-            game.screen.blit(text_surface, text_rect)
 
     # Эффект затемнения: фонарик влияет только на видимость, не на sanity drain.
     flashlight_lit = bool(
@@ -1137,18 +1260,22 @@ def draw_game(game):
 
     _draw_crt_atmosphere(game)
     game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
+
+    # Подпись у компьютера (без таймера — таймер только в магазине).
+    if computer_screen_rect is not None:
+        _draw_computer_interact_tip(game, computer_screen_rect)
     
     mouse_pos = pygame.mouse.get_pos()
     purchased_items = game.inventory_manager.visible_inventory_names()
     consumable_name_to_count = {
         "аккумулятор": game.inventory_manager.get_count(ItemType.BATTERY),
         "кровь": game.inventory_manager.get_count(ItemType.BLOOD),
+        "свеча": game.inventory_manager.get_count(ItemType.CANDLE),
         "крест": game.inventory_manager.get_count(ItemType.CROSS),
         "красная пыль": game.inventory_manager.get_count(ItemType.RED_DUST),
         "соль": game.inventory_manager.get_count(ItemType.SALT),
         "радио": game.inventory_manager.get_count(ItemType.RADIO),
     }
-    _draw_radio_feedback(game)
 
     # Верхние игровые кнопки: магазин убран, журнал вынесен как явная кнопка "Дело".
     for button in game.game_buttons:
@@ -1157,6 +1284,9 @@ def draw_game(game):
         _draw_retro_button(game.screen, game.journal_button, active=getattr(game, "journal_open", False))
 
     _draw_compact_status_hud(game)
+    _draw_setup_find_computer_message(game)
+    _draw_radio_feedback(game)
+    _draw_setup_complete_banner(game)
 
     # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
     slot_font = pygame.font.Font(None, 18)
