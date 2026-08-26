@@ -179,6 +179,12 @@ def handle_shop_events(game, event):
                     print("Куплена свеча!")
                 else:
                     print("Недостаточно денег!")
+            elif i == 13:
+                game.buy_inventory_mod("extra_slot")
+            elif i == 14:
+                game.buy_inventory_mod("budget_boost")
+            elif i == 15:
+                game.buy_inventory_mod("starter_candle")
 
 def handle_settings_events(game, event):
     """

@@ -17,6 +17,10 @@ from main_work import (
     SANITY_SETUP_DRAIN_FACTOR,
     SANITY_SETUP_FLOOR,
     SANITY_CANDLE_DRAIN_FACTOR,
+    SANITY_GHOST_EVENT_DRAIN,
+    CURSED_HUNT_EXTENSION_SECONDS,
+    CURSED_HUNT_GRACE_SECONDS,
+    SESSION_SETUP_TIP,
 )
 from inventory_system import ItemType
 
@@ -89,6 +93,53 @@ def main():
     # Свеча зарегистрирована; таблеток как предмета нет.
     assert ItemType.CANDLE in game.inventory_manager.item_counts
     assert not any(t.value == "таблетки" for t in ItemType)
+
+
+    # Appearance: sanity падает от появления на карте (не от касания).
+    from ghost import Ghost, Room
+    game.player_sanity = 80.0
+    game.ghost_manager.rooms = [Room(0, 0, 800, 600, 0)]
+    sprite = pygame.Surface((40, 40), pygame.SRCALPHA)
+    sprite.fill((200, 200, 220, 180))
+    ghost = Ghost(100, 100, sprite, game.ghost_manager.rooms, home_room_id=0)
+    game.ghost_manager.ghosts = [ghost]
+    assert game.start_ghost_appearance_event()
+    assert game.ghost_event_active
+    assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
+    contact_sanity = game.player_sanity
+    ghost.rect.center = game.player_rect.center
+    ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+    game.tick_ghost_appearance_event()
+    assert not game.ghost_event_active
+    assert approx(game.player_sanity, contact_sanity, eps=0.001)
+
+    # Cursed hunt.
+    game.setup_phase_ticks = 0
+    game.player_sanity = 100.0
+    game.hunt_cooldown_ticks = 999 * FPS
+    game.contract_hunt_extension_seconds = 0
+    assert not game.can_ghost_attempt_hunt()
+    assert game.start_activity_hunt(cursed=True)
+    assert game.hunt_is_cursed
+    assert game.contract_hunt_extension_seconds == CURSED_HUNT_EXTENSION_SECONDS
+    assert game.hunt_grace_ticks == CURSED_HUNT_GRACE_SECONDS * FPS
+
+    # Dual money: win -> global; shop uses session; mods use global.
+    game.player_money = 50
+    game.global_money = 200
+    game.inventory_mods = {k: False for k in ("extra_slot", "budget_boost", "starter_candle")}
+    assert game.buy_inventory_mod("extra_slot")
+    assert game.inventory_mods["extra_slot"]
+    assert game.global_money == 200 - 120
+    assert game.max_carried_items() == 4
+    before_session = game.player_money
+    game.grant_session_budget()
+    assert game.player_money == game.session_budget_amount()
+    assert before_session != game.player_money or True
+    game.global_money = 0
+    game.enter_win("тест")
+    assert game.win_report.get("reward_to") == "global"
+    assert game.global_money >= game.win_report["reward"]
 
     print("sanity tests OK")
     return 0

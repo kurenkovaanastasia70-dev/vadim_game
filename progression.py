@@ -224,8 +224,8 @@ class TaskAchievementManager:
                 task["done"] = True
                 if not task["claimed"]:
                     task["claimed"] = True
-                    self.game.player_money += task["reward"]
-                    messages.append(f"Задание выполнено: {task['title']} (+{task['reward']}$)")
+                    self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + task["reward"]
+                    messages.append(f"Задание выполнено: {task['title']} (+{task['reward']}$ на счёт)")
 
         for ach in self.game.achievements_table:
             if ach["event_key"] != event_key or ach["unlocked"]:
@@ -235,7 +235,7 @@ class TaskAchievementManager:
                 ach["unlocked"] = True
                 if not ach["claimed"] and ach["reward"] > 0:
                     ach["claimed"] = True
-                    self.game.player_money += ach["reward"]
+                    self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
                 messages.append(f"Ачивка: {ach['title']}")
 
         return ProgressResult(messages)
@@ -248,6 +248,6 @@ class TaskAchievementManager:
             ach["progress"] = ach["target"]
             if not ach["claimed"] and ach["reward"] > 0:
                 ach["claimed"] = True
-                self.game.player_money += ach["reward"]
+                self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
             return ProgressResult([f"Ачивка: {ach['title']}"])
         return ProgressResult([])

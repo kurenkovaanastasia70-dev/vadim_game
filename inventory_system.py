@@ -95,6 +95,12 @@ class Radio(Item):
         if hasattr(game, "drain_sanity"):
             # Контакт через spirit box / радио в Phasmophobia тоже бьёт по sanity.
             game.drain_sanity(5.0 if ok else 2.0, reason="radio")
+        if (
+            hasattr(game, "try_start_cursed_hunt_from_possession")
+            and not getattr(game, "is_setup_phase", lambda: False)()
+            and random.random() < 0.22
+        ):
+            game.try_start_cursed_hunt_from_possession(source="радио")
         game.inventory_manager.decrease_count(self.item_type)
         return True
 
@@ -212,6 +218,25 @@ PLACEMENT_PREVIEW_RATIO = PLACED_ITEM_HITBOX_RATIO
 PLACED_ITEM_HITBOX_SIZE = max(32, int(TILE_SIZE * MAP_SCALE * PLACED_ITEM_HITBOX_RATIO))
 PLACEMENT_PREVIEW_SIZE = PLACED_ITEM_HITBOX_SIZE
 MAX_CARRIED_ITEMS = 3
+
+# Постоянные модификации инвентаря — покупка за global_money (счёт).
+INVENTORY_MOD_CATALOG = {
+    "extra_slot": {
+        "title": "Карман +1",
+        "cost": 120,
+        "desc": "Постоянно: лимит ношения +1 слот.",
+    },
+    "budget_boost": {
+        "title": "Бюджет сессии +25",
+        "cost": 90,
+        "desc": "Постоянно: больше session-$ в начале уровня.",
+    },
+    "starter_candle": {
+        "title": "Стартовая свеча",
+        "cost": 70,
+        "desc": "Постоянно: в начале уровня уже есть 1 свеча.",
+    },
+}
 
 
 class PlacedProjector:
@@ -624,12 +649,18 @@ class InventoryManager:
             return True
         if not self.is_consumable(item_type) and self.game.inventory.get(item_type.value, False):
             return True
-        return self.carried_slots_count() < MAX_CARRIED_ITEMS
+        limit = MAX_CARRIED_ITEMS
+        if hasattr(self.game, "max_carried_items"):
+            limit = int(self.game.max_carried_items())
+        return self.carried_slots_count() < limit
 
     def receive_item(self, item_type, amount=1):
         if not self.can_receive_item(item_type):
             if hasattr(self.game, "_show_game_info"):
-                self.game._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+                limit = MAX_CARRIED_ITEMS
+            if hasattr(self.game, "max_carried_items"):
+                limit = int(self.game.max_carried_items())
+            self.game._show_game_info(f"Инвентарь полон: максимум {limit} предмета.", 1200)
             return False
         self.game.inventory[item_type.value] = True
         if self.is_consumable(item_type):

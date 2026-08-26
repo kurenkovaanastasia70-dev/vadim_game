@@ -15,7 +15,7 @@ from constants import (
 import assets
 import mechanics
 import level_config
-from inventory_system import ItemType, MAX_CARRIED_ITEMS
+from inventory_system import ItemType, MAX_CARRIED_ITEMS, INVENTORY_MOD_CATALOG
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
 
 # Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
@@ -120,7 +120,8 @@ def _draw_compact_status_hud(game):
         _draw_pixel_heart(game.screen, hud_x + 12 + i * 22, hud_y + 32, 2, color)
 
     rows = [
-        ("$", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("сессия $", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("счёт $", str(getattr(game, "global_money", 0)), (180, 210, 240)),
         ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
         ("SAN", f"{sanity}%", sanity_color),
     ]
@@ -829,10 +830,14 @@ def draw_shop(game):
     title = title_f.render("МАГАЗИН", True, (238, 242, 248))
     game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 48)))
 
-    money_box = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
+    money_box = pygame.Rect(SCREEN_WIDTH - 360, 24, 318, 42)
     pygame.draw.rect(game.screen, (36, 42, 54), money_box, border_radius=8)
     pygame.draw.rect(game.screen, (88, 104, 130), money_box, 1, border_radius=8)
-    money = money_f.render(f"$ {game.player_money}", True, (240, 226, 150))
+    money = money_f.render(
+        f"сессия ${game.player_money} | счёт ${getattr(game, 'global_money', 0)}",
+        True,
+        (240, 226, 150),
+    )
     game.screen.blit(money, money.get_rect(center=money_box.center))
 
     _draw_setup_shop_timer(game)
@@ -922,6 +927,34 @@ def draw_shop(game):
         game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
 
 def draw_settings(game):
+
+    # Модификации инвентаря — только за глобальный счёт.
+    mod_ids = ["extra_slot", "budget_boost", "starter_candle"]
+    mod_btn_index = {0: 13, 1: 14, 2: 15}
+    mod_y = 610
+    for mi, mod_id in enumerate(mod_ids):
+        meta = INVENTORY_MOD_CATALOG[mod_id]
+        card = pygame.Rect(62 + mi * 340, mod_y, 320, 52)
+        owned = bool(getattr(game, "inventory_mods", {}).get(mod_id))
+        pygame.draw.rect(game.screen, (28, 40, 48), card, border_radius=8)
+        pygame.draw.rect(game.screen, (70, 120, 130), card, 1, border_radius=8)
+        game.screen.blit(name_f.render(meta["title"], True, (220, 240, 245)), (card.x + 10, card.y + 6))
+        game.screen.blit(small_f.render(f"{meta['cost']}$ со счёта", True, (160, 210, 230)), (card.x + 10, card.y + 28))
+        btn = game.shop_buttons[mod_btn_index[mi]]
+        btn.rect = pygame.Rect(card.right - 100, card.y + 14, 90, 26)
+        hover = btn.rect.collidepoint(mouse)
+        if owned:
+            btn_color = (64, 72, 86)
+            label = "Есть"
+        elif getattr(game, "global_money", 0) >= meta["cost"]:
+            btn_color = (40, 110, 140) if not hover else (60, 140, 170)
+            label = "Купить"
+        else:
+            btn_color = (78, 78, 88)
+            label = "Мало $"
+        pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=7)
+        game.screen.blit(btn_f.render(label, True, (248, 248, 248)), btn_f.render(label, True, (248, 248, 248)).get_rect(center=btn.rect.center))
+
     """
     Отрисовывает экран настроек.
     
@@ -1105,7 +1138,7 @@ def draw_win(game):
 
     report_lines = [
         f"Найденные улики: {evidence_text}",
-        f"Доход: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+        f"На счёт: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
     ]
     report_lines += [
         f"Баланс: {shown_balance}$",

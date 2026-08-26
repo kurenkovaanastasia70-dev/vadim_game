@@ -27,7 +27,7 @@ import handlers
 import mechanics
 import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
-from inventory_system import InventoryManager
+from inventory_system import InventoryManager, INVENTORY_MOD_CATALOG
 import level_config
 from progression import (
     GoogleSheetsAchievementTableProvider,
@@ -111,10 +111,30 @@ SANITY_SETUP_DRAIN_FACTOR = 0.70
 SANITY_SETUP_FLOOR = 50.0
 SANITY_NEAR_GHOST_DRAIN_PER_SECOND = 0.20
 SANITY_HUNT_DRAIN_PER_SECOND = 0.35
+# Ghost event: призрак проявляется рядом и идёт к игроку.
+# Простой вариант: −sanity сразу при появлении на карте (не от касания).
+SANITY_GHOST_EVENT_DRAIN = 10.0
+SANITY_GHOST_EVENT_DURATION_SECONDS = 5.5
+SANITY_GHOST_EVENT_APPROACH_SPEED = 1.7
+SANITY_GHOST_EVENT_SPAWN_DISTANCE = 150
 # Свеча (firelight): сильно снижает пассивный drain в радиусе, но не как потолочный свет.
 SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
 SANITY_CANDLE_DURATION_SECONDS = 90
+# Cursed hunt (Phasmophobia wiki / Hunt):
+# - started only by cursed possessions;
+# - ignores sanity threshold and hunt cooldown;
+# - grace period = 1 second;
+# - after a cursed hunt is initiated, all subsequent hunts in the contract
+#   (including the ongoing cursed hunt) last 20 seconds longer.
+CURSED_HUNT_EXTENSION_SECONDS = 20
+CURSED_HUNT_GRACE_SECONDS = 1
+HUNT_GRACE_SECONDS_BY_DIFFICULTY = {0: 5, 1: 4, 2: 3, 3: 2}
+# Два баланса:
+# - session (player_money): покупки в магазине во время расследования;
+# - global_money: постоянные модификации инвентаря (мета).
+SESSION_BUDGET_BY_DIFFICULTY = {0: 120, 1: 100, 2: 80, 3: 60}
+SESSION_SETUP_TIP = 15
 
 class Game:
     def __init__(self):
@@ -174,6 +194,9 @@ class Game:
             Button(794, 564, 116, 32, "Купить", BLUE),
             Button(794, 650, 116, 32, "Купить", BLUE),
             Button(286, 650, 116, 32, "Купить", GREEN),
+            Button(62, 620, 116, 32, "Купить", GREEN),
+            Button(286, 620, 116, 32, "Купить", GREEN),
+            Button(570, 620, 116, 32, "Купить", GREEN),
         ]
         
         # Создание кнопок для настроек
@@ -202,7 +225,13 @@ class Game:
         self.win_next_level_id = None
         self.win_report = {}
 
-        self.player_money = 100
+        self.player_money = 100  # session-$: магазин во время расследования
+        self.global_money = 0  # счёт: модификации инвентаря между выездами
+        self.inventory_mods = {
+            "extra_slot": False,
+            "budget_boost": False,
+            "starter_candle": False,
+        }
         self.player_level = 1
         self.player_hp = 5
         self.player_sanity = 100.0
@@ -214,6 +243,8 @@ class Game:
         self.setup_timer_hint_until = 0
         self.setup_timer_shop_seen = False
         self.radio_announcement = None
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.radio_cooldown_until = 0
         self.radio_cooldown_ms = 3000
@@ -349,6 +380,9 @@ class Game:
         self.activity_flash_until = 0
         self.hunt_cooldown_ticks = 0
         self.hunt_active_ticks = 0
+        self.hunt_grace_ticks = 0
+        self.hunt_is_cursed = False
+        self.contract_hunt_extension_seconds = 0
         self.reset_hunt_timer()
 
         self.inventory_images = assets.load_inventory_images()
@@ -429,8 +463,10 @@ class Game:
             proximity = max(0.0, min(1.0, 1.0 - distance / 520.0))
 
         hunt_pressure = 0.0
-        if getattr(self, "hunt_active_ticks", 0) > 0:
+        if self.is_hunt_chasing():
             hunt_pressure = 0.45
+        elif getattr(self, "hunt_active_ticks", 0) > 0:
+            hunt_pressure = 0.15
         activity_pressure = max(0.0, min(1.0, getattr(self, "ghost_activity", 0.0) / 100.0))
         if pygame.time.get_ticks() < getattr(self, "activity_flash_until", 0):
             activity_pressure = min(1.0, activity_pressure + 0.18)
@@ -511,13 +547,107 @@ class Game:
     def trigger_activity_event(self):
         self.activity_event_cooldown_ticks = 10 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1000
-        self.drain_sanity(random.uniform(4.0, 8.0), reason="ghost_event")
-        self._show_game_info(random.choice([
-            "Температура резко упала.",
-            "Связь искажается.",
-            "Где-то рядом сдвинулся предмет.",
-            "Воздух стал тяжелым.",
-        ]), 1300)
+        started = self.start_ghost_appearance_event()
+        if started:
+            self._show_game_info(random.choice([
+                "Призрак проявился рядом.",
+                "Ты видишь силуэт привидения.",
+                "Привидение появилось и идёт к тебе.",
+                "Холод — призрак материализовался.",
+            ]), 1300)
+        else:
+            self.drain_sanity(random.uniform(4.0, 8.0), reason="ghost_event")
+            self._show_game_info(random.choice([
+                "Температура резко упала.",
+                "Связь искажается.",
+                "Где-то рядом сдвинулся предмет.",
+                "Воздух стал тяжелым.",
+            ]), 1300)
+
+    def start_ghost_appearance_event(self):
+        """Проявление: призрак рядом и идёт к игроку; sanity падает от появления на карте."""
+        if not self.ghost_manager.ghosts:
+            return False
+        ghost = self.ghost_manager.ghosts[0]
+        px = float(self.player_rect.centerx)
+        py = float(self.player_rect.centery)
+        angle = random.uniform(0, math.tau)
+        sx = px + math.cos(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
+        sy = py + math.sin(angle) * SANITY_GHOST_EVENT_SPAWN_DISTANCE
+        duration = int(SANITY_GHOST_EVENT_DURATION_SECONDS * FPS)
+        if hasattr(ghost, "begin_appearance_event"):
+            ghost.begin_appearance_event(sx, sy, duration)
+        else:
+            ghost.rect.center = (int(sx), int(sy))
+            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+            from ghost import GhostState
+            ghost.state = GhostState.IDLE
+            if ghost.sprite:
+                ghost.sprite.set_alpha(getattr(ghost, "base_alpha", 180))
+        self.ghost_event_active = True
+        self.ghost_event_ticks_left = duration
+        drained = self.ghost_event_sanity_drain_amount()
+        self.drain_sanity(drained, reason="ghost_event")
+        self._show_game_info(
+            f"Призрак на карте! −{int(round(drained))}% рассудка.",
+            1400,
+        )
+        return True
+
+    def ghost_event_sanity_drain_amount(self):
+        amount = SANITY_GHOST_EVENT_DRAIN
+        if self.ghost_manager.ghosts:
+            ghost = self.ghost_manager.ghosts[0]
+            mult = float(getattr(ghost, "ghost_event_sanity_mult", 1.0) or 1.0)
+            amount *= max(0.5, mult)
+        return amount
+
+    def end_ghost_appearance_event(self, hissed=False):
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
+        if not self.ghost_manager.ghosts:
+            return
+        ghost = self.ghost_manager.ghosts[0]
+        if hasattr(ghost, "end_appearance_event"):
+            ghost.end_appearance_event()
+        else:
+            from ghost import GhostState
+            ghost.state = GhostState.INVISIBLE
+            if ghost.sprite:
+                ghost.sprite.set_alpha(0)
+
+    def tick_ghost_appearance_event(self):
+        """Двигает проявившегося призрака; касание только пугает (sanity уже списан при появлении)."""
+        if not getattr(self, "ghost_event_active", False):
+            return
+        if not self.ghost_manager.ghosts:
+            self.end_ghost_appearance_event(hissed=False)
+            return
+
+        ghost = self.ghost_manager.ghosts[0]
+        px = float(self.player_rect.centerx)
+        py = float(self.player_rect.centery)
+        gx = float(ghost.rect.centerx)
+        gy = float(ghost.rect.centery)
+        dx = px - gx
+        dy = py - gy
+        dist = math.hypot(dx, dy)
+        if dist > 1.0:
+            step = SANITY_GHOST_EVENT_APPROACH_SPEED
+            ghost.rect.centerx = int(gx + (dx / dist) * step)
+            ghost.rect.centery = int(gy + (dy / dist) * step)
+            ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
+
+        if ghost.rect.colliderect(self.player_rect):
+            self.increase_ghost_activity(8, "ghost_event_hit")
+            self._show_game_info("Шипение! Призрак коснулся тебя и исчез.", 1400)
+            self.end_ghost_appearance_event(hissed=True)
+            return
+
+        self.ghost_event_ticks_left -= 1
+        if self.ghost_event_ticks_left <= 0:
+            self._show_game_info("Призрак растворился в воздухе.", 1100)
+            self.end_ghost_appearance_event(hissed=False)
 
     def spawn_lit_candle(self, x, y):
         """Ставит lit firelight на карту (анти-drain в радиусе)."""
@@ -547,23 +677,73 @@ class Game:
                 return True
         return False
 
-    def start_activity_hunt(self):
-        if not self.can_ghost_attempt_hunt():
+    def is_hunt_grace_period(self):
+        return getattr(self, "hunt_grace_ticks", 0) > 0 and getattr(self, "hunt_active_ticks", 0) > 0
+
+    def is_hunt_chasing(self):
+        return getattr(self, "hunt_active_ticks", 0) > 0 and not self.is_hunt_grace_period()
+
+    def current_hunt_duration_seconds(self):
+        base = int(self.difficulty_config().get("hunt_duration_seconds", 35) or 35)
+        return base + int(getattr(self, "contract_hunt_extension_seconds", 0) or 0)
+
+    def normal_hunt_grace_seconds(self):
+        return int(HUNT_GRACE_SECONDS_BY_DIFFICULTY.get(self.difficulty_index, 3))
+
+    def start_activity_hunt(self, cursed=False):
+        if getattr(self, "hunt_active_ticks", 0) > 0:
+            if cursed:
+                self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
             return False
+
+        if cursed:
+            self.contract_hunt_extension_seconds = CURSED_HUNT_EXTENSION_SECONDS
+            self.hunt_is_cursed = True
+            grace_seconds = CURSED_HUNT_GRACE_SECONDS
+        else:
+            if not self.can_ghost_attempt_hunt():
+                return False
+            if self.hunt_cooldown_ticks > 0:
+                return False
+            self.hunt_is_cursed = False
+            grace_seconds = self.normal_hunt_grace_seconds()
+
         cfg = self.difficulty_config()
-        self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
+        duration = self.current_hunt_duration_seconds()
+        self.hunt_active_ticks = duration * FPS
+        self.hunt_grace_ticks = max(0, int(grace_seconds * FPS))
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
-        self._show_game_info("Активность достигла пика. Охота началась.", 1800)
+        if getattr(self, "ghost_event_active", False):
+            self.end_ghost_appearance_event(hissed=False)
+        if cursed:
+            self._show_game_info(
+                "Проклятая охота! Sanity и кулдаун не важны. Grace 1 с, длительность +20 с.",
+                2200,
+            )
+        else:
+            self._show_game_info("Активность достигла пика. Охота началась.", 1800)
         return True
+
+    def try_start_cursed_hunt_from_possession(self, source="radio"):
+        if self.is_setup_phase():
+            return False
+        started = self.start_activity_hunt(cursed=True)
+        if started:
+            self._show_game_info(f"Проклятый предмет ({source}) вызвал охоту!", 1800)
+        return started
 
     def reset_hunt_timer(self):
         self.hunt_cooldown_ticks = self.difficulty_config()["hunt_cooldown_seconds"] * FPS
         self.hunt_active_ticks = 0
+        self.hunt_grace_ticks = 0
+        self.hunt_is_cursed = False
 
     def tick_hunt_timer(self):
+        if self.hunt_grace_ticks > 0:
+            self.hunt_grace_ticks -= 1
         if self.hunt_active_ticks > 0:
             self.hunt_active_ticks -= 1
             if self.hunt_active_ticks <= 0:
@@ -573,13 +753,14 @@ class Game:
             self.hunt_cooldown_ticks -= 1
             if self.hunt_cooldown_ticks <= 0:
                 if self.can_ghost_attempt_hunt():
-                    self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
-                    self._show_game_info("Охота началась.", 1400)
+                    self.start_activity_hunt(cursed=False)
                 else:
                     self.hunt_cooldown_ticks = max(1, 5 * FPS)
 
     def get_hunt_radio_text(self, radio_ok=True):
         if self.hunt_active_ticks > 0:
+            if self.hunt_is_cursed:
+                return "Проклятая охота уже идёт."
             return "Оно здесь. Охота уже началась."
         seconds = max(0, self.hunt_cooldown_ticks // FPS)
         error = self.difficulty_config()["radio_time_error_seconds"]
@@ -596,14 +777,21 @@ class Game:
         return {
             "cooldown_ticks": self.hunt_cooldown_ticks,
             "active_ticks": self.hunt_active_ticks,
+            "grace_ticks": int(getattr(self, "hunt_grace_ticks", 0) or 0),
+            "is_cursed": bool(getattr(self, "hunt_is_cursed", False)),
+            "contract_extension_seconds": int(getattr(self, "contract_hunt_extension_seconds", 0) or 0),
         }
 
     def restore_hunt_state(self, data):
         if not isinstance(data, dict):
             self.reset_hunt_timer()
+            self.contract_hunt_extension_seconds = 0
             return
         self.hunt_cooldown_ticks = max(0, int(data.get("cooldown_ticks", 0)))
         self.hunt_active_ticks = max(0, int(data.get("active_ticks", 0)))
+        self.hunt_grace_ticks = max(0, int(data.get("grace_ticks", 0)))
+        self.hunt_is_cursed = bool(data.get("is_cursed", False))
+        self.contract_hunt_extension_seconds = max(0, int(data.get("contract_extension_seconds", 0)))
 
     def get_player_room_id(self):
         if self.level_data and "rooms" in self.level_data:
@@ -739,6 +927,8 @@ class Game:
         self.player_sanity = 100.0
         self.sanity_low_warned = False
         self.flashlight_on = bool(self.inventory.get("фонарик", False))
+        self.ghost_event_active = False
+        self.ghost_event_ticks_left = 0
         self.lit_candles = []
         self.setup_complete_banner_until = 0
         self.setup_timer_hint_until = 0
@@ -763,10 +953,53 @@ class Game:
     def is_setup_phase(self):
         return getattr(self, "setup_phase_ticks", 0) > 0
 
+    def session_budget_amount(self):
+        base = int(SESSION_BUDGET_BY_DIFFICULTY.get(self.difficulty_index, 100))
+        if self.inventory_mods.get("budget_boost"):
+            base += 25
+        return base
+
+    def grant_session_budget(self, reason="level_start"):
+        """Session-$ на выезд: фиксированный бюджет (не копится бесконечно)."""
+        amount = self.session_budget_amount()
+        self.player_money = amount
+        return amount
+
+    def apply_starter_inventory_mods(self):
+        if self.inventory_mods.get("starter_candle"):
+            from inventory_system import ItemType
+            self.inventory["свеча"] = True
+            self.inventory_manager.item_counts[ItemType.CANDLE] = max(
+                1, int(self.inventory_manager.item_counts.get(ItemType.CANDLE, 0) or 0)
+            )
+
+    def max_carried_items(self):
+        from inventory_system import MAX_CARRIED_ITEMS
+        return MAX_CARRIED_ITEMS + (1 if self.inventory_mods.get("extra_slot") else 0)
+
+    def buy_inventory_mod(self, mod_id):
+        meta = INVENTORY_MOD_CATALOG.get(mod_id)
+        if not meta:
+            return False
+        if self.inventory_mods.get(mod_id):
+            self._show_game_info("Модификация уже куплена.", 1200)
+            return False
+        cost = int(meta["cost"])
+        if self.global_money < cost:
+            self._show_game_info("Недостаточно средств на счёте.", 1200)
+            return False
+        self.global_money -= cost
+        self.inventory_mods[mod_id] = True
+        self._show_game_info(f"Куплено: {meta['title']} (−{cost}$ со счёта).", 1600)
+        self.autosave_current_slot()
+        return True
+
     def announce_setup_complete(self):
         """Конец setup: 00:00 на компьютере + радио-анонс + баннер (прямоугольники не пересекаются)."""
         self.setup_complete_banner_until = pygame.time.get_ticks() + 3200
         self.setup_timer_hint_until = 0
+        # Мелкий session-бонус за «дожили до охоты» — не глобальный счёт.
+        self.player_money += SESSION_SETUP_TIP
         self.trigger_radio_feedback(
             True,
             announcement="База: фаза подготовки окончена. Призрак теперь может начать охоту.",
@@ -1105,6 +1338,11 @@ class Game:
 
         return overlay
 
+    def _after_level_ready(self):
+        self.contract_hunt_extension_seconds = 0
+        self.grant_session_budget(reason="level_ready")
+        self.apply_starter_inventory_mods()
+
     def load_level_by_id(self, level_id):
         """
         Загружает уровень по его строковому идентификатору из реестра уровней.
@@ -1144,6 +1382,7 @@ class Game:
                 self.current_level_id = None
                 self.load_level(level_file)
                 break
+        self._after_level_ready()
 
     def reset_player_position(self):
         """Сбрасывает позицию персонажа на начальную (НЕ сбрасывает HP!)"""
@@ -1163,6 +1402,8 @@ class Game:
         self.game_over_reason = "hp"
         self.player_hp = 5
         self.player_money = 100
+        # global_money и inventory_mods сохраняем между «новыми делами» в том же слоте —
+        # полный сброс только если слота нет; при new game оставляем мета-прогресс слота.
         self.player_level = 1
         self.reset_inventory()
         self.reset_player_position()
@@ -1179,6 +1420,9 @@ class Game:
         self.reset_hunt_timer()
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
+        self.contract_hunt_extension_seconds = 0
+        self.grant_session_budget(reason="new_game")
+        self.apply_starter_inventory_mods()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
@@ -1188,7 +1432,10 @@ class Game:
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
         if item_type and not self.inventory_manager.can_receive_item(item_type):
-            self._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            self._show_game_info(
+                f"Инвентарь полон: максимум {self.max_carried_items()} предмета.",
+                1200,
+            )
             return False
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
@@ -1228,7 +1475,8 @@ class Game:
         self.win_next_level_id = self.get_next_level_id()
         breakdown = self.get_level_complete_reward_breakdown()
         reward = int(breakdown["total"])
-        self.player_money += reward
+        # Победа кормит глобальный счёт (модификации), не session-магазин.
+        self.global_money += reward
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
             key for key, state in self.journal_evidence.items()
@@ -1243,6 +1491,8 @@ class Game:
             "reward_evidence_bonus": breakdown["evidence_bonus"],
             "confirmed_count": breakdown["confirmed_count"],
             "money_after": self.player_money,
+            "global_money_after": self.global_money,
+            "reward_to": "global",
             "next_level_name": next_meta.get("name") if next_meta else None,
         }
         self.win_entered_at = pygame.time.get_ticks()
@@ -1294,6 +1544,11 @@ class Game:
             "level": self.player_level,
             "hp": self.player_hp,
             "money": self.player_money,
+            "global_money": int(getattr(self, "global_money", 0) or 0),
+            "inventory_mods": {
+                key: bool(getattr(self, "inventory_mods", {}).get(key, False))
+                for key in INVENTORY_MOD_CATALOG
+            },
             "sanity": round(float(getattr(self, "player_sanity", 100.0)), 2),
             "flashlight_on": bool(getattr(self, "flashlight_on", False)),
             "setup_phase_ticks": int(getattr(self, "setup_phase_ticks", 0)),
@@ -1326,6 +1581,11 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            self.global_money = int(save_data.get("global_money", 0) or 0)
+            saved_mods = save_data.get("inventory_mods") or {}
+            self.inventory_mods = {
+                key: bool(saved_mods.get(key, False)) for key in INVENTORY_MOD_CATALOG
+            }
             saved_inventory = save_data.get("inventory") or {}
             default_light = bool(saved_inventory.get("фонарик", False))
             self.loaded_sanity_state = {
@@ -1466,6 +1726,7 @@ class Game:
                 mechanics.update_player_movement(self)
                 self.tick_sanity()
                 self.tick_lit_candles()
+                self.tick_ghost_appearance_event()
                 self.tick_hunt_timer()
                 self.tick_ghost_activity()
                 pz = self.inventory_manager.get_projector_zones()
@@ -1487,9 +1748,14 @@ class Game:
                         word = "предмет" if count == 1 else ("предмета" if count == 2 else "предметов")
                         self._show_game_info(f"Призрак разбросал {count} {word}!", 1200)
                         self.drain_sanity(2.0, reason="item_throw")
-                # Столкновение с приведением — отнимаем HP
+                # Столкновение с приведением — отнимаем HP (не во время appearance / grace)
                 now = pygame.time.get_ticks()
-                if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
+                if (
+                    not getattr(self, "ghost_event_active", False)
+                    and not self.is_hunt_grace_period()
+                    and self.ghost_manager.check_player_collision(self.player_rect)
+                    and now >= self.hit_invincible_until
+                ):
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.increase_ghost_activity(12, "player_hit")

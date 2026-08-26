@@ -342,11 +342,13 @@ class Ghost:
         self.radio = abilities.get("radio", False)
         self.freezing_temperature = abilities.get("freezing_temperature", False)
         self.activity_gain = _to_float(abilities.get("activity_gain"), 1.0)
+        self.ghost_event_sanity_mult = _to_float(abilities.get("ghost_event_sanity_mult"), 1.0)
         self.aggression = 10  # 0..100, обновляется в update()
         
         # FSM состояние - НАЧИНАЕМ НЕВИДИМЫМ
         self.state = GhostState.INVISIBLE
         self.state_timer = 0
+        self.in_appearance_event = False
         
         # Параметры движения (из ghost_abilities.ini / профиля)
         self.base_speed = _to_float(abilities.get("speed"), 3.0) * GHOST_SPEED_SCALE
@@ -408,6 +410,32 @@ class Ghost:
         self.spawn_animation_speed = 300  # мс между кадрами (25 кадров × 300мс = 7.5 сек)
         self.is_playing_spawn = False
         self._load_spawn_animation()
+
+    def begin_appearance_event(self, x, y, duration_ticks):
+        self.rect.center = (int(x), int(y))
+        self.x, self.y = self.rect.x, self.rect.y
+        self.state = GhostState.IDLE
+        self.state_timer = 0
+        self.in_appearance_event = True
+        self.is_frozen_after_appear = False
+        self.appear_freeze_timer = 0
+        self.is_playing_spawn = False
+        self.current_path = []
+        self.path_index = 0
+        if self.sprite:
+            self.sprite.set_alpha(self.base_alpha)
+
+    def end_appearance_event(self):
+        self.in_appearance_event = False
+        self.state = GhostState.INVISIBLE
+        self.state_timer = 0
+        self.invisibility_timer = 0
+        self.is_first_appearance = False
+        self.invisibility_duration = random.randint(*self.invisible_duration_range)
+        self.is_frozen_after_appear = False
+        self.is_playing_spawn = False
+        if self.sprite:
+            self.sprite.set_alpha(0)
 
     def set_difficulty_speed_multiplier(self, multiplier):
         self.speed = self.base_speed * multiplier
@@ -658,6 +686,8 @@ class Ghost:
         return False
     
     def update_state(self, player_rect, walls, debug_mode=False):
+        if getattr(self, "in_appearance_event", False):
+            return
         """Обновляет состояние FSM с подробным логированием"""
         previous_state = self.state
         self.state_timer += 1
@@ -874,6 +904,8 @@ class Ghost:
         world_width=SCREEN_WIDTH,
         world_height=SCREEN_HEIGHT,
     ):
+        if getattr(self, "in_appearance_event", False):
+            return
         """Обновляет движение в зависимости от состояния. projector_zones — призраки не заходят в эти круги."""
         pz = projector_zones or []
         if self.state == GhostState.INVISIBLE:
@@ -1588,6 +1620,8 @@ class GhostManager:
             if ghost.state == GhostState.INVISIBLE:
                 continue
             if ghost.is_frozen_after_appear:
+                continue
+            if getattr(ghost, "in_appearance_event", False):
                 continue
             if ghost.get_damage_rect().colliderect(player_rect):
                 return True
