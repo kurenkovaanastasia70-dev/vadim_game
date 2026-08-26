@@ -273,7 +273,11 @@ class TaskAchievementManager:
                 if not ach["claimed"] and ach["reward"] > 0:
                     ach["claimed"] = True
                     self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-                messages.append(f"Ачивка: {ach['title']}")
+                    messages.append(
+                        f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"
+                    )
+                else:
+                    messages.append(f"Достижение: {ach['title']}")
 
         return ProgressResult(messages)
 
@@ -286,5 +290,6 @@ class TaskAchievementManager:
             if not ach["claimed"] and ach["reward"] > 0:
                 ach["claimed"] = True
                 self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-            return ProgressResult([f"Ачивка: {ach['title']}"])
+                return ProgressResult([f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"])
+            return ProgressResult([f"Достижение: {ach['title']}"])
         return ProgressResult([])

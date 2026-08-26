@@ -70,9 +70,40 @@ python tools_test_sanity.py
 | Баланс | Траты | Пополнение |
 |---|---|---|
 | **Сессия** (`player_money`) | Магазин на выезде | Бюджет уровня + tip конца setup + **награды заданий** |
-| **Счёт** (`global_money`) | Моды инвентаря | Победа уровня + **ачивки** |
+| **Счёт** (`global_money`) | Моды инвентаря | Победа уровня + **глобальные достижения** |
 
 Моды: `extra_slot`, `budget_boost`, `starter_candle` (каталог в `inventory_system.INVENTORY_MOD_CATALOG`).
+
+---
+
+# Фича 5. Глобальные достижения (из Google / CSV)
+
+## 5.1. Смысл
+
+Общие «дейлики/ачивки» из таблицы **не привязаны к уровню**.  
+Источник: `GOOGLE_SHEETS_ACHIEVEMENTS_CSV_URL` → иначе `local_lessons/achievements_catalog.csv` → иначе встроенный fallback.  
+Прогресс живёт в сейве слота; при смене уровня **не сбрасываются**.  
+Награда всегда на **счёт** (`global_money`).
+
+Отдельный UI: слева бейдж «Достижения (счёт $)» → клик открывает список.  
+Справа только задания выезда (сессия $).
+
+## 5.2. Карта файлов
+
+| Файл | Роль |
+|---|---|
+| `progression.py` | GoogleSheets / Local CSV provider; награда → global |
+| `local_lessons/achievements_catalog.csv` | локальный каталог |
+| `draws.py` | бейдж + панель достижений |
+| `handlers.py` | клик по бейджу |
+
+## 5.3. Проверка
+
+```text
+# клик слева открывает список достижений
+# progress_event ачивки увеличивает global_money
+# _after_level_ready не затирает achievements_table
+```
 
 ---
 

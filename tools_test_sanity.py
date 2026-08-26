@@ -149,6 +149,16 @@ def main():
     game.progress_event("buy_item", 1)
     assert game.player_money == 10 + 25
 
+    # Глобальные достижения → счёт; UI-флаг панели есть.
+    game.achievements_table = game.progress_manager.new_state()[1]
+    radio_ach = next(a for a in game.achievements_table if a["event_key"] == "radio_answer")
+    radio_ach["progress"] = radio_ach["target"] - 1
+    before = game.global_money
+    game.progress_event("radio_answer", 1)
+    assert radio_ach["unlocked"]
+    assert game.global_money == before + int(radio_ach["reward"])
+    assert hasattr(game, "achievements_panel_open")
+
     print("sanity tests OK")
     return 0
 

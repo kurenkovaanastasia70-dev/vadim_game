@@ -338,6 +338,17 @@ def handle_game_events(game, event):
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         mouse_pos = event.pos
+        badge = getattr(game, "achievements_badge_rect", None)
+        popup = getattr(game, "achievements_popup_rect", None)
+        if badge and badge.collidepoint(mouse_pos):
+            game.achievements_panel_open = not bool(getattr(game, "achievements_panel_open", False))
+            return
+        if getattr(game, "achievements_panel_open", False):
+            if popup and popup.collidepoint(mouse_pos):
+                return
+            # клик мимо — закрыть панель достижений
+            game.achievements_panel_open = False
+
         world_mouse_pos = (mouse_pos[0] + game.camera_x, mouse_pos[1] + game.camera_y)
         
         if game.inventory_manager.placement_mode:

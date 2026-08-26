@@ -253,6 +253,7 @@ class Game:
         ach_provider = GoogleSheetsAchievementTableProvider(sheets_url, local_ach_provider)
         self.progress_manager = TaskAchievementManager(self, ach_provider)
         self.tasks, self.achievements_table = self.progress_manager.new_state()
+        self.achievements_panel_open = False
 
         self.level_background_colors = [
             (0, 0, 0),     # базовый темный фон

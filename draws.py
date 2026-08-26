@@ -1378,8 +1378,8 @@ def draw_game(game):
         pygame.draw.rect(game.screen, (170, 185, 205), tip_rect, 1, border_radius=5)
         game.screen.blit(label, (lx, ly))
 
-    # Компактная панель прогресса + раскрытие ачивок по наведению
-    panel_w, panel_h = 320, 92
+    # --- Сессионные задания (правая панель) ---
+    panel_w, panel_h = 300, 78
     panel_x = SCREEN_WIDTH - panel_w - 20
     panel_y = 150
     panel_bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
@@ -1388,53 +1388,82 @@ def draw_game(game):
     pygame.draw.rect(game.screen, (95, 77, 56), (panel_x, panel_y, panel_w, panel_h), 2)
 
     panel_font = pygame.font.Font(None, 22)
-    y = panel_y + 8
+    game.screen.blit(panel_font.render("Задания выезда (сессия $)", True, (70, 55, 40)), (panel_x + 8, panel_y + 6))
+    y = panel_y + 30
     active_tasks = [t for t in getattr(game, "tasks", []) if not t.get("done")]
-    for task in active_tasks[:2]:
+    shown = active_tasks[:2] if active_tasks else []
+    if not shown:
+        game.screen.blit(panel_font.render("Все задания выезда закрыты", True, (90, 80, 70)), (panel_x + 8, y))
+    for task in shown:
         status = f"{task.get('progress', 0)}/{task.get('target', 0)}"
-        short_title = str(task.get("title", task.get("id", "")))[:22]
-        row = f"{short_title}: {status}"
+        short_title = str(task.get("title", task.get("id", "")))[:20]
+        reward = int(task.get("reward", 0) or 0)
+        row = f"{short_title}: {status}  +{reward}$"
         game.screen.blit(panel_font.render(row, True, (44, 37, 30)), (panel_x + 8, y))
         y += 22
 
+    # --- Глобальные достижения (отдельный элемент слева) ---
     unlocked = sum(1 for a in getattr(game, "achievements_table", []) if a.get("unlocked"))
     total = len(getattr(game, "achievements_table", []))
-    ach_row = f"Ачивки {unlocked}/{total} (наведи)"
-    ach_text_surface = panel_font.render(ach_row, True, (44, 37, 30))
-    ach_text_pos = (panel_x + 8, panel_y + panel_h - 24)
-    game.screen.blit(ach_text_surface, ach_text_pos)
-    ach_hover_rect = pygame.Rect(ach_text_pos[0], ach_text_pos[1], ach_text_surface.get_width(), ach_text_surface.get_height())
+    badge_w, badge_h = 250, 56
+    badge_x, badge_y = 20, 150
+    badge_rect = pygame.Rect(badge_x, badge_y, badge_w, badge_h)
+    game.achievements_badge_rect = badge_rect
+    badge_bg = pygame.Surface((badge_w, badge_h), pygame.SRCALPHA)
+    open_panel = bool(getattr(game, "achievements_panel_open", False))
+    badge_bg.fill((40, 72, 88, 220) if open_panel else (32, 58, 72, 210))
+    game.screen.blit(badge_bg, badge_rect.topleft)
+    pygame.draw.rect(game.screen, (120, 190, 210), badge_rect, 2, border_radius=8)
+    badge_font = pygame.font.Font(None, 23)
+    small_badge = pygame.font.Font(None, 20)
+    game.screen.blit(badge_font.render("Достижения (счёт $)", True, (220, 240, 248)), (badge_x + 10, badge_y + 6))
+    game.screen.blit(
+        small_badge.render(f"{unlocked}/{total}  ·  клик открыть", True, (170, 210, 230)),
+        (badge_x + 10, badge_y + 30),
+    )
 
-    achievement_rows = []
-    for ach in getattr(game, "achievements_table", []):
-        mark = "[x]" if ach.get("unlocked") else "[ ]"
-        title = str(ach.get("title", ach.get("id", "")))
-        desc = str(ach.get("description", "")).strip()
-        progress = f"{ach.get('progress', 0)}/{ach.get('target', 0)}"
-        row = f"{mark} {title}: {desc} ({progress})" if desc else f"{mark} {title} ({progress})"
-        achievement_rows.append(row)
-    popup_h = min(340, 12 + max(1, len(achievement_rows)) * 34)
-    popup_rect = pygame.Rect(panel_x, panel_y + panel_h + 6, 430, popup_h)
-    show_ach_popup = ach_hover_rect.collidepoint(mouse_pos) or popup_rect.collidepoint(mouse_pos)
-
-    if show_ach_popup:
+    if open_panel:
+        rows = []
+        for ach in getattr(game, "achievements_table", []):
+            mark = "[x]" if ach.get("unlocked") else "[ ]"
+            title = str(ach.get("title", ach.get("id", "")))
+            progress = f"{ach.get('progress', 0)}/{ach.get('target', 0)}"
+            reward = int(ach.get("reward", 0) or 0)
+            desc = str(ach.get("description", "")).strip()
+            base = f"{mark} {title} ({progress})  +{reward}$"
+            rows.append((base, desc, bool(ach.get("unlocked"))))
+        popup_h = min(360, 36 + max(1, len(rows)) * 40)
+        popup_rect = pygame.Rect(badge_x, badge_y + badge_h + 8, 360, popup_h)
+        game.achievements_popup_rect = popup_rect
         popup_bg = pygame.Surface((popup_rect.w, popup_rect.h), pygame.SRCALPHA)
-        popup_bg.fill((245, 239, 226, 225))
+        popup_bg.fill((24, 42, 52, 235))
         game.screen.blit(popup_bg, popup_rect.topleft)
-        pygame.draw.rect(game.screen, (95, 77, 56), popup_rect, 2)
+        pygame.draw.rect(game.screen, (120, 190, 210), popup_rect, 2, border_radius=8)
         popup_font = pygame.font.Font(None, 21)
-        max_text_w = popup_rect.w - 18
-        if achievement_rows:
-            for i, row in enumerate(achievement_rows[:10]):
-                row_y = popup_rect.y + 7 + i * 34
-                if i % 2 == 0:
-                    pygame.draw.rect(game.screen, (234, 225, 209), (popup_rect.x + 4, row_y - 1, popup_rect.w - 8, 32))
-                text = row
-                while popup_font.size(text)[0] > max_text_w and len(text) > 4:
-                    text = text[:-4] + "..."
-                game.screen.blit(popup_font.render(text, True, (44, 37, 30)), (popup_rect.x + 8, row_y))
+        tiny = pygame.font.Font(None, 18)
+        game.screen.blit(
+            popup_font.render("Глобальные · награда на счёт", True, (180, 220, 235)),
+            (popup_rect.x + 10, popup_rect.y + 8),
+        )
+        if not rows:
+            game.screen.blit(popup_font.render("Нет достижений в таблице", True, (200, 210, 220)), (popup_rect.x + 10, popup_rect.y + 36))
         else:
-            game.screen.blit(popup_font.render("Нет ачивок", True, (60, 50, 40)), (popup_rect.x + 8, popup_rect.y + 8))
+            for i, (base, desc, done) in enumerate(rows[:8]):
+                row_y = popup_rect.y + 34 + i * 40
+                if i % 2 == 0:
+                    pygame.draw.rect(game.screen, (30, 52, 64), (popup_rect.x + 4, row_y - 2, popup_rect.w - 8, 38))
+                color = (160, 230, 190) if done else (230, 238, 245)
+                text = base
+                while popup_font.size(text)[0] > popup_rect.w - 20 and len(text) > 4:
+                    text = text[:-4] + "..."
+                game.screen.blit(popup_font.render(text, True, color), (popup_rect.x + 10, row_y))
+                if desc:
+                    d = desc
+                    while tiny.size(d)[0] > popup_rect.w - 20 and len(d) > 4:
+                        d = d[:-4] + "..."
+                    game.screen.blit(tiny.render(d, True, (150, 175, 190)), (popup_rect.x + 10, row_y + 18))
+    else:
+        game.achievements_popup_rect = None
         
     if game.show_save_prompt:
         # Полупрозрачный фон
