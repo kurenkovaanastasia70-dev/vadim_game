@@ -785,7 +785,7 @@ def draw_menu(game):
     game.screen.blit(subtitle, subtitle.get_rect(center=(title_card.centerx, title_card.y + 82)))
 
     pin_centers = [button.rect.center for button in game.menu_buttons]
-    thread_pairs = [(0, 2), (2, 1), (0, 3), (2, 4), (3, 4)]
+    thread_pairs = [(0, 2), (2, 1), (0, 3), (2, 4), (3, 4), (3, 5), (2, 5)]
     for a, b in thread_pairs:
         if a < len(pin_centers) and b < len(pin_centers):
             pygame.draw.line(game.screen, (128, 25, 28), pin_centers[a], pin_centers[b], 3)
@@ -816,6 +816,80 @@ def draw_menu(game):
     # Рисуем пины вместо обычных кнопок
     for button in game.menu_buttons:
         button.draw(game.screen)
+
+def _draw_inventory_mod_cards(game, buttons, mouse, name_f, small_f, btn_f, start_y=200, card_w=520):
+    """Рисует карточки глобальных улучшений. buttons[0..] — кнопки «Купить» по порядку модов."""
+    mod_ids = ["extra_slot", "budget_boost", "starter_candle"]
+    for mi, mod_id in enumerate(mod_ids):
+        meta = INVENTORY_MOD_CATALOG[mod_id]
+        card = pygame.Rect((SCREEN_WIDTH - card_w) // 2, start_y + mi * 90, card_w, 76)
+        owned = bool(getattr(game, "inventory_mods", {}).get(mod_id))
+        pygame.draw.rect(game.screen, (28, 40, 48), card, border_radius=8)
+        pygame.draw.rect(game.screen, (70, 120, 130), card, 1, border_radius=8)
+        game.screen.blit(name_f.render(meta["title"], True, (220, 240, 245)), (card.x + 16, card.y + 10))
+        desc = str(meta.get("desc", ""))
+        game.screen.blit(small_f.render(desc, True, (160, 180, 195)), (card.x + 16, card.y + 36))
+        game.screen.blit(
+            small_f.render(f"{meta['cost']}$ со счёта", True, (160, 210, 230)),
+            (card.x + 16, card.y + 54),
+        )
+        if mi >= len(buttons):
+            continue
+        btn = buttons[mi]
+        btn.rect = pygame.Rect(card.right - 110, card.y + 24, 90, 28)
+        hover = btn.rect.collidepoint(mouse)
+        if owned:
+            btn_color = (64, 72, 86)
+            label = "Есть"
+        elif getattr(game, "global_money", 0) >= meta["cost"]:
+            btn_color = (40, 110, 140) if not hover else (60, 140, 170)
+            label = "Купить"
+        else:
+            btn_color = (78, 78, 88)
+            label = "Мало $"
+        pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=7)
+        label_surf = btn_f.render(label, True, (248, 248, 248))
+        game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
+
+
+def draw_upgrades(game):
+    """Экран улучшений со главного меню: только глобальный счёт."""
+    game.screen.fill((22, 30, 36))
+    title_f = pygame.font.Font(None, 46)
+    money_f = pygame.font.Font(None, 30)
+    name_f = pygame.font.Font(None, 26)
+    small_f = pygame.font.Font(None, 20)
+    btn_f = pygame.font.Font(None, 22)
+    mouse = pygame.mouse.get_pos()
+
+    title = title_f.render("УЛУЧШЕНИЯ ИНВЕНТАРЯ", True, (238, 242, 248))
+    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 56)))
+
+    hint = small_f.render(
+        "Постоянные покупки за счёт. Расходники на выезд — в компьютере на уровне.",
+        True,
+        (160, 185, 200),
+    )
+    game.screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, 96)))
+
+    money_box = pygame.Rect(SCREEN_WIDTH // 2 - 140, 120, 280, 42)
+    pygame.draw.rect(game.screen, (36, 42, 54), money_box, border_radius=8)
+    pygame.draw.rect(game.screen, (88, 140, 160), money_box, 1, border_radius=8)
+    money = money_f.render(f"счёт $ {getattr(game, 'global_money', 0)}", True, (180, 220, 240))
+    game.screen.blit(money, money.get_rect(center=money_box.center))
+
+    buttons = getattr(game, "upgrades_buttons", [])
+    back = buttons[0] if buttons else None
+    if back:
+        back_hover = back.rect.collidepoint(mouse)
+        pygame.draw.rect(game.screen, (126, 48, 52) if not back_hover else (166, 66, 70), back.rect, border_radius=7)
+        pygame.draw.rect(game.screen, (235, 190, 190), back.rect, 1, border_radius=7)
+        back_text = btn_f.render(back.text, True, (248, 248, 248))
+        game.screen.blit(back_text, back_text.get_rect(center=back.rect.center))
+
+    buy_buttons = buttons[1:4] if len(buttons) >= 4 else []
+    _draw_inventory_mod_cards(game, buy_buttons, mouse, name_f, small_f, btn_f, start_y=190, card_w=560)
+
 
 def draw_shop(game):
     game.screen.fill((24, 26, 34))

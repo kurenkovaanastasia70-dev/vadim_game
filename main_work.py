@@ -166,8 +166,15 @@ class Game:
             PinButton(405, 335, self.pin_images.get("pin_2"), "Как играть"),
             PinButton(160, 500, self.pin_images.get("pin_3"), "Слоты"),
             PinButton(675, 470, self.pin_images.get("pin_1"), "Выход"),
+            PinButton(430, 520, self.pin_images.get("pin_3"), "Улучшения"),
         ]
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
+        self.upgrades_buttons = [
+            Button(36, 28, 120, 36, "Назад", RED),
+            Button(280, 250, 116, 32, "Купить", GREEN),
+            Button(280, 330, 116, 32, "Купить", GREEN),
+            Button(280, 410, 116, 32, "Купить", GREEN),
+        ]
         # Журнал улик: ЭМП / УФ / радио и флаг панели
         self.journal_open = False
         self.journal_reset_confirm = False
@@ -1695,6 +1702,9 @@ class Game:
             if self.player_hp > 0:
                 self.tick_setup_phase_clock()
             draws.draw_shop(self)
+        elif self.state == GameState.UPGRADES:
+            self.moving = False
+            draws.draw_upgrades(self)
         elif self.state == GameState.SETTINGS:
             draws.draw_settings(self)
         elif self.state == GameState.DIFF:
