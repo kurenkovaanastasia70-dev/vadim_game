@@ -1273,6 +1273,7 @@ class Game:
         self.current_level_id = level_id
         # Загружаем данные уровня через существующую функцию
         self.load_level(level_path)
+        self._after_level_ready()
 
     def load_level_for_current_level(self):
         """
@@ -1287,6 +1288,7 @@ class Game:
             if meta:
                 self.current_level_id = meta.get("id")
             self.load_level(level_path)
+            self._after_level_ready()
             return
 
         # 2) Фолбэк: старое поведение по файлам
