@@ -6,7 +6,23 @@
       "file": "level1.json",
       "number": 1,
       "background_color_index": 0,
-      "next": "level_2"
+      "next": "level_2",
+      "tasks": [
+        {
+          "id": "l1_buy_1",
+          "title": "Купить 1 предмет",
+          "target": 1,
+          "reward": 25,
+          "event_key": "buy_item"
+        },
+        {
+          "id": "l1_radio_2",
+          "title": "Получить 2 ответа по радио",
+          "target": 2,
+          "reward": 35,
+          "event_key": "radio_answer"
+        }
+      ]
     },
     {
       "id": "level_2",
@@ -14,8 +30,23 @@
       "file": "level2.json",
       "number": 2,
       "background_color_index": 1,
-      "next": null
+      "next": null,
+      "tasks": [
+        {
+          "id": "l2_salt_2",
+          "title": "Использовать соль 2 раза",
+          "target": 2,
+          "reward": 40,
+          "event_key": "use_salt"
+        },
+        {
+          "id": "l2_buy_2",
+          "title": "Купить 2 предмета",
+          "target": 2,
+          "reward": 45,
+          "event_key": "buy_item"
+        }
+      ]
     }
   ]
 }
-

@@ -23,6 +23,7 @@ from main_work import (
     SESSION_SETUP_TIP,
 )
 from inventory_system import ItemType
+from ghost import Ghost, GhostState, Room
 
 
 def approx(a, b, eps=0.08):
@@ -95,23 +96,22 @@ def main():
     assert not any(t.value == "таблетки" for t in ItemType)
 
 
-    # Appearance: sanity падает от появления на карте (не от касания).
-    from ghost import Ghost, Room
+    # Appearance: обычный FSM — при выходе из INVISIBLE снимается рассудок.
     game.player_sanity = 80.0
     game.ghost_manager.rooms = [Room(0, 0, 800, 600, 0)]
+    game.ghost_manager.appearance_callback = game.on_ghost_appeared_on_map
     sprite = pygame.Surface((40, 40), pygame.SRCALPHA)
     sprite.fill((200, 200, 220, 180))
     ghost = Ghost(100, 100, sprite, game.ghost_manager.rooms, home_room_id=0)
+    ghost.is_first_appearance = False
+    ghost.invisibility_duration = 1
+    ghost.state = GhostState.INVISIBLE
+    ghost.state_timer = 0
     game.ghost_manager.ghosts = [ghost]
-    assert game.start_ghost_appearance_event()
-    assert game.ghost_event_active
+    ghost._appearance_notify = game.on_ghost_appeared_on_map
+    ghost.update_state(game.player_rect, [], debug_mode=False)
+    assert ghost.state != GhostState.INVISIBLE
     assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
-    contact_sanity = game.player_sanity
-    ghost.rect.center = game.player_rect.center
-    ghost.x, ghost.y = ghost.rect.x, ghost.rect.y
-    game.tick_ghost_appearance_event()
-    assert not game.ghost_event_active
-    assert approx(game.player_sanity, contact_sanity, eps=0.001)
 
     # Cursed hunt.
     game.setup_phase_ticks = 0
@@ -140,6 +140,14 @@ def main():
     game.enter_win("тест")
     assert game.win_report.get("reward_to") == "global"
     assert game.global_money >= game.win_report["reward"]
+
+    # Задания сессии → session-$; каталог можно задать по уровню.
+    game.current_level_id = "level_1"
+    game.player_money = 10
+    game.tasks = game.progress_manager.new_tasks_for_level("level_1")
+    assert any(t["id"] == "l1_buy_1" for t in game.tasks)
+    game.progress_event("buy_item", 1)
+    assert game.player_money == 10 + 25
 
     print("sanity tests OK")
     return 0
