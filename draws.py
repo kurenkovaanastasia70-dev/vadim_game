@@ -926,9 +926,7 @@ def draw_shop(game):
         label_surf = btn_f.render(label, True, (246, 248, 250))
         game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
 
-def draw_settings(game):
-
-    # Модификации инвентаря — только за глобальный счёт.
+    # Улучшения инвентаря — только за глобальный счёт (внизу магазина).
     mod_ids = ["extra_slot", "budget_boost", "starter_candle"]
     mod_btn_index = {0: 13, 1: 14, 2: 15}
     mod_y = 610
@@ -953,8 +951,11 @@ def draw_settings(game):
             btn_color = (78, 78, 88)
             label = "Мало $"
         pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=7)
-        game.screen.blit(btn_f.render(label, True, (248, 248, 248)), btn_f.render(label, True, (248, 248, 248)).get_rect(center=btn.rect.center))
+        label_surf = btn_f.render(label, True, (248, 248, 248))
+        game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
 
+
+def draw_settings(game):
     """
     Отрисовывает экран настроек.
     
