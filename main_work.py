@@ -27,7 +27,7 @@ import handlers
 import mechanics
 import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
-from inventory_system import InventoryManager
+from inventory_system import InventoryManager, INVENTORY_MOD_CATALOG
 import level_config
 from progression import (
     GoogleSheetsAchievementTableProvider,
@@ -126,6 +126,11 @@ SANITY_CANDLE_DURATION_SECONDS = 90
 CURSED_HUNT_EXTENSION_SECONDS = 20
 CURSED_HUNT_GRACE_SECONDS = 1
 HUNT_GRACE_SECONDS_BY_DIFFICULTY = {0: 5, 1: 4, 2: 3, 3: 2}
+# Два баланса:
+# - session (player_money): покупки в магазине во время расследования;
+# - global_money: постоянные модификации инвентаря (мета).
+SESSION_BUDGET_BY_DIFFICULTY = {0: 120, 1: 100, 2: 80, 3: 60}
+SESSION_SETUP_TIP = 15
 
 class Game:
     def __init__(self):
@@ -161,8 +166,15 @@ class Game:
             PinButton(405, 335, self.pin_images.get("pin_2"), "Как играть"),
             PinButton(160, 500, self.pin_images.get("pin_3"), "Слоты"),
             PinButton(675, 470, self.pin_images.get("pin_1"), "Выход"),
+            PinButton(430, 520, self.pin_images.get("pin_3"), "Улучшения"),
         ]
         self.howto_back_button = Button(50, 50, 160, 44, "Назад", RED)
+        self.upgrades_buttons = [
+            Button(36, 28, 120, 36, "Назад", RED),
+            Button(280, 250, 116, 32, "Купить", GREEN),
+            Button(280, 330, 116, 32, "Купить", GREEN),
+            Button(280, 410, 116, 32, "Купить", GREEN),
+        ]
         # Журнал улик: ЭМП / УФ / радио и флаг панели
         self.journal_open = False
         self.journal_reset_confirm = False
@@ -185,6 +197,9 @@ class Game:
             Button(794, 564, 116, 32, "Купить", BLUE),
             Button(794, 650, 116, 32, "Купить", BLUE),
             Button(286, 650, 116, 32, "Купить", GREEN),
+            Button(62, 620, 116, 32, "Купить", GREEN),
+            Button(286, 620, 116, 32, "Купить", GREEN),
+            Button(570, 620, 116, 32, "Купить", GREEN),
         ]
         
         # Создание кнопок для настроек
@@ -213,7 +228,13 @@ class Game:
         self.win_next_level_id = None
         self.win_report = {}
 
-        self.player_money = 100
+        self.player_money = 100  # session-$: магазин во время расследования
+        self.global_money = 0  # счёт: модификации инвентаря между выездами
+        self.inventory_mods = {
+            "extra_slot": False,
+            "budget_boost": False,
+            "starter_candle": False,
+        }
         self.player_level = 1
         self.player_hp = 5
         self.player_sanity = 100.0
@@ -239,6 +260,7 @@ class Game:
         ach_provider = GoogleSheetsAchievementTableProvider(sheets_url, local_ach_provider)
         self.progress_manager = TaskAchievementManager(self, ach_provider)
         self.tasks, self.achievements_table = self.progress_manager.new_state()
+        self.achievements_panel_open = False
 
         self.level_background_colors = [
             (0, 0, 0),     # базовый темный фон
@@ -853,10 +875,53 @@ class Game:
     def is_setup_phase(self):
         return getattr(self, "setup_phase_ticks", 0) > 0
 
+    def session_budget_amount(self):
+        base = int(SESSION_BUDGET_BY_DIFFICULTY.get(self.difficulty_index, 100))
+        if self.inventory_mods.get("budget_boost"):
+            base += 25
+        return base
+
+    def grant_session_budget(self, reason="level_start"):
+        """Session-$ на выезд: фиксированный бюджет (не копится бесконечно)."""
+        amount = self.session_budget_amount()
+        self.player_money = amount
+        return amount
+
+    def apply_starter_inventory_mods(self):
+        if self.inventory_mods.get("starter_candle"):
+            from inventory_system import ItemType
+            self.inventory["свеча"] = True
+            self.inventory_manager.item_counts[ItemType.CANDLE] = max(
+                1, int(self.inventory_manager.item_counts.get(ItemType.CANDLE, 0) or 0)
+            )
+
+    def max_carried_items(self):
+        from inventory_system import MAX_CARRIED_ITEMS
+        return MAX_CARRIED_ITEMS + (1 if self.inventory_mods.get("extra_slot") else 0)
+
+    def buy_inventory_mod(self, mod_id):
+        meta = INVENTORY_MOD_CATALOG.get(mod_id)
+        if not meta:
+            return False
+        if self.inventory_mods.get(mod_id):
+            self._show_game_info("Модификация уже куплена.", 1200)
+            return False
+        cost = int(meta["cost"])
+        if self.global_money < cost:
+            self._show_game_info("Недостаточно средств на счёте.", 1200)
+            return False
+        self.global_money -= cost
+        self.inventory_mods[mod_id] = True
+        self._show_game_info(f"Куплено: {meta['title']} (−{cost}$ со счёта).", 1600)
+        self.autosave_current_slot()
+        return True
+
     def announce_setup_complete(self):
         """Конец setup: 00:00 на компьютере + радио-анонс + баннер (прямоугольники не пересекаются)."""
         self.setup_complete_banner_until = pygame.time.get_ticks() + 3200
         self.setup_timer_hint_until = 0
+        # Мелкий session-бонус за «дожили до охоты» — не глобальный счёт.
+        self.player_money += SESSION_SETUP_TIP
         self.trigger_radio_feedback(
             True,
             announcement="База: фаза подготовки окончена. Призрак теперь может начать охоту.",
@@ -1196,8 +1261,12 @@ class Game:
         return overlay
 
     def _after_level_ready(self):
-        """Сброс надбавки длительности охот при новом выезде."""
         self.contract_hunt_extension_seconds = 0
+        self.grant_session_budget(reason="level_ready")
+        self.apply_starter_inventory_mods()
+        # Задания сессии — под уровень (или общий каталог), ачивки не трогаем.
+        if hasattr(self, "progress_manager"):
+            self.tasks = self.progress_manager.new_tasks_for_level(self.current_level_id)
 
     def load_level_by_id(self, level_id):
         """
@@ -1260,6 +1329,8 @@ class Game:
         self.game_over_reason = "hp"
         self.player_hp = 5
         self.player_money = 100
+        # global_money и inventory_mods сохраняем между «новыми делами» в том же слоте —
+        # полный сброс только если слота нет; при new game оставляем мета-прогресс слота.
         self.player_level = 1
         self.reset_inventory()
         self.reset_player_position()
@@ -1277,6 +1348,8 @@ class Game:
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
         self.contract_hunt_extension_seconds = 0
+        self.grant_session_budget(reason="new_game")
+        self.apply_starter_inventory_mods()
         self.tasks, self.achievements_table = self.progress_manager.new_state()
     
         
@@ -1286,7 +1359,10 @@ class Game:
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
         if item_type and not self.inventory_manager.can_receive_item(item_type):
-            self._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            self._show_game_info(
+                f"Инвентарь полон: максимум {self.max_carried_items()} предмета.",
+                1200,
+            )
             return False
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
@@ -1326,7 +1402,8 @@ class Game:
         self.win_next_level_id = self.get_next_level_id()
         breakdown = self.get_level_complete_reward_breakdown()
         reward = int(breakdown["total"])
-        self.player_money += reward
+        # Победа кормит глобальный счёт (модификации), не session-магазин.
+        self.global_money += reward
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
             key for key, state in self.journal_evidence.items()
@@ -1341,6 +1418,8 @@ class Game:
             "reward_evidence_bonus": breakdown["evidence_bonus"],
             "confirmed_count": breakdown["confirmed_count"],
             "money_after": self.player_money,
+            "global_money_after": self.global_money,
+            "reward_to": "global",
             "next_level_name": next_meta.get("name") if next_meta else None,
         }
         self.win_entered_at = pygame.time.get_ticks()
@@ -1392,6 +1471,11 @@ class Game:
             "level": self.player_level,
             "hp": self.player_hp,
             "money": self.player_money,
+            "global_money": int(getattr(self, "global_money", 0) or 0),
+            "inventory_mods": {
+                key: bool(getattr(self, "inventory_mods", {}).get(key, False))
+                for key in INVENTORY_MOD_CATALOG
+            },
             "sanity": round(float(getattr(self, "player_sanity", 100.0)), 2),
             "flashlight_on": bool(getattr(self, "flashlight_on", False)),
             "setup_phase_ticks": int(getattr(self, "setup_phase_ticks", 0)),
@@ -1424,6 +1508,11 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
+            self.global_money = int(save_data.get("global_money", 0) or 0)
+            saved_mods = save_data.get("inventory_mods") or {}
+            self.inventory_mods = {
+                key: bool(saved_mods.get(key, False)) for key in INVENTORY_MOD_CATALOG
+            }
             saved_inventory = save_data.get("inventory") or {}
             default_light = bool(saved_inventory.get("фонарик", False))
             self.loaded_sanity_state = {
@@ -1613,6 +1702,9 @@ class Game:
             if self.player_hp > 0:
                 self.tick_setup_phase_clock()
             draws.draw_shop(self)
+        elif self.state == GameState.UPGRADES:
+            self.moving = False
+            draws.draw_upgrades(self)
         elif self.state == GameState.SETTINGS:
             draws.draw_settings(self)
         elif self.state == GameState.DIFF:
