@@ -342,6 +342,7 @@ class Ghost:
         self.radio = abilities.get("radio", False)
         self.freezing_temperature = abilities.get("freezing_temperature", False)
         self.activity_gain = _to_float(abilities.get("activity_gain"), 1.0)
+        self.ghost_event_sanity_mult = _to_float(abilities.get("ghost_event_sanity_mult"), 1.0)
         self.aggression = 10  # 0..100, обновляется в update()
         
         # FSM состояние - НАЧИНАЕМ НЕВИДИМЫМ
@@ -738,6 +739,9 @@ class Ghost:
                 
                 if not self.is_playing_spawn and self.sprite:
                     self.sprite.set_alpha(self.base_alpha)
+                notify = getattr(self, "_appearance_notify", None)
+                if callable(notify):
+                    notify(self)
                 return
         
         # Отладочная информация каждые 180 кадров (3 секунды)
@@ -1129,6 +1133,8 @@ class GhostManager:
         self.footprint_sprites = None
         self.emf_hotspot = None  # {"x": int, "y": int, "level": int, "ttl": int}
         self.last_throw_event = None
+        # Game.on_ghost_appeared_on_map — drain sanity при обычном появлении FSM
+        self.appearance_callback = None
 
     def load_ghost_sprite(self):
         """Загружает спрайт приведения"""
@@ -1330,6 +1336,7 @@ class GhostManager:
         """Обновляет всех приведений с FSM. projector_zones: [(cx, cy, radius), ...] — зоны, куда призраки не заходят."""
         pz = projector_zones or []
         for ghost in self.ghosts:
+            ghost._appearance_notify = self.appearance_callback
             ghost.update(
                 player_rect,
                 walls,
@@ -1339,6 +1346,7 @@ class GhostManager:
                 world_width=world_width,
                 world_height=world_height,
             )
+            ghost._appearance_notify = None
             self._update_ghost_abilities_runtime(ghost)
             self._maybe_throw_dropped_items(ghost, dropped_items or [], level_hitboxes)
         self._tick_runtime_effects()

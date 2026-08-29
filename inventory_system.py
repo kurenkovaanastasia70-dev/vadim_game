@@ -95,6 +95,11 @@ class Radio(Item):
         if hasattr(game, "drain_sanity"):
             # Контакт через spirit box / радио в Phasmophobia тоже бьёт по sanity.
             game.drain_sanity(5.0 if ok else 2.0, reason="radio")
+        if (
+            hasattr(game, "try_start_cursed_hunt_from_possession")
+            and not getattr(game, "is_setup_phase", lambda: False)()
+        ):
+            game.try_start_cursed_hunt_from_possession(source="радио")
         game.inventory_manager.decrease_count(self.item_type)
         return True
 

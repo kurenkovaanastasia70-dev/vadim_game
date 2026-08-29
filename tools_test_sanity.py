@@ -17,8 +17,12 @@ from main_work import (
     SANITY_SETUP_DRAIN_FACTOR,
     SANITY_SETUP_FLOOR,
     SANITY_CANDLE_DRAIN_FACTOR,
+    SANITY_GHOST_EVENT_DRAIN,
+    CURSED_HUNT_EXTENSION_SECONDS,
+    CURSED_HUNT_GRACE_SECONDS,
 )
 from inventory_system import ItemType
+from ghost import Ghost, GhostState, Room
 
 
 def approx(a, b, eps=0.08):
@@ -89,6 +93,34 @@ def main():
     # Свеча зарегистрирована; таблеток как предмета нет.
     assert ItemType.CANDLE in game.inventory_manager.item_counts
     assert not any(t.value == "таблетки" for t in ItemType)
+
+    # Appearance: обычный FSM — при выходе из INVISIBLE снимается рассудок.
+    game.player_sanity = 80.0
+    game.ghost_manager.rooms = [Room(0, 0, 800, 600, 0)]
+    game.ghost_manager.appearance_callback = game.on_ghost_appeared_on_map
+    sprite = pygame.Surface((40, 40), pygame.SRCALPHA)
+    sprite.fill((200, 200, 220, 180))
+    ghost = Ghost(100, 100, sprite, game.ghost_manager.rooms, home_room_id=0)
+    ghost.is_first_appearance = False
+    ghost.invisibility_duration = 1
+    ghost.state = GhostState.INVISIBLE
+    ghost.state_timer = 0
+    game.ghost_manager.ghosts = [ghost]
+    ghost._appearance_notify = game.on_ghost_appeared_on_map
+    ghost.update_state(game.player_rect, [], debug_mode=False)
+    assert ghost.state != GhostState.INVISIBLE
+    assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
+
+    # Cursed hunt: без рандома в Radio.use — здесь проверяем сам старт.
+    game.setup_phase_ticks = 0
+    game.player_sanity = 100.0
+    game.hunt_cooldown_ticks = 999 * FPS
+    game.contract_hunt_extension_seconds = 0
+    assert not game.can_ghost_attempt_hunt()
+    assert game.start_activity_hunt(cursed=True)
+    assert game.hunt_is_cursed
+    assert game.contract_hunt_extension_seconds == CURSED_HUNT_EXTENSION_SECONDS
+    assert game.hunt_grace_ticks == CURSED_HUNT_GRACE_SECONDS * FPS
 
     print("sanity tests OK")
     return 0
