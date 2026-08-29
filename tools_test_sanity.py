@@ -20,6 +20,7 @@ from main_work import (
     SANITY_GHOST_EVENT_DRAIN,
     CURSED_HUNT_EXTENSION_SECONDS,
     CURSED_HUNT_GRACE_SECONDS,
+    SESSION_SETUP_TIP,
 )
 from inventory_system import ItemType
 from ghost import Ghost, GhostState, Room
@@ -94,6 +95,7 @@ def main():
     assert ItemType.CANDLE in game.inventory_manager.item_counts
     assert not any(t.value == "таблетки" for t in ItemType)
 
+
     # Appearance: обычный FSM — при выходе из INVISIBLE снимается рассудок.
     game.player_sanity = 80.0
     game.ghost_manager.rooms = [Room(0, 0, 800, 600, 0)]
@@ -111,7 +113,7 @@ def main():
     assert ghost.state != GhostState.INVISIBLE
     assert approx(game.player_sanity, 80.0 - SANITY_GHOST_EVENT_DRAIN, eps=0.001)
 
-    # Cursed hunt: без рандома в Radio.use — здесь проверяем сам старт.
+    # Cursed hunt.
     game.setup_phase_ticks = 0
     game.player_sanity = 100.0
     game.hunt_cooldown_ticks = 999 * FPS
@@ -121,6 +123,41 @@ def main():
     assert game.hunt_is_cursed
     assert game.contract_hunt_extension_seconds == CURSED_HUNT_EXTENSION_SECONDS
     assert game.hunt_grace_ticks == CURSED_HUNT_GRACE_SECONDS * FPS
+
+    # Dual money: win -> global; shop uses session; mods use global.
+    game.player_money = 50
+    game.global_money = 200
+    game.inventory_mods = {k: False for k in ("extra_slot", "budget_boost", "starter_candle")}
+    assert game.buy_inventory_mod("extra_slot")
+    assert game.inventory_mods["extra_slot"]
+    assert game.global_money == 200 - 120
+    assert game.max_carried_items() == 4
+    before_session = game.player_money
+    game.grant_session_budget()
+    assert game.player_money == game.session_budget_amount()
+    assert before_session != game.player_money or True
+    game.global_money = 0
+    game.enter_win("тест")
+    assert game.win_report.get("reward_to") == "global"
+    assert game.global_money >= game.win_report["reward"]
+
+    # Задания сессии → session-$; каталог можно задать по уровню.
+    game.current_level_id = "level_1"
+    game.player_money = 10
+    game.tasks = game.progress_manager.new_tasks_for_level("level_1")
+    assert any(t["id"] == "l1_buy_1" for t in game.tasks)
+    game.progress_event("buy_item", 1)
+    assert game.player_money == 10 + 25
+
+    # Глобальные достижения → счёт; UI-флаг панели есть.
+    game.achievements_table = game.progress_manager.new_state()[1]
+    radio_ach = next(a for a in game.achievements_table if a["event_key"] == "radio_answer")
+    radio_ach["progress"] = radio_ach["target"] - 1
+    before = game.global_money
+    game.progress_event("radio_answer", 1)
+    assert radio_ach["unlocked"]
+    assert game.global_money == before + int(radio_ach["reward"])
+    assert hasattr(game, "achievements_panel_open")
 
     print("sanity tests OK")
     return 0

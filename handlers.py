@@ -36,11 +36,28 @@ def handle_menu_events(game, event):
                 game.push_state(GameState.SAVES)
             elif i==4:  # Выход
                 game.running=False
+            elif i==5:  # Улучшения инвентаря (глобальный счёт)
+                game.push_state(GameState.UPGRADES)
 
 
 def handle_howto_events(game, event):
     if game.howto_back_button.handle_event(event):
         game.go_back()
+
+
+def handle_upgrades_events(game, event):
+    """Экран улучшений со главного меню — покупка за счёт."""
+    for i, button in enumerate(getattr(game, "upgrades_buttons", [])):
+        if not button.handle_event(event):
+            continue
+        if i == 0:
+            game.go_back()
+        elif i == 1:
+            game.buy_inventory_mod("extra_slot")
+        elif i == 2:
+            game.buy_inventory_mod("budget_boost")
+        elif i == 3:
+            game.buy_inventory_mod("starter_candle")
 
 
 def handle_difficulty_events(game, event):
@@ -179,6 +196,12 @@ def handle_shop_events(game, event):
                     print("Куплена свеча!")
                 else:
                     print("Недостаточно денег!")
+            elif i == 13:
+                game.buy_inventory_mod("extra_slot")
+            elif i == 14:
+                game.buy_inventory_mod("budget_boost")
+            elif i == 15:
+                game.buy_inventory_mod("starter_candle")
 
 def handle_settings_events(game, event):
     """
@@ -332,6 +355,17 @@ def handle_game_events(game, event):
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         mouse_pos = event.pos
+        badge = getattr(game, "achievements_badge_rect", None)
+        popup = getattr(game, "achievements_popup_rect", None)
+        if badge and badge.collidepoint(mouse_pos):
+            game.achievements_panel_open = not bool(getattr(game, "achievements_panel_open", False))
+            return
+        if getattr(game, "achievements_panel_open", False):
+            if popup and popup.collidepoint(mouse_pos):
+                return
+            # клик мимо — закрыть панель достижений
+            game.achievements_panel_open = False
+
         world_mouse_pos = (mouse_pos[0] + game.camera_x, mouse_pos[1] + game.camera_y)
         
         if game.inventory_manager.placement_mode:
@@ -411,6 +445,8 @@ def handle_event(game):
             handle_menu_events(game, event)
         elif game.state == GameState.HOWTO:
             handle_howto_events(game, event)
+        elif game.state == GameState.UPGRADES:
+            handle_upgrades_events(game, event)
         elif game.state == GameState.SHOP:
             handle_shop_events(game, event)
         elif game.state == GameState.SETTINGS:
