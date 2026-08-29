@@ -1,5 +1,0 @@
-id,title,description,event_key,target,reward
-first_buy,Первая покупка,Купить первый предмет,buy_item,1,20
-radio_beginner,Связист,Получить 3 ответа по радио,radio_answer,3,30
-salt_user,Соль готова,Использовать соль 3 раза,use_salt,3,25
-candle_keeper,Хранитель огня,Купить свечу,buy_item,1,15

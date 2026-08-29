@@ -151,41 +151,9 @@ class TaskAchievementManager:
         self.game = game
         self.achievement_provider = achievement_provider
 
-    def resolve_task_catalog(self, level_id=None):
-        """
-        Каталог заданий сессии.
-        Приоритет: tasks в levels_index для level_id → DEFAULT_TASK_CATALOG.
-        Ачивки остаются общими (не по уровню).
-        """
-        level_id = level_id or getattr(self.game, "current_level_id", None)
-        if level_id:
-            try:
-                import level_config
-                meta = level_config.get_level_index().get(level_id) or {}
-                custom = meta.get("tasks")
-                if isinstance(custom, list) and custom:
-                    catalog = []
-                    for row in custom:
-                        if not isinstance(row, dict) or not row.get("id"):
-                            continue
-                        catalog.append(
-                            {
-                                "id": str(row["id"]),
-                                "title": str(row.get("title") or row["id"]),
-                                "target": int(row.get("target", 1) or 1),
-                                "reward": int(row.get("reward", 0) or 0),
-                                "event_key": str(row.get("event_key") or ""),
-                            }
-                        )
-                    if catalog:
-                        return catalog
-            except Exception:
-                pass
-        return DEFAULT_TASK_CATALOG
-
-    def new_tasks_for_level(self, level_id=None):
+    def new_state(self):
         tasks = []
-        for task in self.resolve_task_catalog(level_id):
+        for task in DEFAULT_TASK_CATALOG:
             tasks.append(
                 {
                     "id": task["id"],
@@ -198,10 +166,6 @@ class TaskAchievementManager:
                     "claimed": False,
                 }
             )
-        return tasks
-
-    def new_state(self):
-        tasks = self.new_tasks_for_level(getattr(self.game, "current_level_id", None))
 
         achievements_table = []
         for ach in self.achievement_provider.load_rows():
@@ -260,9 +224,8 @@ class TaskAchievementManager:
                 task["done"] = True
                 if not task["claimed"]:
                     task["claimed"] = True
-                    # Задания сессии → session-$ (магазин на выезде), не глобальный счёт.
-                    self.game.player_money = int(getattr(self.game, "player_money", 0) or 0) + task["reward"]
-                    messages.append(f"Задание выполнено: {task['title']} (+{task['reward']}$ сессии)")
+                    self.game.player_money += task["reward"]
+                    messages.append(f"Задание выполнено: {task['title']} (+{task['reward']}$)")
 
         for ach in self.game.achievements_table:
             if ach["event_key"] != event_key or ach["unlocked"]:
@@ -272,12 +235,8 @@ class TaskAchievementManager:
                 ach["unlocked"] = True
                 if not ach["claimed"] and ach["reward"] > 0:
                     ach["claimed"] = True
-                    self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-                    messages.append(
-                        f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"
-                    )
-                else:
-                    messages.append(f"Достижение: {ach['title']}")
+                    self.game.player_money += ach["reward"]
+                messages.append(f"Ачивка: {ach['title']}")
 
         return ProgressResult(messages)
 
@@ -289,7 +248,6 @@ class TaskAchievementManager:
             ach["progress"] = ach["target"]
             if not ach["claimed"] and ach["reward"] > 0:
                 ach["claimed"] = True
-                self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-                return ProgressResult([f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"])
-            return ProgressResult([f"Достижение: {ach['title']}"])
+                self.game.player_money += ach["reward"]
+            return ProgressResult([f"Ачивка: {ach['title']}"])
         return ProgressResult([])
