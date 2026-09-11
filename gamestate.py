@@ -6,6 +6,5 @@ class GameState:
     DIFF = "diff"
     SAVES = "saves"
     HOWTO = "howto"
-    UPGRADES = "upgrades"
     GAME_OVER = "game_over"
     WIN = "win"
