@@ -2,6 +2,7 @@ import pygame
 import mechanics
 import draws
 from gamestate import GameState
+from inventory_system import SESSION_BOOST_CATALOG
 from constants import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -52,7 +53,7 @@ def handle_difficulty_events(game, event):
                 # Сброс для новой игры (HP, деньги, уровень)
                 game.reset_for_new_game()
                 game.autosave_current_slot()
-                game.set_state(GameState.GAME, reset_stack = True)
+                game.open_boost_pick(purpose="start")
             elif i == 4:  # Назад
                 game.go_back()
 
@@ -395,7 +396,7 @@ def handle_win_events(game, event):
     for i, button in enumerate(game.win_buttons):
         if button.handle_event(event):
             if i == 0 and has_next:
-                game.advance_to_next_level()
+                game.open_boost_pick()
             elif (i == 0 and not has_next) or (i == 1 and has_next):
                 game.restart_current_level()
             else:
@@ -404,13 +405,45 @@ def handle_win_events(game, event):
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_RETURN:
             if has_next:
-                game.advance_to_next_level()
+                game.open_boost_pick()
             else:
                 game.restart_current_level()
         elif event.key == pygame.K_r:
             game.restart_current_level()
         elif event.key == pygame.K_ESCAPE:
             game.set_state(GameState.MENU, reset_stack=True)
+
+
+def handle_boost_pick_events(game, event):
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        for rect, boost_id in getattr(game, "boost_card_rects", []) or []:
+            if rect.collidepoint(event.pos):
+                game.selected_boost_id = boost_id
+                return
+
+    if game.boost_equip_button.handle_event(event):
+        game.equip_selected_boost_and_advance()
+        return
+    if game.boost_back_button.handle_event(event):
+        _leave_boost_pick(game)
+        return
+
+    if event.type == pygame.KEYDOWN:
+        catalog = list(SESSION_BOOST_CATALOG)
+        keymap = {pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2}
+        if event.key in keymap and keymap[event.key] < len(catalog):
+            game.selected_boost_id = catalog[keymap[event.key]]["id"]
+        elif event.key == pygame.K_RETURN:
+            game.equip_selected_boost_and_advance()
+        elif event.key == pygame.K_ESCAPE:
+            _leave_boost_pick(game)
+
+
+def _leave_boost_pick(game):
+    if getattr(game, "boost_pick_purpose", "next") == "start":
+        game.set_state(GameState.DIFF)
+    else:
+        game.set_state(GameState.WIN)
 
 
 def handle_event(game):
@@ -436,3 +469,5 @@ def handle_event(game):
             handle_game_over_events(game, event)
         elif game.state == GameState.WIN:
             handle_win_events(game, event)
+        elif game.state == GameState.BOOST_PICK:
+            handle_boost_pick_events(game, event)

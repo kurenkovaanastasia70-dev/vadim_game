@@ -27,7 +27,7 @@ import handlers
 import mechanics
 import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
-from inventory_system import InventoryManager
+from inventory_system import InventoryManager, SESSION_BOOST_CATALOG, ItemType, get_max_carried_items
 import level_config
 from progression import (
     GoogleSheetsAchievementTableProvider,
@@ -197,13 +197,19 @@ class Game:
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 52, 240, 46, "Заново", GREEN),
             Button(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 112, 240, 46, "В меню", BLUE),
         ]
+        self.boost_equip_button = Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT - 118, 300, 48, "Экипировать", GREEN)
+        self.boost_back_button = Button(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT - 60, 300, 42, "Назад", GRAY)
+        self.boost_card_rects = []
+        self.equipped_boost = None
+        self.selected_boost_id = None
+        self.boost_pick_purpose = "next"
         self.game_over_reason = "hp"
         self.win_ghost_name = ""
         self.win_next_level_id = None
         self.win_report = {}
 
         self.player_money = 100
-        self.global_money = 0  # счёт: награды за глобальные достижения
+        self.global_money = 0  # не начисляется; поле оставлено для старых сейвов
         self.player_level = 1
         self.player_hp = 5
         self.player_sanity = 100.0
@@ -909,6 +915,39 @@ class Game:
                 Button(SCREEN_WIDTH // 2 - 130, SCREEN_HEIGHT // 2 + 246, 260, 46, "В меню", BLUE),
             ]
 
+    def open_boost_pick(self, purpose="next"):
+        """Выбор одного буста: перед первым выездом или перед следующим уровнем."""
+        if purpose == "next" and not self.has_next_level():
+            return False
+        self.boost_pick_purpose = purpose
+        self.selected_boost_id = None
+        self.boost_card_rects = []
+        self.set_state(GameState.BOOST_PICK)
+        return True
+
+    def apply_equipped_boost_inventory(self):
+        if getattr(self, "equipped_boost", None) != "starter_candle":
+            return
+        self.inventory[ItemType.CANDLE.value] = True
+        self.inventory_manager.increase_count(ItemType.CANDLE, 1)
+
+    def equip_selected_boost_and_advance(self):
+        boost_id = getattr(self, "selected_boost_id", None)
+        known = {row["id"] for row in SESSION_BOOST_CATALOG}
+        if boost_id not in known:
+            self._show_game_info("Сначала выбери один буст.", 1400)
+            return False
+        self.equipped_boost = boost_id
+        if boost_id == "budget_boost":
+            self.player_money = int(getattr(self, "player_money", 0) or 0) + 25
+        if getattr(self, "boost_pick_purpose", "next") == "start":
+            self.apply_equipped_boost_inventory()
+            self.set_state(GameState.GAME, reset_stack=True)
+            if self.selected_save_slot:
+                self.save_game(self.selected_save_slot)
+            return True
+        return self.advance_to_next_level()
+
     def advance_to_next_level(self):
         """Переходит на следующий уровень из levels_index.json."""
         next_level_id = self.get_next_level_id()
@@ -921,6 +960,7 @@ class Game:
         self.current_level_id = next_level_id
         self.win_next_level_id = None
         self.reset_inventory()
+        self.apply_equipped_boost_inventory()
         self.reset_journal_evidence()
         self.loaded_journal_evidence = None
         self.loaded_inventory_runtime = None
@@ -942,6 +982,7 @@ class Game:
         self.win_next_level_id = None
         self.win_report = {}
         self.reset_inventory()
+        self.apply_equipped_boost_inventory()
         self.reset_player_position()
         self.journal_open = False
         self.journal_reset_confirm = False
@@ -1174,6 +1215,12 @@ class Game:
         self.player_hp = 5
         self.player_money = 100
         self.player_level = 1
+        meta = level_config.get_level_by_number(1)
+        self.current_level_id = meta.get("id") if meta else "level_1"
+        self.win_next_level_id = None
+        self.equipped_boost = None
+        self.selected_boost_id = None
+        self.boost_pick_purpose = "start"
         self.reset_inventory()
         self.reset_player_position()
         self.journal_open = False
@@ -1198,7 +1245,8 @@ class Game:
         item_type = self.inventory_manager.item_type_from_name(item_name)
         is_consumable = item_type in self.inventory_manager.item_counts if item_type else False
         if item_type and not self.inventory_manager.can_receive_item(item_type):
-            self._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+            limit = get_max_carried_items(self)
+            self._show_game_info(f"Инвентарь полон: максимум {limit} предмета.", 1200)
             return False
         if self.player_money >= cost and (is_consumable or not self.inventory.get(item_name, False)):
             self.player_money -= cost
@@ -1298,7 +1346,8 @@ class Game:
             "CROSS": self.inventory_manager.item_counts.get(ItemType.CROSS, 0),
             "RED_DUST": self.inventory_manager.item_counts.get(ItemType.RED_DUST, 0),
             "SALT": self.inventory_manager.item_counts.get(ItemType.SALT, 0),
-            "RADIO": self.inventory_manager.item_counts.get(ItemType.RADIO, 0)
+            "RADIO": self.inventory_manager.item_counts.get(ItemType.RADIO, 0),
+            "CANDLE": self.inventory_manager.item_counts.get(ItemType.CANDLE, 0),
         }
         save_data = {
             "level": self.player_level,
@@ -1321,6 +1370,7 @@ class Game:
             "difficulty_selected": self.difficulty_selected,
             "tasks": self.tasks,
             "achievements_table": self.achievements_table,
+            "equipped_boost": getattr(self, "equipped_boost", None),
         }
         self.saves[f"slot{slot}"] = save_data
         with open(self.save_file, 'w', encoding ='utf-8') as f:
@@ -1373,6 +1423,7 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = saved_counts.get("RED_DUST", 0)
                 self.inventory_manager.item_counts[ItemType.SALT] = saved_counts.get("SALT", 0)
                 self.inventory_manager.item_counts[ItemType.RADIO] = saved_counts.get("RADIO", int(self.inventory.get("радио", False)))
+                self.inventory_manager.item_counts[ItemType.CANDLE] = saved_counts.get("CANDLE", int(self.inventory.get("свеча", False)))
             else:
                 from inventory_system import ItemType
                 self.inventory_manager.item_counts[ItemType.BATTERY] = 0
@@ -1381,10 +1432,14 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
                 self.inventory_manager.item_counts[ItemType.SALT] = 0
                 self.inventory_manager.item_counts[ItemType.RADIO] = int(self.inventory.get("радио", False))
+                self.inventory_manager.item_counts[ItemType.CANDLE] = int(self.inventory.get("свеча", False))
             self.tasks, self.achievements_table = self.progress_manager.normalize_state(
                 save_data.get("tasks"),
                 save_data.get("achievements_table"),
             )
+            saved_boost = save_data.get("equipped_boost")
+            known_boosts = {row["id"] for row in SESSION_BOOST_CATALOG}
+            self.equipped_boost = saved_boost if saved_boost in known_boosts else None
             self.loaded_inventory_runtime = save_data.get("inventory_runtime")
             self.loaded_hunt_state = save_data.get("hunt_state")
             self.loaded_ghost_state = save_data.get("ghost_state")
@@ -1537,6 +1592,9 @@ class Game:
         elif self.state == GameState.WIN:
             self.moving = False
             draws.draw_win(self)
+        elif self.state == GameState.BOOST_PICK:
+            self.moving = False
+            draws.draw_boost_pick(self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:
             # Полупрозрачный фон
