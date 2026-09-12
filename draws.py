@@ -96,7 +96,7 @@ def _draw_crt_atmosphere(game):
 
 def _draw_compact_status_hud(game):
     has_thermometer = game.inventory.get("градусник", False)
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 400, 132 if has_thermometer else 112
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 430, 132 if has_thermometer else 112
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -120,16 +120,17 @@ def _draw_compact_status_hud(game):
         _draw_pixel_heart(game.screen, hud_x + 12 + i * 22, hud_y + 32, 2, color)
 
     rows = [
-        ("сессия $", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("сессия", str(getattr(game, "player_money", 0)), (230, 206, 116)),
+        ("счёт", str(getattr(game, "global_money", 0)), (180, 210, 240)),
         ("LV", str(getattr(game, "player_level", 1)), (146, 210, 178)),
         ("SAN", f"{sanity}%", sanity_color),
     ]
-    x = hud_x + 132
+    x = hud_x + 128
     for label, value, color in rows:
         game.screen.blit(small.render(label, True, (145, 170, 160)), (x, hud_y + 10))
         val = font.render(value, True, color)
         game.screen.blit(val, (x, hud_y + 32))
-        x += 110
+        x += 66
 
     activity = max(0, min(100, int(getattr(game, "ghost_activity", 0))))
     activity_label = small.render(f"Активность призрака: {activity}%", True, (145, 170, 160))
@@ -196,7 +197,7 @@ def _draw_radio_feedback(game):
     announcement = getattr(game, "radio_announcement", None)
     panel_h = 72 if announcement else 54
     # Ниже журнала/меню и не пересекается с левым HUD (HUD ~ x0-420, y16-148).
-    panel = pygame.Rect(SCREEN_WIDTH // 2 - 220, 170, 440, panel_h)
+    panel = pygame.Rect(SCREEN_WIDTH // 2 - 200, 248, 400, panel_h)
     surf = pygame.Surface(panel.size, pygame.SRCALPHA)
     surf.fill((14, 18, 24, 210))
     game.screen.blit(surf, panel.topleft)
@@ -238,18 +239,17 @@ def _computer_setup_timer_active(game):
     return ticks > 0 or pygame.time.get_ticks() < banner_until
 
 
-def _draw_setup_shop_timer(game):
-    """Единственный setup-таймер: только внутри экрана компьютера (магазин)."""
+def _draw_setup_shop_timer(game, money_rect=None, back_rect=None):
+    """Setup-таймер в шапке магазина, не пересекается с деньгами и «Назад»."""
     if not _computer_setup_timer_active(game):
         return
-    # Между «Назад» и деньгами, без пересечения с title/карточками.
-    panel = pygame.Rect(620, 18, 160, 50)
-    money = pygame.Rect(SCREEN_WIDTH - 230, 24, 188, 42)
-    back = pygame.Rect(36, 28, 120, 36)
-    if panel.colliderect(money):
-        panel.right = money.left - 10
-    if panel.colliderect(back):
-        panel.left = back.right + 10
+    sw, _sh = _screen_wh(game)
+    money = money_rect or pygame.Rect(sw - 216, 16, 200, 40)
+    back = back_rect or pygame.Rect(16, 16, 110, 36)
+    panel = pygame.Rect(0, 16, 148, 40)
+    panel.right = money.left - 12
+    if panel.left < back.right + 12:
+        panel.midtop = (sw // 2, 58)
 
     ticks = max(0, int(getattr(game, "setup_phase_ticks", 0)))
     now = pygame.time.get_ticks()
@@ -263,13 +263,13 @@ def _draw_setup_shop_timer(game):
     pygame.draw.rect(game.screen, border, panel, 2, border_radius=6)
 
     tiny = pygame.font.Font(None, 18)
-    big = pygame.font.Font(None, 36)
-    game.screen.blit(tiny.render("SETUP", True, (145, 170, 160)), (panel.x + 8, panel.y + 3))
+    big = pygame.font.Font(None, 32)
+    game.screen.blit(tiny.render("SETUP", True, (145, 170, 160)), (panel.x + 8, panel.y + 2))
     pulse = (now // 250) % 2 == 0 if 0 < seconds <= 10 or show_end else True
     color = (255, 210, 120) if seconds <= 10 or show_end else (230, 240, 236)
     if pulse:
         value = big.render(time_text, True, color)
-        game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + panel.h * 0.62)))
+        game.screen.blit(value, value.get_rect(center=(panel.centerx, panel.y + 26)))
 
 
 def _draw_computer_interact_tip(game, computer_screen_rect):
@@ -300,7 +300,7 @@ def _draw_setup_complete_banner(game):
     banner_until = int(getattr(game, "setup_complete_banner_until", 0) or 0)
     if pygame.time.get_ticks() >= banner_until:
         return
-    banner = pygame.Rect(SCREEN_WIDTH // 2 - 240, 256, 480, 44)
+    banner = pygame.Rect(SCREEN_WIDTH // 2 - 210, 318, 420, 40)
     banner_bg = pygame.Surface(banner.size, pygame.SRCALPHA)
     banner_bg.fill((28, 16, 14, 220))
     game.screen.blit(banner_bg, banner.topleft)
@@ -371,6 +371,19 @@ def _wrap_lines(font, text, max_width):
             line = w
     lines.append(line)
     return lines
+
+
+def _fit_text(font, text, max_width):
+    text = str(text or "")
+    if font.size(text)[0] <= max_width:
+        return text
+    while text and font.size(text + "…")[0] > max_width:
+        text = text[:-1]
+    return text + "…" if text else ""
+
+
+def _screen_wh(game):
+    return game.screen.get_width(), game.screen.get_height()
 
 
 def _blit_centered_icon(screen, icon, rect, size):
@@ -759,6 +772,81 @@ def draw_evidence_journal_overlay(game):
     game.screen.blit(close_surf, close_surf.get_rect(center=close_rect.center))
 
 
+def draw_achievements_window(game, standalone=False):
+    """Полный список ачивок: название, что сделать, прогресс. Меню и окно в игре."""
+    sw, sh = _screen_wh(game)
+    if standalone:
+        game.screen.fill((16, 20, 24))
+        for y in range(0, sh, 18):
+            pygame.draw.line(game.screen, (12, 18, 22), (0, y), (sw, y))
+        if getattr(game, "achievements_back_button", None):
+            game.achievements_back_button.rect.topleft = (24, 20)
+            game.achievements_back_button.draw(game.screen)
+    else:
+        dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        dim.fill((4, 8, 10, 170))
+        game.screen.blit(dim, (0, 0))
+
+    panel = pygame.Rect(0, 0, min(740, sw - 36), min(540, sh - 36))
+    panel.center = (sw // 2, sh // 2 + (8 if standalone else 0))
+    pygame.draw.rect(game.screen, (24, 34, 40), panel, border_radius=14)
+    pygame.draw.rect(game.screen, (120, 190, 210), panel, 2, border_radius=14)
+    game.achievements_window_rect = panel
+
+    title_f = pygame.font.Font(None, 40)
+    body_f = pygame.font.Font(None, 24)
+    small_f = pygame.font.Font(None, 21)
+    rows = list(getattr(game, "achievements_table", []) or [])
+    unlocked = sum(1 for a in rows if a.get("unlocked"))
+    header = title_f.render("Достижения", True, (220, 240, 248))
+    game.screen.blit(header, (panel.x + 22, panel.y + 16))
+    sub = small_f.render(
+        f"Открыто {unlocked} из {len(rows)}. В игре: клик по «Ачивки» или клавиша Y.",
+        True,
+        (160, 190, 200),
+    )
+    game.screen.blit(sub, (panel.x + 22, panel.y + 56))
+
+    close_rect = pygame.Rect(panel.right - 44, panel.y + 14, 30, 30)
+    game.achievements_close_rect = close_rect
+    pygame.draw.rect(game.screen, (46, 58, 66), close_rect, border_radius=6)
+    pygame.draw.rect(game.screen, (200, 210, 230), close_rect, 1, border_radius=6)
+    close_s = body_f.render("X", True, (230, 236, 240))
+    game.screen.blit(close_s, close_s.get_rect(center=close_rect.center))
+
+    list_rect = pygame.Rect(panel.x + 18, panel.y + 86, panel.w - 36, panel.h - 108)
+    pygame.draw.rect(game.screen, (18, 26, 32), list_rect, border_radius=8)
+    if not rows:
+        empty = body_f.render("Таблица достижений пуста.", True, (200, 210, 220))
+        game.screen.blit(empty, empty.get_rect(center=list_rect.center))
+        return
+
+    row_h = max(78, min(96, list_rect.h // max(1, len(rows))))
+    for i, ach in enumerate(rows):
+        row = pygame.Rect(list_rect.x + 8, list_rect.y + 8 + i * row_h, list_rect.w - 16, row_h - 8)
+        if row.bottom > list_rect.bottom - 4:
+            break
+        done = bool(ach.get("unlocked"))
+        pygame.draw.rect(game.screen, (28, 48, 42) if done else (26, 34, 42), row, border_radius=8)
+        pygame.draw.rect(game.screen, (90, 170, 130) if done else (70, 100, 120), row, 1, border_radius=8)
+        mark = "СДЕЛАНО" if done else "ЕЩЁ НЕТ"
+        mark_c = (160, 230, 180) if done else (230, 190, 120)
+        game.screen.blit(small_f.render(mark, True, mark_c), (row.x + 12, row.y + 8))
+        title = str(ach.get("title") or ach.get("id") or "Достижение")
+        game.screen.blit(body_f.render(_fit_text(body_f, title, row.w - 24), True, (236, 242, 246)), (row.x + 12, row.y + 28))
+        how = str(ach.get("description") or "").strip() or "Смотри условие в каталоге."
+        game.screen.blit(small_f.render(_fit_text(small_f, how, row.w - 24), True, (170, 190, 200)), (row.x + 12, row.y + 50))
+        target = max(1, int(ach.get("target", 1) or 1))
+        progress = max(0, min(target, int(ach.get("progress", 0) or 0)))
+        bar = pygame.Rect(row.x + 12, row.bottom - 16, row.w - 90, 8)
+        pygame.draw.rect(game.screen, (40, 52, 58), bar, border_radius=4)
+        fill_w = int(bar.w * (progress / target))
+        if fill_w:
+            pygame.draw.rect(game.screen, (120, 200, 160) if done else (90, 160, 200), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
+        count = small_f.render(f"{progress}/{target}", True, (200, 220, 230))
+        game.screen.blit(count, count.get_rect(midright=(row.right - 12, bar.centery)))
+
+
 def draw_menu(game):
     # Рисуем пробковую доску как фон (загружена один раз при инициализации)
     if hasattr(game, "cork_board_bg") and game.cork_board_bg:
@@ -818,98 +906,113 @@ def draw_menu(game):
 
 
 def draw_shop(game):
+    sw, sh = _screen_wh(game)
     game.screen.fill((24, 26, 34))
 
-    title_f = pygame.font.Font(None, 46)
-    money_f = pygame.font.Font(None, 30)
-    name_f = pygame.font.Font(None, 25)
-    body_f = pygame.font.Font(None, 19)
-    small_f = pygame.font.Font(None, 18)
-    btn_f = pygame.font.Font(None, 22)
-
-    title = title_f.render("МАГАЗИН", True, (238, 242, 248))
-    game.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 48)))
-
-    money_box = pygame.Rect(SCREEN_WIDTH - 360, 24, 318, 42)
-    pygame.draw.rect(game.screen, (36, 42, 54), money_box, border_radius=8)
-    pygame.draw.rect(game.screen, (88, 104, 130), money_box, 1, border_radius=8)
-    money = money_f.render(
-        f"сессия ${game.player_money}",
-        True,
-        (240, 226, 150),
-    )
-    game.screen.blit(money, money.get_rect(center=money_box.center))
-
-    _draw_setup_shop_timer(game)
+    title_f = pygame.font.Font(None, 40)
+    money_f = pygame.font.Font(None, 24)
+    name_f = pygame.font.Font(None, 23)
+    body_f = pygame.font.Font(None, 18)
+    small_f = pygame.font.Font(None, 17)
+    btn_f = pygame.font.Font(None, 20)
+    mouse = pygame.mouse.get_pos()
 
     back = game.shop_buttons[0]
-    back_hover = back.rect.collidepoint(pygame.mouse.get_pos())
+    back.rect = pygame.Rect(16, 16, 110, 36)
+    back_hover = back.rect.collidepoint(mouse)
     pygame.draw.rect(game.screen, (126, 48, 52) if not back_hover else (166, 66, 70), back.rect, border_radius=7)
     pygame.draw.rect(game.screen, (235, 190, 190), back.rect, 1, border_radius=7)
     back_text = btn_f.render(back.text, True, (248, 248, 248))
     game.screen.blit(back_text, back_text.get_rect(center=back.rect.center))
 
+    money_box = pygame.Rect(sw - 216, 16, 200, 40)
+    pygame.draw.rect(game.screen, (36, 42, 54), money_box, border_radius=8)
+    pygame.draw.rect(game.screen, (88, 104, 130), money_box, 1, border_radius=8)
+    money = money_f.render(
+        f"сессия ${game.player_money}  счёт ${getattr(game, 'global_money', 0)}",
+        True,
+        (240, 226, 150),
+    )
+    if money.get_width() > money_box.w - 12:
+        money = money_f.render(f"${game.player_money} / ${getattr(game, 'global_money', 0)}", True, (240, 226, 150))
+    game.screen.blit(money, money.get_rect(center=money_box.center))
+
+    title = title_f.render("МАГАЗИН", True, (238, 242, 248))
+    title_rect = title.get_rect(center=(sw // 2, 34))
+    if title_rect.colliderect(back.rect.inflate(8, 0)) or title_rect.colliderect(money_box.inflate(8, 0)):
+        title_rect.midtop = (sw // 2, 58)
+    game.screen.blit(title, title_rect)
+
+    _draw_setup_shop_timer(game, money_rect=money_box, back_rect=back.rect)
+
     shop_items = [
-        (1, "Фонарик", "фонарик", 50, "Базовый свет для тёмных комнат.", None),
-        (2, "Красная пыль", "красная пыль", 30, "Расходник для защиты и ловушек.", ItemType.RED_DUST),
-        (3, "Соль", "соль", 20, "Оставляет защитную зону на полу.", ItemType.SALT),
-        (4, "Проектор", "проектор", 80, "Ставит область, куда призрак не заходит.", None),
-        (5, "Аккумулятор", "аккумулятор", 40, "Питание для проектора.", ItemType.BATTERY),
-        (6, "Крест", "крест", 60, "Короткая защита от призрака.", ItemType.CROSS),
-        (7, "Кровь", "кровь", 35, "Восстанавливает запас жизней.", ItemType.BLOOD),
-        (8, "Радио", "радио", 65, "Ответы и подсказки по призраку.", ItemType.RADIO),
-        (9, "ЭМП", "эмп", 70, "Скан активности рядом с игроком.", None),
-        (10, "УФ фонарь", "уф фонарь", 60, "Подсвечивает следы на полу.", None),
-        (11, "Градусник", "градусник", 55, "Показывает температуру текущей комнаты.", None),
-        (12, "Свеча", "свеча", 25, "Firelight: рядом рассудок падает медленнее.", ItemType.CANDLE),
+        (1, "Фонарик", "фонарик", 50, "Свет в тёмных комнатах.", None),
+        (2, "Красная пыль", "красная пыль", 30, "Расходник для ловушек.", ItemType.RED_DUST),
+        (3, "Соль", "соль", 20, "Защитная зона на полу.", ItemType.SALT),
+        (4, "Проектор", "проектор", 80, "Зона, куда призрак не заходит.", None),
+        (5, "Аккумулятор", "аккумулятор", 40, "Питание проектора.", ItemType.BATTERY),
+        (6, "Крест", "крест", 60, "Короткая защита.", ItemType.CROSS),
+        (7, "Кровь", "кровь", 35, "Восстанавливает HP.", ItemType.BLOOD),
+        (8, "Радио", "радио", 65, "Ответы по призраку.", ItemType.RADIO),
+        (9, "ЭМП", "эмп", 70, "Скан активности.", None),
+        (10, "УФ фонарь", "уф фонарь", 60, "Следы на полу.", None),
+        (11, "Градусник", "градусник", 55, "Температура комнаты.", None),
+        (12, "Свеча", "свеча", 25, "Рядом медленнее падает рассудок.", ItemType.CANDLE),
     ]
 
-    card_w, card_h = 430, 68
-    col_x = [62, 570]
-    row_y = [88, 162, 236, 310, 384, 458, 532]
-    mouse = pygame.mouse.get_pos()
+    cols, rows = 2, 6
+    margin, gap = 16, 10
+    header_bottom = 88
+    card_w = (sw - margin * 2 - gap) // cols
+    card_h = max(70, min(86, (sh - header_bottom - 16 - (rows - 1) * gap) // rows))
+    text_w = max(80, card_w - 168)
 
     for pos, (btn_index, name, inv_key, price, desc, count_type) in enumerate(shop_items):
-        col = 0 if pos < 7 else 1
-        row = pos if pos < 7 else pos - 7
-        card = pygame.Rect(col_x[col], row_y[row], card_w, card_h)
+        col = pos % cols
+        row = pos // cols
+        card = pygame.Rect(
+            margin + col * (card_w + gap),
+            header_bottom + row * (card_h + gap),
+            card_w,
+            card_h,
+        )
         bought = bool(game.inventory.get(inv_key, False))
         count = game.inventory_manager.item_counts.get(count_type, 0) if count_type else 0
 
         pygame.draw.rect(game.screen, (32, 36, 48), card, border_radius=8)
         pygame.draw.rect(game.screen, (84, 94, 116), card, 1, border_radius=8)
 
-        icon_rect = pygame.Rect(card.x + 14, card.y + 16, 50, 50)
+        icon_rect = pygame.Rect(card.x + 8, card.y + 12, 46, 46)
         pygame.draw.rect(game.screen, (45, 52, 68), icon_rect, border_radius=7)
         img = game.inventory_images.get(inv_key)
         if img:
-            _blit_centered_icon(game.screen, img, icon_rect, 42)
+            _blit_centered_icon(game.screen, img, icon_rect, 38)
         else:
             fallback = name_f.render(name[:1], True, (224, 228, 236))
             game.screen.blit(fallback, fallback.get_rect(center=icon_rect.center))
 
-        x = icon_rect.right + 14
-        game.screen.blit(name_f.render(name, True, (238, 242, 248)), (x, card.y + 12))
-        for i, line in enumerate(_wrap_lines(body_f, desc, 210)):
-            if i >= 1:
-                break
-            game.screen.blit(body_f.render(line, True, (160, 170, 188)), (x, card.y + 38 + i * 18))
+        text_x = icon_rect.right + 10
+        game.screen.blit(name_f.render(_fit_text(name_f, name, text_w), True, (238, 242, 248)), (text_x, card.y + 8))
+        game.screen.blit(
+            body_f.render(_fit_text(body_f, desc, text_w), True, (160, 170, 188)),
+            (text_x, card.y + 30),
+        )
 
-        side_x = card.right - 118
-        price_surf = small_f.render(f"{price} монет", True, (238, 214, 130))
-        game.screen.blit(price_surf, (side_x, card.y + 10))
-
+        side = pygame.Rect(card.right - 92, card.y + 6, 84, card.h - 12)
+        price_surf = small_f.render(f"{price}$", True, (238, 214, 130))
+        game.screen.blit(price_surf, price_surf.get_rect(midtop=(side.centerx, side.y)))
         if count_type:
-            status = f"Есть: {count}"
+            status = f"×{count}"
             status_color = (175, 215, 190) if count else (148, 156, 172)
         else:
-            status = "Куплено" if bought else "Не куплено"
-            status_color = (175, 215, 190) if bought else (148, 156, 172)
-        status_surf = small_f.render(status, True, status_color)
-        game.screen.blit(status_surf, (side_x, card.y + 30))
+            status = "есть" if bought else ""
+            status_color = (175, 215, 190)
+        if status:
+            st = small_f.render(status, True, status_color)
+            game.screen.blit(st, st.get_rect(midtop=(side.centerx, side.y + 16)))
 
         btn = game.shop_buttons[btn_index]
-        btn.rect = pygame.Rect(card.right - 104, card.y + 51, 90, 24)
+        btn.rect = pygame.Rect(side.x, side.bottom - 26, side.w, 24)
         hover = btn.rect.collidepoint(mouse)
         can_buy = game.player_money >= price
         if not count_type and bought:
@@ -920,9 +1023,9 @@ def draw_shop(game):
             label = "Купить"
         else:
             btn_color = (78, 78, 88)
-            label = "Мало $"
-        pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=7)
-        pygame.draw.rect(game.screen, (178, 190, 206), btn.rect, 1, border_radius=7)
+            label = "Мало"
+        pygame.draw.rect(game.screen, btn_color, btn.rect, border_radius=6)
+        pygame.draw.rect(game.screen, (178, 190, 206), btn.rect, 1, border_radius=6)
         label_surf = btn_f.render(label, True, (246, 248, 250))
         game.screen.blit(label_surf, label_surf.get_rect(center=btn.rect.center))
 
@@ -1111,7 +1214,7 @@ def draw_win(game):
 
     report_lines = [
         f"Найденные улики: {evidence_text}",
-        f"Сессия: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+        f"На счёт: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
     ]
     report_lines += [
         f"Баланс: {shown_balance}$",
@@ -1134,75 +1237,94 @@ def draw_win(game):
 
 
 def draw_boost_pick(game):
-    sw, sh = game.screen.get_width(), game.screen.get_height()
+    sw, sh = _screen_wh(game)
     game.screen.fill((9, 14, 18))
     for y in range(0, sh, 18):
         shade = 16 + y * 28 // max(1, sh)
         pygame.draw.line(game.screen, (10, shade, 24), (0, y), (sw, y))
 
-    title_font = pygame.font.Font(None, 52)
-    body_font = pygame.font.Font(None, 26)
-    small_font = pygame.font.Font(None, 22)
-    heading = (
-        "Буст на первый выезд"
-        if getattr(game, "boost_pick_purpose", "next") == "start"
-        else "Буст на следующий выезд"
-    )
+    title_font = pygame.font.Font(None, 46)
+    body_font = pygame.font.Font(None, 24)
+    small_font = pygame.font.Font(None, 20)
+    heading = "Бусты за счёт" if getattr(game, "boost_pick_purpose", "next") == "start" else "Буст на следующий выезд"
     title = title_font.render(heading, True, (172, 255, 194))
-    game.screen.blit(title, title.get_rect(center=(sw // 2, 56)))
-    sub = body_font.render("Выбери один. Затем нажми «Экипировать».", True, (200, 220, 210))
-    game.screen.blit(sub, sub.get_rect(center=(sw // 2, 98)))
+    game.screen.blit(title, title.get_rect(center=(sw // 2, 42)))
+    wallet = body_font.render(f"счёт ${getattr(game, 'global_money', 0)}", True, (200, 220, 210))
+    game.screen.blit(wallet, wallet.get_rect(center=(sw // 2, 78)))
+    hint = small_font.render("Купи за глобальные $, потом экипируй один. Или иди без буста.", True, (160, 180, 175))
+    game.screen.blit(hint, hint.get_rect(center=(sw // 2, 104)))
 
     selected = getattr(game, "selected_boost_id", None)
     cards = []
+    buy_rects = []
     catalog = SESSION_BOOST_CATALOG
     gap = 16
-    card_w = min(280, max(180, (sw - 48 - (len(catalog) - 1) * gap) // max(1, len(catalog))))
-    card_h = min(220, max(150, sh - 280))
+    card_w = min(260, max(190, (sw - 48 - (len(catalog) - 1) * gap) // max(1, len(catalog))))
+    card_h = min(250, max(180, sh - 250))
     total_w = len(catalog) * card_w + (len(catalog) - 1) * gap
     start_x = max(16, (sw - total_w) // 2)
     mouse = pygame.mouse.get_pos()
     for i, row in enumerate(catalog):
-        rect = pygame.Rect(start_x + i * (card_w + gap), 128, card_w, card_h)
+        rect = pygame.Rect(start_x + i * (card_w + gap), 126, card_w, card_h)
         cards.append((rect, row["id"]))
+        owned = game.owns_boost(row["id"])
         hovered = rect.collidepoint(mouse)
-        is_sel = selected == row["id"]
+        is_sel = owned and selected == row["id"]
         fill = (48, 78, 62) if is_sel else ((36, 48, 52) if hovered else (24, 34, 38))
-        border = (138, 229, 170) if is_sel else (90, 130, 140)
+        border = (138, 229, 170) if is_sel else ((90, 160, 140) if owned else (90, 130, 140))
         pygame.draw.rect(game.screen, fill, rect, border_radius=14)
         pygame.draw.rect(game.screen, border, rect, 3 if is_sel else 1, border_radius=14)
-        name = body_font.render(row["title"], True, (230, 245, 235))
-        game.screen.blit(name, name.get_rect(center=(rect.centerx, rect.y + 32)))
-        y = rect.y + 64
+        name = body_font.render(_fit_text(body_font, row["title"], card_w - 20), True, (230, 245, 235))
+        game.screen.blit(name, name.get_rect(center=(rect.centerx, rect.y + 28)))
+        cost = int(row.get("cost", 0) or 0)
+        cost_s = small_font.render(f"{cost}$ со счёта", True, (238, 214, 130))
+        game.screen.blit(cost_s, cost_s.get_rect(center=(rect.centerx, rect.y + 54)))
+        y = rect.y + 78
         for wrapped in _wrap_lines(small_font, row["desc"], card_w - 28):
             line = small_font.render(wrapped, True, (190, 210, 205))
             game.screen.blit(line, line.get_rect(center=(rect.centerx, y)))
-            y += 22
-        mark = "выбрано" if is_sel else "клик — выбрать"
-        mark_color = (172, 255, 194) if is_sel else (150, 170, 175)
-        m = small_font.render(mark, True, mark_color)
-        game.screen.blit(m, m.get_rect(center=(rect.centerx, rect.bottom - 24)))
+            y += 20
+        buy = pygame.Rect(rect.x + 16, rect.bottom - 70, rect.w - 32, 32)
+        if owned:
+            mark = "выбрано" if is_sel else "куплено · клик"
+            mark_color = (172, 255, 194) if is_sel else (170, 210, 190)
+            m = small_font.render(mark, True, mark_color)
+            game.screen.blit(m, m.get_rect(center=buy.center))
+        else:
+            buy_rects.append((buy, row["id"]))
+            hover_buy = buy.collidepoint(mouse)
+            can_buy = int(getattr(game, "global_money", 0) or 0) >= cost
+            pygame.draw.rect(game.screen, (52, 126, 82) if can_buy and hover_buy else ((46, 90, 70) if can_buy else (50, 50, 56)), buy, border_radius=7)
+            pygame.draw.rect(game.screen, (178, 190, 206), buy, 1, border_radius=7)
+            bl = small_font.render("Купить" if can_buy else "Мало $", True, (246, 248, 250))
+            game.screen.blit(bl, bl.get_rect(center=buy.center))
     game.boost_card_rects = cards
+    game.boost_buy_rects = buy_rects
 
     equip = game.boost_equip_button
+    skip = game.boost_skip_button
     back = game.boost_back_button
-    btn_w = min(300, sw - 40)
-    equip.rect.size = (btn_w, 48)
-    equip.rect.centerx = sw // 2
-    equip.rect.bottom = sh - 58
-    back.rect.size = (btn_w, 42)
-    back.rect.centerx = sw // 2
-    back.rect.bottom = sh - 10
-
-    can_equip = selected in {row["id"] for row in catalog}
-    if not can_equip:
+    btn_w = min(240, max(160, (sw - 48) // 3))
+    gap_b = 12
+    total_b = btn_w * 3 + gap_b * 2
+    bx = (sw - total_b) // 2
+    by = sh - 58
+    back.rect.size = (btn_w, 40)
+    skip.rect.size = (btn_w, 40)
+    equip.rect.size = (btn_w, 40)
+    back.rect.topleft = (bx, by)
+    skip.rect.topleft = (bx + btn_w + gap_b, by)
+    equip.rect.topleft = (bx + 2 * (btn_w + gap_b), by)
+    back.draw(game.screen)
+    skip.draw(game.screen)
+    can_equip = bool(selected) and game.owns_boost(selected)
+    if can_equip:
+        equip.draw(game.screen)
+    else:
         pygame.draw.rect(game.screen, (28, 34, 32), equip.rect, border_radius=7)
         pygame.draw.rect(game.screen, (70, 80, 76), equip.rect, 2, border_radius=7)
-        label = pygame.font.Font(None, 36).render("Экипировать", True, (120, 128, 122))
+        label = pygame.font.Font(None, 28).render("Экипировать", True, (120, 128, 122))
         game.screen.blit(label, label.get_rect(center=equip.rect.center))
-    else:
-        equip.draw(game.screen)
-    back.draw(game.screen)
 
 
 def draw_game(game):
@@ -1355,7 +1477,14 @@ def draw_game(game):
         "радио": game.inventory_manager.get_count(ItemType.RADIO),
     }
 
-    # Верхние игровые кнопки: магазин убран, журнал вынесен как явная кнопка "Дело".
+    sw, _sh = _screen_wh(game)
+    if game.game_buttons:
+        menu = game.game_buttons[0]
+        menu.rect.size = (98, 38)
+        menu.rect.topright = (sw - 16, 16)
+    if hasattr(game, "journal_button") and game.journal_button:
+        game.journal_button.rect.size = (150, 38)
+        game.journal_button.rect.topright = (sw - 16, 62)
     for button in game.game_buttons:
         _draw_retro_button(game.screen, button)
     if hasattr(game, "journal_button"):
@@ -1423,92 +1552,60 @@ def draw_game(game):
         pygame.draw.rect(game.screen, (170, 185, 205), tip_rect, 1, border_radius=5)
         game.screen.blit(label, (lx, ly))
 
-    # --- Сессионные задания (правая панель) ---
-    panel_w, panel_h = 300, 78
-    panel_x = SCREEN_WIDTH - panel_w - 20
-    panel_y = 150
-    panel_bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
-    panel_bg.fill((236, 228, 210, 205))
-    game.screen.blit(panel_bg, (panel_x, panel_y))
-    pygame.draw.rect(game.screen, (95, 77, 56), (panel_x, panel_y, panel_w, panel_h), 2)
-
-    panel_font = pygame.font.Font(None, 22)
-    game.screen.blit(panel_font.render("Задания выезда (сессия $)", True, (70, 55, 40)), (panel_x + 8, panel_y + 6))
-    y = panel_y + 30
-    active_tasks = [t for t in getattr(game, "tasks", []) if not t.get("done")]
-    shown = active_tasks[:2] if active_tasks else []
-    if not shown:
-        game.screen.blit(panel_font.render("Все задания выезда закрыты", True, (90, 80, 70)), (panel_x + 8, y))
-    for task in shown:
-        status = f"{task.get('progress', 0)}/{task.get('target', 0)}"
-        short_title = str(task.get("title", task.get("id", "")))[:20]
-        reward = int(task.get("reward", 0) or 0)
-        row = f"{short_title}: {status}  +{reward}$"
-        game.screen.blit(panel_font.render(row, True, (44, 37, 30)), (panel_x + 8, y))
-        y += 22
-
-    # Глобальные достижения — трофеи кампании, без денег.
+    chip_font = pygame.font.Font(None, 20)
+    tiny = pygame.font.Font(None, 18)
+    has_thermometer = bool(game.inventory.get("градусник", False))
+    hud_bottom = 16 + (132 if has_thermometer else 112)
+    hint_on = pygame.time.get_ticks() < int(getattr(game, "setup_timer_hint_until", 0) or 0)
+    ach_x = 470 if hint_on else 22
+    ach_y = hud_bottom + 8
     unlocked = sum(1 for a in getattr(game, "achievements_table", []) if a.get("unlocked"))
     total = len(getattr(game, "achievements_table", []))
-    badge_w, badge_h = 250, 56
-    badge_x, badge_y = 20, 150
-    badge_rect = pygame.Rect(badge_x, badge_y, badge_w, badge_h)
+    ach_label = f"Ачивки {unlocked}/{total}"
+    ach_w = max(108, chip_font.size(ach_label)[0] + 16)
+    badge_rect = pygame.Rect(ach_x, ach_y, ach_w, 28)
     game.achievements_badge_rect = badge_rect
-    badge_bg = pygame.Surface((badge_w, badge_h), pygame.SRCALPHA)
-    open_panel = bool(getattr(game, "achievements_panel_open", False))
-    badge_bg.fill((40, 72, 88, 220) if open_panel else (32, 58, 72, 210))
-    game.screen.blit(badge_bg, badge_rect.topleft)
-    pygame.draw.rect(game.screen, (120, 190, 210), badge_rect, 2, border_radius=8)
-    badge_font = pygame.font.Font(None, 23)
-    small_badge = pygame.font.Font(None, 20)
-    game.screen.blit(badge_font.render("Достижения", True, (220, 240, 248)), (badge_x + 10, badge_y + 6))
-    game.screen.blit(
-        small_badge.render(f"{unlocked}/{total}  ·  трофеи кампании", True, (170, 210, 230)),
-        (badge_x + 10, badge_y + 30),
-    )
+    open_ach = bool(getattr(game, "achievements_panel_open", False))
+    pygame.draw.rect(game.screen, (40, 72, 88) if open_ach else (28, 46, 56), badge_rect, border_radius=8)
+    pygame.draw.rect(game.screen, (110, 170, 190), badge_rect, 1, border_radius=8)
+    game.screen.blit(chip_font.render(ach_label, True, (210, 230, 238)), (badge_rect.x + 8, badge_rect.y + 6))
+    game.achievements_popup_rect = None
 
-    if open_panel:
-        rows = []
-        for ach in getattr(game, "achievements_table", []):
-            done = bool(ach.get("unlocked"))
-            mark = "ОТКР" if done else "ЗАКР"
-            title = str(ach.get("title", ach.get("id", "")))
-            progress = f"{ach.get('progress', 0)}/{ach.get('target', 0)}"
-            desc = str(ach.get("description", "")).strip()
-            base = f"{mark}  {title}" if done else f"{mark}  {title}  {progress}"
-            rows.append((base, desc, done))
-        popup_h = min(360, 36 + max(1, len(rows)) * 40)
-        popup_rect = pygame.Rect(badge_x, badge_y + badge_h + 8, 360, popup_h)
-        game.achievements_popup_rect = popup_rect
-        popup_bg = pygame.Surface((popup_rect.w, popup_rect.h), pygame.SRCALPHA)
-        popup_bg.fill((24, 42, 52, 235))
-        game.screen.blit(popup_bg, popup_rect.topleft)
-        pygame.draw.rect(game.screen, (120, 190, 210), popup_rect, 2, border_radius=8)
-        popup_font = pygame.font.Font(None, 21)
-        tiny = pygame.font.Font(None, 18)
-        game.screen.blit(
-            popup_font.render("Кампания · как ачивки в играх", True, (180, 220, 235)),
-            (popup_rect.x + 10, popup_rect.y + 8),
-        )
-        if not rows:
-            game.screen.blit(popup_font.render("Нет достижений в таблице", True, (200, 210, 220)), (popup_rect.x + 10, popup_rect.y + 36))
-        else:
-            for i, (base, desc, done) in enumerate(rows[:8]):
-                row_y = popup_rect.y + 34 + i * 40
-                if i % 2 == 0:
-                    pygame.draw.rect(game.screen, (30, 52, 64), (popup_rect.x + 4, row_y - 2, popup_rect.w - 8, 38))
-                color = (160, 230, 190) if done else (230, 238, 245)
-                text = base
-                while popup_font.size(text)[0] > popup_rect.w - 20 and len(text) > 4:
-                    text = text[:-4] + "..."
-                game.screen.blit(popup_font.render(text, True, color), (popup_rect.x + 10, row_y))
-                if desc:
-                    d = desc
-                    while tiny.size(d)[0] > popup_rect.w - 20 and len(d) > 4:
-                        d = d[:-4] + "..."
-                    game.screen.blit(tiny.render(d, True, (150, 175, 190)), (popup_rect.x + 10, row_y + 18))
+    done_tasks = sum(1 for t in getattr(game, "tasks", []) if t.get("done"))
+    all_tasks = len(getattr(game, "tasks", []))
+    journal = getattr(game, "journal_button", None)
+    task_x = journal.rect.x if journal else SCREEN_WIDTH - 172
+    task_y = (journal.rect.bottom + 8) if journal else 108
+    task_label = f"Задания {done_tasks}/{all_tasks}"
+    task_w = max(108, chip_font.size(task_label)[0] + 16)
+    task_rect = pygame.Rect(task_x, task_y, task_w, 28)
+    if task_rect.right > SCREEN_WIDTH - 8:
+        task_rect.right = SCREEN_WIDTH - 8
+    game.tasks_badge_rect = task_rect
+    open_tasks = bool(getattr(game, "tasks_panel_open", False))
+    pygame.draw.rect(game.screen, (70, 58, 40) if open_tasks else (48, 40, 30), task_rect, border_radius=8)
+    pygame.draw.rect(game.screen, (170, 145, 110), task_rect, 1, border_radius=8)
+    game.screen.blit(chip_font.render(task_label, True, (236, 226, 210)), (task_rect.x + 8, task_rect.y + 6))
+
+    if open_tasks:
+        task_rows = list(getattr(game, "tasks", []) or [])
+        popup_rect = pygame.Rect(0, task_rect.bottom + 6, 280, 12 + max(1, len(task_rows)) * 44)
+        popup_rect.right = min(SCREEN_WIDTH - 8, max(task_rect.right, 288))
+        if popup_rect.bottom > SCREEN_HEIGHT - 80:
+            popup_rect.bottom = SCREEN_HEIGHT - 80
+        game.tasks_popup_rect = popup_rect
+        pygame.draw.rect(game.screen, (40, 32, 24), popup_rect, border_radius=8)
+        pygame.draw.rect(game.screen, (170, 145, 110), popup_rect, 1, border_radius=8)
+        for i, task in enumerate(task_rows[:6]):
+            row_y = popup_rect.y + 8 + i * 44
+            done = bool(task.get("done"))
+            color = (180, 200, 160) if done else (236, 226, 210)
+            title = str(task.get("title", task.get("id", "")))
+            extra = "готово" if done else f"{task.get('progress', 0)}/{task.get('target', 0)}  +{int(task.get('reward', 0) or 0)}$"
+            game.screen.blit(tiny.render(_fit_text(tiny, title, popup_rect.w - 16), True, color), (popup_rect.x + 8, row_y))
+            game.screen.blit(tiny.render(extra, True, (200, 180, 140)), (popup_rect.x + 8, row_y + 18))
     else:
-        game.achievements_popup_rect = None
+        game.tasks_popup_rect = None
         
     if game.show_save_prompt:
         # Полупрозрачный фон
@@ -1534,3 +1631,5 @@ def draw_game(game):
 
     if getattr(game, "journal_open", False) and not game.show_save_prompt:
         draw_evidence_journal_overlay(game)
+    if getattr(game, "achievements_panel_open", False) and not game.show_save_prompt:
+        draw_achievements_window(game, standalone=False)

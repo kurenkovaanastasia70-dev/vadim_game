@@ -37,10 +37,24 @@ def handle_menu_events(game, event):
                 game.push_state(GameState.SAVES)
             elif i==4:  # Выход
                 game.running=False
+            elif i==5:  # Достижения
+                game.push_state(GameState.ACHIEVEMENTS)
 
 
 def handle_howto_events(game, event):
     if game.howto_back_button.handle_event(event):
+        game.go_back()
+
+
+def handle_achievements_menu_events(game, event):
+    if getattr(game, "achievements_back_button", None) and game.achievements_back_button.handle_event(event):
+        game.go_back()
+        return
+    close = getattr(game, "achievements_close_rect", None)
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and close and close.collidepoint(event.pos):
+        game.go_back()
+        return
+    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
         game.go_back()
 
 
@@ -276,14 +290,25 @@ def handle_game_events(game, event):
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_j:
             game.journal_open = not getattr(game, "journal_open", False)
+            if game.journal_open:
+                game.achievements_panel_open = False
             if not game.journal_open:
                 game.journal_reset_confirm = False
+            return
+        if event.key == pygame.K_y:
+            game.achievements_panel_open = not bool(getattr(game, "achievements_panel_open", False))
+            if game.achievements_panel_open:
+                game.journal_open = False
+                game.tasks_panel_open = False
             return
         if event.key == pygame.K_ESCAPE and getattr(game, "journal_open", False):
             game.journal_open = False
             game.journal_reset_confirm = False
             return
-        if getattr(game, "journal_open", False):
+        if event.key == pygame.K_ESCAPE and getattr(game, "achievements_panel_open", False):
+            game.achievements_panel_open = False
+            return
+        if getattr(game, "journal_open", False) or getattr(game, "achievements_panel_open", False):
             return
         if event.key == pygame.K_F1:
             # Переключение отладочного режима для приведений
@@ -335,14 +360,31 @@ def handle_game_events(game, event):
         mouse_pos = event.pos
         badge = getattr(game, "achievements_badge_rect", None)
         popup = getattr(game, "achievements_popup_rect", None)
+        task_badge = getattr(game, "tasks_badge_rect", None)
+        task_popup = getattr(game, "tasks_popup_rect", None)
         if badge and badge.collidepoint(mouse_pos):
             game.achievements_panel_open = not bool(getattr(game, "achievements_panel_open", False))
+            game.tasks_panel_open = False
+            game.journal_open = False
             return
         if getattr(game, "achievements_panel_open", False):
-            if popup and popup.collidepoint(mouse_pos):
+            close = getattr(game, "achievements_close_rect", None)
+            window = getattr(game, "achievements_window_rect", None)
+            if close and close.collidepoint(mouse_pos):
+                game.achievements_panel_open = False
                 return
-            # клик мимо — закрыть панель достижений
+            if window and window.collidepoint(mouse_pos):
+                return
             game.achievements_panel_open = False
+            return
+        if task_badge and task_badge.collidepoint(mouse_pos):
+            game.tasks_panel_open = not bool(getattr(game, "tasks_panel_open", False))
+            game.achievements_panel_open = False
+            return
+        if getattr(game, "tasks_panel_open", False):
+            if task_popup and task_popup.collidepoint(mouse_pos):
+                return
+            game.tasks_panel_open = False
 
         world_mouse_pos = (mouse_pos[0] + game.camera_x, mouse_pos[1] + game.camera_y)
         
@@ -416,13 +458,20 @@ def handle_win_events(game, event):
 
 def handle_boost_pick_events(game, event):
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-        for rect, boost_id in getattr(game, "boost_card_rects", []) or []:
+        for rect, boost_id in getattr(game, "boost_buy_rects", []) or []:
             if rect.collidepoint(event.pos):
+                game.buy_session_boost(boost_id)
+                return
+        for rect, boost_id in getattr(game, "boost_card_rects", []) or []:
+            if rect.collidepoint(event.pos) and game.owns_boost(boost_id):
                 game.selected_boost_id = boost_id
                 return
 
     if game.boost_equip_button.handle_event(event):
         game.equip_selected_boost_and_advance()
+        return
+    if getattr(game, "boost_skip_button", None) and game.boost_skip_button.handle_event(event):
+        game.skip_boost_and_advance()
         return
     if game.boost_back_button.handle_event(event):
         _leave_boost_pick(game)
@@ -432,9 +481,13 @@ def handle_boost_pick_events(game, event):
         catalog = list(SESSION_BOOST_CATALOG)
         keymap = {pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2}
         if event.key in keymap and keymap[event.key] < len(catalog):
-            game.selected_boost_id = catalog[keymap[event.key]]["id"]
+            boost_id = catalog[keymap[event.key]]["id"]
+            if game.owns_boost(boost_id):
+                game.selected_boost_id = boost_id
         elif event.key == pygame.K_RETURN:
             game.equip_selected_boost_and_advance()
+        elif event.key == pygame.K_SPACE:
+            game.skip_boost_and_advance()
         elif event.key == pygame.K_ESCAPE:
             _leave_boost_pick(game)
 
@@ -455,6 +508,8 @@ def handle_event(game):
             handle_menu_events(game, event)
         elif game.state == GameState.HOWTO:
             handle_howto_events(game, event)
+        elif game.state == GameState.ACHIEVEMENTS:
+            handle_achievements_menu_events(game, event)
         elif game.state == GameState.SHOP:
             handle_shop_events(game, event)
         elif game.state == GameState.SETTINGS:
