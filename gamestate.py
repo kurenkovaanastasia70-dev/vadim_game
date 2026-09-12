@@ -8,3 +8,5 @@ class GameState:
     HOWTO = "howto"
     GAME_OVER = "game_over"
     WIN = "win"
+    BOOST_PICK = "boost_pick"
+    ACHIEVEMENTS = "achievements"

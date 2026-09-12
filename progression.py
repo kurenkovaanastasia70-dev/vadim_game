@@ -260,9 +260,9 @@ class TaskAchievementManager:
                 task["done"] = True
                 if not task["claimed"]:
                     task["claimed"] = True
-                    # Задания сессии → session-$ (магазин на выезде), не глобальный счёт.
+                    # Задания выезда → только session-$. Глобальный трек не платит деньгами.
                     self.game.player_money = int(getattr(self.game, "player_money", 0) or 0) + task["reward"]
-                    messages.append(f"Задание выполнено: {task['title']} (+{task['reward']}$ сессии)")
+                    messages.append(f"Задание выезда: {task['title']} (+{task['reward']}$ сессии)")
 
         for ach in self.game.achievements_table:
             if ach["event_key"] != event_key or ach["unlocked"]:
@@ -270,14 +270,8 @@ class TaskAchievementManager:
             ach["progress"] = min(ach["target"], ach["progress"] + value)
             if ach["progress"] >= ach["target"]:
                 ach["unlocked"] = True
-                if not ach["claimed"] and ach["reward"] > 0:
-                    ach["claimed"] = True
-                    self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-                    messages.append(
-                        f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"
-                    )
-                else:
-                    messages.append(f"Достижение: {ach['title']}")
+                ach["claimed"] = True
+                messages.append(f"Достижение разблокировано: {ach['title']}")
 
         return ProgressResult(messages)
 
@@ -287,9 +281,6 @@ class TaskAchievementManager:
                 continue
             ach["unlocked"] = True
             ach["progress"] = ach["target"]
-            if not ach["claimed"] and ach["reward"] > 0:
-                ach["claimed"] = True
-                self.game.global_money = int(getattr(self.game, "global_money", 0) or 0) + ach["reward"]
-                return ProgressResult([f"Достижение: {ach['title']} (+{ach['reward']}$ на счёт)"])
-            return ProgressResult([f"Достижение: {ach['title']}"])
+            ach["claimed"] = True
+            return ProgressResult([f"Достижение разблокировано: {ach['title']}"])
         return ProgressResult([])
