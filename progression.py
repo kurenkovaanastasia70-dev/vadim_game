@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import os
 from dataclasses import dataclass
 from typing import Dict, List
