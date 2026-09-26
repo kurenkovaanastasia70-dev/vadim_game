@@ -18,5 +18,7 @@ Thumbs.db
 save.json
 *.log
 
-# Lesson HTML (local only — keep out of git index)
+# Lesson materials (local only — keep out of git index)
+lesson_activity_checklist.md
 local_lessons/*.html
+local_lessons/callback_getattr_callable.ipynb
