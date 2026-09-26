@@ -18,6 +18,5 @@ Thumbs.db
 save.json
 *.log
 
-# Lesson materials (local only — keep out of git index)
-lesson_activity_checklist.md
+# Lesson HTML (local only — keep out of git index)
 local_lessons/*.html
