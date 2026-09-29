@@ -213,6 +213,33 @@ PLACED_ITEM_HITBOX_SIZE = max(32, int(TILE_SIZE * MAP_SCALE * PLACED_ITEM_HITBOX
 PLACEMENT_PREVIEW_SIZE = PLACED_ITEM_HITBOX_SIZE
 MAX_CARRIED_ITEMS = 3
 
+# Один буст на следующий выезд — выбирается на экране после победы.
+SESSION_BOOST_CATALOG = (
+    {
+        "id": "extra_slot",
+        "title": "Карман +1",
+        "desc": "На выезде можно нести на 1 предмет больше.",
+        "cost": 120,
+    },
+    {
+        "id": "budget_boost",
+        "title": "Бюджет +25$",
+        "desc": "Сразу +25$ сессии на этот выезд.",
+        "cost": 90,
+    },
+    {
+        "id": "starter_candle",
+        "title": "Стартовая свеча",
+        "desc": "Выезд начинается с одной свечой.",
+        "cost": 70,
+    },
+)
+
+
+def get_max_carried_items(game):
+    extra = 1 if getattr(game, "equipped_boost", None) == "extra_slot" else 0
+    return MAX_CARRIED_ITEMS + extra
+
 
 class PlacedProjector:
     """Размещённый проектор. Клик по нему — перемещение. Питание — навести аккумулятор (клик при наличии батареи)."""
@@ -624,12 +651,13 @@ class InventoryManager:
             return True
         if not self.is_consumable(item_type) and self.game.inventory.get(item_type.value, False):
             return True
-        return self.carried_slots_count() < MAX_CARRIED_ITEMS
+        return self.carried_slots_count() < get_max_carried_items(self.game)
 
     def receive_item(self, item_type, amount=1):
         if not self.can_receive_item(item_type):
             if hasattr(self.game, "_show_game_info"):
-                self.game._show_game_info("Инвентарь полон: максимум 3 предмета.", 1200)
+                limit = get_max_carried_items(self.game)
+                self.game._show_game_info(f"Инвентарь полон: максимум {limit} предмета.", 1200)
             return False
         self.game.inventory[item_type.value] = True
         if self.is_consumable(item_type):

@@ -10,7 +10,9 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
+import draws
 from constants import FPS
+from gamestate import GameState
 from main_work import (
     Game,
     SANITY_DARK_DRAIN_PER_SECOND,
@@ -18,7 +20,7 @@ from main_work import (
     SANITY_SETUP_FLOOR,
     SANITY_CANDLE_DRAIN_FACTOR,
 )
-from inventory_system import ItemType
+from inventory_system import ItemType, get_max_carried_items
 
 
 def approx(a, b, eps=0.08):
@@ -98,15 +100,79 @@ def main():
     game.progress_event("buy_item", 1)
     assert game.player_money == 10 + 25
 
-    # Глобальные достижения → счёт; UI-флаг панели есть.
+    # Глобальный трек — только ачивка, без global_money.
     game.achievements_table = game.progress_manager.new_state()[1]
     radio_ach = next(a for a in game.achievements_table if a["event_key"] == "radio_answer")
     radio_ach["progress"] = radio_ach["target"] - 1
     before = game.global_money
     game.progress_event("radio_answer", 1)
     assert radio_ach["unlocked"]
-    assert game.global_money == before + int(radio_ach["reward"])
+    assert game.global_money == before
     assert hasattr(game, "achievements_panel_open")
+    game.achievements_panel_open = True
+    draws.draw_achievements_window(game, standalone=False)
+    assert getattr(game, "achievements_window_rect", None)
+    game.achievements_panel_open = False
+    game.push_state(GameState.ACHIEVEMENTS)
+    assert game.state == GameState.ACHIEVEMENTS
+
+    game.current_level_id = "level_1"
+    game.player_level = 1
+    game.win_next_level_id = None
+    game.owned_boosts = {}
+    game.global_money = 0
+    game.open_boost_pick(purpose="start")
+    assert game.state == GameState.BOOST_PICK
+    game.selected_boost_id = "starter_candle"
+    assert game.equip_selected_boost_and_advance() is False
+    assert game.buy_session_boost("starter_candle") is False
+    game.global_money = 70
+    assert game.buy_session_boost("starter_candle")
+    assert game.global_money == 0
+    assert game.owns_boost("starter_candle")
+    money_before = game.player_money
+    assert game.equip_selected_boost_and_advance()
+    assert game.state == GameState.GAME
+    assert game.current_level_id == "level_1"
+    assert game.equipped_boost == "starter_candle"
+    assert game.player_money == money_before
+    assert game.inventory_manager.get_count(ItemType.CANDLE) >= 1
+
+    game.win_next_level_id = "level_2"
+    game.open_boost_pick()
+    assert game.state == GameState.BOOST_PICK
+    game.selected_boost_id = "extra_slot"
+    assert game.equip_selected_boost_and_advance() is False
+    game.global_money = 120
+    assert game.buy_session_boost("extra_slot")
+    money_before = game.player_money
+    assert game.equip_selected_boost_and_advance()
+    assert game.equipped_boost == "extra_slot"
+    assert get_max_carried_items(game) == 4
+    assert game.player_money == money_before
+    assert game.current_level_id == "level_2"
+
+    game.player_level = 1
+    game.current_level_id = "level_1"
+    game.win_next_level_id = "level_2"
+    game.global_money = 90
+    game.selected_boost_id = None
+    assert game.buy_session_boost("budget_boost")
+    money_before = game.player_money
+    assert game.equip_selected_boost_and_advance()
+    assert game.equipped_boost == "budget_boost"
+    assert game.player_money == money_before + 25
+
+    game.owned_boosts["starter_candle"] = True
+    game.equipped_boost = "starter_candle"
+    game.reset_inventory()
+    game.apply_equipped_boost_inventory()
+    assert game.inventory_manager.get_count(ItemType.CANDLE) >= 1
+
+    game.owned_boosts = {}
+    game.open_boost_pick(purpose="start")
+    assert game.skip_boost_and_advance()
+    assert game.equipped_boost is None
 
     print("sanity tests OK")
     return 0
