@@ -420,24 +420,24 @@ class Ghost:
         import os
         from PIL import Image
         
-        gif_path = os.path.join("sprite_parts", "spawn.gif")
-        gif = Image.open(gif_path)
         self.spawn_animation = []
-        
-        # Извлекаем все кадры из GIF
-        try:
-            while True:
-                # Конвертируем кадр в RGBA и масштабируем до размера призрака
-                frame = gif.convert("RGBA").resize((GHOST_SIZE, GHOST_SIZE), Image.Resampling.LANCZOS)
-                
-                # Конвертируем PIL Image в Pygame Surface
-                pygame_surface = pygame.image.fromstring(frame.tobytes(), frame.size, frame.mode)
-                self.spawn_animation.append(pygame_surface)
-                
-                # Переходим к следующему кадру
-                gif.seek(gif.tell() + 1)
-        except EOFError:
-            pass  # Достигли конца GIF
+        gif_path = os.path.join("sprite_parts", "spawn.gif")
+        # Извлекаем все кадры GIF внутри контекстного менеджера, чтобы не
+        # оставлять файловый дескриптор открытым после создания спрайтов.
+        with Image.open(gif_path) as gif:
+            try:
+                while True:
+                    # Конвертируем кадр в RGBA и масштабируем до размера призрака
+                    frame = gif.convert("RGBA").resize((GHOST_SIZE, GHOST_SIZE), Image.Resampling.LANCZOS)
+
+                    # Конвертируем PIL Image в Pygame Surface
+                    pygame_surface = pygame.image.fromstring(frame.tobytes(), frame.size, frame.mode)
+                    self.spawn_animation.append(pygame_surface)
+
+                    # Переходим к следующему кадру
+                    gif.seek(gif.tell() + 1)
+            except EOFError:
+                pass  # Достигли конца GIF
     
     def _generate_smart_patrol_points(self):
         """Генерирует умные точки патрулирования в разных комнатах"""
