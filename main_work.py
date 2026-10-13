@@ -1380,11 +1380,15 @@ class Game:
         self.set_state(GameState.GAME_OVER)
 
     def load_saves(self):
+        empty_saves = {"slot1": None, "slot2": None, "slot3": None}
         try:
-            with open(self.save_file, 'r', encoding = 'utf-8') as f: 
-                return json.load(f)
-        except:
-            return {"slot1": None, "slot2": None, "slot3": None}
+            with open(self.save_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError, TypeError):
+            return empty_saves
+        if not isinstance(data, dict):
+            return empty_saves
+        return {slot: data.get(slot) for slot in empty_saves}
 
     def save_game(self, slot):
         from inventory_system import ItemType
@@ -1422,16 +1426,20 @@ class Game:
             "owned_boosts": [key for key, owned in (getattr(self, "owned_boosts", {}) or {}).items() if owned],
         }
         self.saves[f"slot{slot}"] = save_data
-        with open(self.save_file, 'w', encoding ='utf-8') as f:
-            json.dump(self.saves, f, ensure_ascii = False, indent =2 )
+        temporary_save_file = f"{self.save_file}.tmp"
+        with open(temporary_save_file, "w", encoding="utf-8") as f:
+            json.dump(self.saves, f, ensure_ascii=False, indent=2)
+        os.replace(temporary_save_file, self.save_file)
         self.selected_save_slot = slot
 
     def load_game(self, slot):
         save_data = self.saves.get(f"slot{slot}")
         if save_data:
-            self.player_level = save_data["level"]
-            self.difficulty_index = save_data["difficulty"]
-            self.difficulty_selected = save_data["difficulty_selected"]
+            if not isinstance(save_data, dict):
+                return False
+            self.player_level = int(save_data.get("level", 1) or 1)
+            self.difficulty_index = int(save_data.get("difficulty", 1) or 1)
+            self.difficulty_selected = bool(save_data.get("difficulty_selected", False))
             self.selected_save_slot = slot
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
@@ -1505,8 +1513,10 @@ class Game:
         key = f"slot{slot}"
         if key in self.saves:
             self.saves[key] = None
-            with open(self.save_file, 'w', encoding='utf-8') as f:
+            temporary_save_file = f"{self.save_file}.tmp"
+            with open(temporary_save_file, "w", encoding="utf-8") as f:
                 json.dump(self.saves, f, ensure_ascii=False, indent=2)
+            os.replace(temporary_save_file, self.save_file)
         if self.selected_save_slot == slot:
             self.selected_save_slot = None
     

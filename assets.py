@@ -415,7 +415,7 @@ def load_pin_images():
             new_height = int(original_height * scale_factor)
             pin_img = pygame.transform.scale(pin_img, (target_width, new_height))
             pin_images[f"pin_{i}"] = pin_img
-            print(f"✅ Пин {i} загружен")
+            print(f"[OK] Пин {i} загружен")
         except Exception as e:
             print(f"[!] Не удалось загрузить пин {i}: {e}")
             pin_images[f"pin_{i}"] = None

@@ -1,0 +1,46 @@
+image: python:3.11
+
+stages:
+  - test
+
+variables:
+  SDL_VIDEODRIVER: "dummy"
+  SDL_AUDIODRIVER: "dummy"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
+before_script:
+  - python --version
+  - python -m pip install --upgrade pip
+  - python -m pip install -r requirements.txt
+
+unit-and-integration:
+  stage: test
+  script:
+    - python -m coverage run -m unittest discover -s tests -v
+    - python -m coverage report -m --fail-under=30
+    - python -m coverage html -d coverage_html
+  coverage: '/TOTAL.*\s(\d+)%/'
+  artifacts:
+    when: always
+    paths:
+      - coverage_html/
+    expire_in: 1 week
+
+sanity:
+  stage: test
+  script:
+    - python tools_test_sanity.py
+
+compile:
+  stage: test
+  script:
+    - python -m compileall -q .
+
+gui-smoke:
+  stage: test
+  script:
+    - python tools_test_gui.py

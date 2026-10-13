@@ -12,6 +12,19 @@
 4. (Опционально) Запустите редактор уровней:
    - `python level_editor.py`
 
+## Проверка baseline
+
+Запустите автоматические проверки без открытия окна игры:
+
+```bash
+python -m unittest discover -s tests -v
+python tools_test_sanity.py
+# GUI smoke test: opens a real Pygame window and saves screenshots to %TEMP%
+python tools_test_gui.py
+```
+
+Тесты проверяют загрузку уровней, headless-игровой цикл, работу предметов и проектора, сохранение/загрузку, состояние призрака и переход между уровнями. GUI smoke test дополнительно проверяет реальные экраны меню, сохранений, сложности, бустов, игры, журнала и диалога выхода в меню.
+
 ## Основные файлы
 
 - `main_work.py` — точка входа игры.

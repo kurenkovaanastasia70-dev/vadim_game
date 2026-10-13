@@ -17,8 +17,12 @@ Thumbs.db
 # Runtime and local data
 save.json
 *.log
+.coverage
+coverage_html/
 
 # Lesson materials (local only — keep out of git index)
 lesson_activity_checklist.md
 local_lessons/*.html
+local_lessons/*.md
 local_lessons/callback_getattr_callable.ipynb
+/opros_urok.html
