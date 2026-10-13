@@ -1,0 +1,12 @@
+[run]
+source = .
+omit =
+    tests/*
+    tools_test_*.py
+    level_editor.py
+    local_lessons/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:

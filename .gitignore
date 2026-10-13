@@ -17,6 +17,8 @@ Thumbs.db
 # Runtime and local data
 save.json
 *.log
+.coverage
+coverage_html/
 
 # Lesson materials (local only — keep out of git index)
 lesson_activity_checklist.md
