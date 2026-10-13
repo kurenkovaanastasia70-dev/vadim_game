@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Покрытие тестами — Vadim Game</title>
+  <style>
+    :root { --bg: #101827; --card: #18243a; --text: #edf3ff; --muted: #aebbd1; --accent: #70d6ff; --ok: #8be28b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: linear-gradient(135deg, #101827, #23395d); color: var(--text); font: 18px/1.55 system-ui, sans-serif; }
+    main { max-width: 1050px; margin: 0 auto; padding: 34px 22px 70px; }
+    header { padding: 42px 34px; border: 1px solid #38547c; border-radius: 20px; background: rgba(24,36,58,.9); box-shadow: 0 18px 60px #080e19aa; }
+    h1, h2 { line-height: 1.15; } h1 { font-size: clamp(32px, 6vw, 60px); margin: 0 0 12px; } h2 { color: var(--accent); margin-top: 0; }
+    .subtitle, small { color: var(--muted); }
+    section { margin-top: 24px; padding: 28px; border-radius: 16px; background: rgba(24,36,58,.86); border: 1px solid #30496e; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .card { padding: 18px; border-radius: 12px; background: #213352; } .card strong { display: block; color: var(--ok); font-size: 1.15em; }
+    code, pre { background: #0b1220; border-radius: 8px; } code { padding: 2px 6px; color: #ffd580; } pre { padding: 16px; overflow-x: auto; color: #d8e7ff; }
+    table { width: 100%; border-collapse: collapse; } th, td { text-align: left; vertical-align: top; padding: 10px; border-bottom: 1px solid #3a5276; } th { color: var(--accent); }
+    .pipeline { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; } .step { padding: 12px 16px; border-radius: 10px; background: #29436b; } .arrow { color: var(--accent); font-size: 25px; }
+    @media (max-width: 600px) { body { font-size: 16px; } section, header { padding: 20px; } .arrow { display: none; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Покрытие тестами</h1>
+    <p class="subtitle">Теория, виды тестов и CI/CD на примере игры Vadim Game</p>
+  </header>
+
+  <section>
+    <h2>Зачем нужны тесты</h2>
+    <p>Автотест — программа, которая проверяет ожидаемое поведение игры. Тесты ловят регрессии после изменений, помогают безопасно работать в ветках и превращают требования к игре в исполняемую документацию.</p>
+    <div class="grid">
+      <div class="card"><strong>Быстрее</strong>не нужно каждый раз вручную проходить одинаковый сценарий</div>
+      <div class="card"><strong>Надёжнее</strong>ошибка обнаруживается сразу после push</div>
+      <div class="card"><strong>Понятнее</strong>тест показывает, какое поведение считается правильным</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Что такое покрытие</h2>
+    <p>Покрытие показывает, какая часть кода выполнялась во время тестов. Базовая формула:</p>
+    <pre>покрытие = выполненные инструкции / все инструкции × 100%</pre>
+    <p>Покрытие строк не доказывает отсутствие ошибок: строка могла выполниться без проверки результата. Поэтому мы смотрим на процент вместе с качеством assertions и сценариев.</p>
+  </section>
+
+  <section>
+    <h2>Виды покрытия</h2>
+    <div class="grid">
+      <div class="card"><strong>Строк</strong>какие исполняемые строки были запущены</div>
+      <div class="card"><strong>Ветвей</strong>были ли проверены оба исхода условий if/else</div>
+      <div class="card"><strong>Функций</strong>какие функции были вызваны тестами</div>
+      <div class="card"><strong>Инструкций</strong>основная метрика coverage.py для исполняемых операторов</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Тесты в нашем проекте</h2>
+    <table>
+      <thead><tr><th>Вид</th><th>Пример</th><th>Где</th></tr></thead>
+      <tbody>
+        <tr><td>Unit</td><td>правило следующего уровня</td><td><code>tests/test_lesson_testing_examples.py</code></td></tr>
+        <tr><td>Integration</td><td>сохранение и загрузка игры</td><td><code>tests/</code></td></tr>
+        <tr><td>Functional</td><td>переход level 1 → level 2</td><td><code>tests/</code></td></tr>
+        <tr><td>Smoke</td><td>запуск, уровень, игрок и призрак</td><td><code>tests/</code></td></tr>
+        <tr><td>Regression</td><td>повреждённый save не ломает игру</td><td><code>tests/</code></td></tr>
+        <tr><td>GUI / E2E</td><td>меню → игра → журнал → выход</td><td><code>tools_test_gui.py</code></td></tr>
+        <tr><td>Sanity</td><td>предметы, sanity, задания, достижения, boost</td><td><code>tools_test_sanity.py</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Как измерить покрытие</h2>
+    <pre>python -m coverage run -m unittest discover -s tests -v
+python -m coverage report -m
+python -m coverage html -d coverage_html</pre>
+    <p>Таблица появляется в консоли, подробный отчёт — в <code>coverage_html/index.html</code>. В проекте тесты измеряют игровые модули, но не сами тесты, учебные скрипты и редактор уровней.</p>
+  </section>
+
+  <section>
+    <h2>Pipeline GitLab CI</h2>
+    <div class="pipeline">
+      <div class="step">push / merge request</div><div class="arrow">→</div>
+      <div class="step">unit + integration + coverage</div><div class="arrow">→</div>
+      <div class="step">sanity</div><div class="arrow">→</div>
+      <div class="step">compile</div><div class="arrow">→</div>
+      <div class="step">GUI smoke</div>
+    </div>
+    <p>Все jobs относятся к стадии <code>test</code>. Если одна проверка падает, pipeline красный. Deploy в проекте не настроен.</p>
+  </section>
+
+  <section>
+    <h2>Главное правило</h2>
+    <p>Не нужно гнаться только за процентом. Хороший тест проверяет наблюдаемое поведение: изменилось ли количество предметов, состояние игрока, уровень или экран. Лучше содержательное покрытие критических игровых сценариев, чем высокий процент пустыми проверками.</p>
+  </section>
+</main>
+</body>
+</html>
