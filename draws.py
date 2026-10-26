@@ -1,5 +1,6 @@
 import pygame
 import math
+from functools import lru_cache
 from constants import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -17,6 +18,28 @@ import mechanics
 import level_config
 from inventory_system import ItemType, SESSION_BOOST_CATALOG, get_max_carried_items
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
+
+
+@lru_cache(maxsize=32)
+def _font(size):
+    return pygame.font.Font(None, size)
+
+
+@lru_cache(maxsize=4)
+def _get_crt_overlay(threat_bucket):
+    """Build a reusable composite for the four quantized CRT threat levels."""
+    threat = threat_bucket / 3
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((18, 45, 38, 34))
+    line_alpha = 34 + int(18 * threat)
+    for y in range(0, SCREEN_HEIGHT, 4):
+        pygame.draw.line(overlay, (0, 0, 0, line_alpha), (0, y), (SCREEN_WIDTH, y))
+    edge = int(80 + 45 * threat)
+    pygame.draw.rect(overlay, (0, 0, 0, edge), (0, 0, SCREEN_WIDTH, 28))
+    pygame.draw.rect(overlay, (0, 0, 0, edge), (0, SCREEN_HEIGHT - 28, SCREEN_WIDTH, 28))
+    pygame.draw.rect(overlay, (0, 0, 0, edge), (0, 0, 28, SCREEN_HEIGHT))
+    pygame.draw.rect(overlay, (0, 0, 0, edge), (SCREEN_WIDTH - 28, 0, 28, SCREEN_HEIGHT))
+    return overlay
 
 # Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
 JOURNAL_EVIDENCE_HELP = [
@@ -58,40 +81,33 @@ def _draw_crt_atmosphere(game):
     now = pygame.time.get_ticks()
     threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
 
-    tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    tint.fill((18, 45, 38, 34))
-    game.screen.blit(tint, (0, 0))
-
     # Красная вспышка только при реальной угрозе и заметно слабее прежней.
     if threat > 0.45:
         pulse = 0.5 + 0.5 * ((now // 180) % 2)
         danger_alpha = int(8 + 22 * (threat - 0.45) / 0.55 * pulse)
-        danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        danger.fill((96, 28, 32, danger_alpha))
+        danger = getattr(game, "_crt_danger_surface", None)
+        if danger is None:
+            danger = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            danger.fill((96, 28, 32))
+            game._crt_danger_surface = danger
+        danger.set_alpha(danger_alpha)
         game.screen.blit(danger, (0, 0))
 
-    line_alpha = 34 + int(18 * threat)
-    scanlines = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    for y in range(0, SCREEN_HEIGHT, 4):
-        pygame.draw.line(scanlines, (0, 0, 0, line_alpha), (0, y), (SCREEN_WIDTH, y))
-    game.screen.blit(scanlines, (0, 0))
+    threat_bucket = max(0, min(3, int(round(threat * 3))))
+    game.screen.blit(_get_crt_overlay(threat_bucket), (0, 0))
 
-    noise = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    noise = getattr(game, "_crt_noise_surface", None)
+    if noise is None:
+        noise = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        game._crt_noise_surface = noise
+    noise.fill((0, 0, 0, 0))
     step = 32
     offset = (now // 90) % step
     for y in range(-offset, SCREEN_HEIGHT, step):
         for x in range((y + offset) % 47, SCREEN_WIDTH, 96):
-            alpha = 10 + int(28 * threat)
-            noise.fill((220, 255, 230, alpha), (x, y, 2, 1))
+            noise.fill((220, 255, 230, 255), (x, y, 2, 1))
+    noise.set_alpha(10 + int(28 * threat))
     game.screen.blit(noise, (0, 0))
-
-    vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    edge = int(80 + 45 * threat)
-    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, SCREEN_WIDTH, 28))
-    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, SCREEN_HEIGHT - 28, SCREEN_WIDTH, 28))
-    pygame.draw.rect(vignette, (0, 0, 0, edge), (0, 0, 28, SCREEN_HEIGHT))
-    pygame.draw.rect(vignette, (0, 0, 0, edge), (SCREEN_WIDTH - 28, 0, 28, SCREEN_HEIGHT))
-    game.screen.blit(vignette, (0, 0))
 
 
 def _draw_compact_status_hud(game):
@@ -102,8 +118,8 @@ def _draw_compact_status_hud(game):
     game.screen.blit(hud_bg, (hud_x, hud_y))
     pygame.draw.rect(game.screen, (118, 156, 132), (hud_x, hud_y, hud_w, hud_h), 2, border_radius=6)
 
-    font = pygame.font.Font(None, 24)
-    small = pygame.font.Font(None, 20)
+    font = _font(24)
+    small = _font(20)
     hp = max(0, int(getattr(game, "player_hp", 0)))
     threat = game.threat_level() if hasattr(game, "threat_level") else 0.0
     sanity = max(0, min(100, int(round(getattr(game, "player_sanity", 100.0)))))
@@ -326,8 +342,8 @@ def _draw_setup_find_computer_message(game):
     bg.fill((40, 22, 8, 230))
     game.screen.blit(bg, panel.topleft)
     pygame.draw.rect(game.screen, (255, 150, 40), panel, 2, border_radius=6)
-    font = pygame.font.Font(None, 24)
-    small = pygame.font.Font(None, 20)
+    font = _font(24)
+    small = _font(20)
     game.screen.blit(
         font.render("Таймер setup — внутри компьютера", True, (255, 180, 80)),
         (panel.x + 12, panel.y + 6),
@@ -1496,9 +1512,9 @@ def draw_game(game):
     _draw_setup_complete_banner(game)
 
     # Инвентарь: прозрачные круги внизу экрана, та же геометрия используется в handlers.py.
-    slot_font = pygame.font.Font(None, 18)
-    qty_font = pygame.font.Font(None, 20)
-    name_font = pygame.font.Font(None, 19)
+    slot_font = _font(18)
+    qty_font = _font(20)
+    name_font = _font(19)
     active_item = getattr(game.inventory_manager, "active_hand_item", None)
     hovered_name = None
     total_slots = max(get_max_carried_items(game), len(purchased_items))
@@ -1552,8 +1568,8 @@ def draw_game(game):
         pygame.draw.rect(game.screen, (170, 185, 205), tip_rect, 1, border_radius=5)
         game.screen.blit(label, (lx, ly))
 
-    chip_font = pygame.font.Font(None, 20)
-    tiny = pygame.font.Font(None, 18)
+    chip_font = _font(20)
+    tiny = _font(18)
     has_thermometer = bool(game.inventory.get("градусник", False))
     hud_bottom = 16 + (132 if has_thermometer else 112)
     hint_on = pygame.time.get_ticks() < int(getattr(game, "setup_timer_hint_until", 0) or 0)
