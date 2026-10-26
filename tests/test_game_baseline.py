@@ -193,6 +193,28 @@ class GameBaselineTests(unittest.TestCase):
             self.assertEqual(restored.player_money, 77)
             self.assertEqual(restored.inventory_manager.get_count(ItemType.BATTERY), 2)
 
+    def test_level_task_progress_survives_loading_into_game(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_path = os.path.join(temp_dir, "save.json")
+            game = Game()
+            game.save_file = save_path
+            game.saves = {"slot1": None, "slot2": None, "slot3": None}
+            game.selected_save_slot = 1
+            game.current_level_id = "level_1"
+            game.player_level = 1
+            game.tasks = game.progress_manager.new_tasks_for_level("level_1")
+            game.tasks[0]["progress"] = 1
+            game.save_game(1)
+
+            restored = Game()
+            restored.save_file = save_path
+            restored.saves = restored.load_saves()
+            self.assertTrue(restored.load_game(1))
+            restored.set_state(GameState.GAME, reset_stack=True)
+
+            self.assertEqual(restored.current_level_id, "level_1")
+            self.assertEqual(restored.tasks[0]["progress"], 1)
+
     def test_corrupt_save_falls_back_to_empty_slots(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             save_path = os.path.join(temp_dir, "save.json")

@@ -1207,9 +1207,13 @@ class Game:
         return overlay
 
     def _after_level_ready(self):
-        # Задания сессии — под уровень; таблицу достижений не трогаем.
+        # Сохраняем восстановленный прогресс, если набор задач соответствует уровню.
         if hasattr(self, "progress_manager"):
-            self.tasks = self.progress_manager.new_tasks_for_level(self.current_level_id)
+            expected_tasks = self.progress_manager.new_tasks_for_level(self.current_level_id)
+            expected_ids = [task["id"] for task in expected_tasks]
+            current_ids = [task.get("id") for task in getattr(self, "tasks", [])]
+            if current_ids != expected_ids:
+                self.tasks = expected_tasks
 
     def load_level_by_id(self, level_id):
         """
@@ -1450,6 +1454,8 @@ class Game:
             if not isinstance(save_data, dict):
                 return False
             self.player_level = int(save_data.get("level", 1) or 1)
+            level_meta = level_config.get_level_by_number(self.player_level)
+            self.current_level_id = level_meta.get("id") if level_meta else None
             self.difficulty_index = int(save_data.get("difficulty", 1) or 1)
             self.difficulty_selected = bool(save_data.get("difficulty_selected", False))
             self.selected_save_slot = slot
