@@ -420,15 +420,13 @@ def handle_game_over_events(game, event):
     for i, button in enumerate(game.game_over_buttons):
         if button.handle_event(event):
             if i == 0:
-                game.reset_for_new_game()
-                game.set_state(GameState.GAME, reset_stack=True)
+                game.restart_current_level()
             elif i == 1:
                 game.set_state(GameState.MENU, reset_stack=True)
 
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_RETURN:
-            game.reset_for_new_game()
-            game.set_state(GameState.GAME, reset_stack=True)
+            game.restart_current_level()
         elif event.key == pygame.K_ESCAPE:
             game.set_state(GameState.MENU, reset_stack=True)
 

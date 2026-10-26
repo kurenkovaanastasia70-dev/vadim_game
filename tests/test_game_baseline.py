@@ -18,6 +18,7 @@ pygame.display.set_mode((1, 1))
 
 from gamestate import GameState
 from ghost import GhostState
+from handlers import handle_game_over_events
 from inventory_system import DroppedInventoryItem, ItemType
 from level_config import get_level_file_path, get_next_level_id, get_level_index
 from main_work import Game
@@ -279,6 +280,21 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(game.player_level, 2)
         self.assertEqual(game.state, GameState.GAME)
         self.assertEqual(game.setup_phase_ticks, game.difficulty_config()["setup_phase_seconds"] * 60)
+
+    def test_game_over_retry_restarts_the_current_level(self):
+        game = self.new_game()
+        game.player_level = 2
+        game.current_level_id = "level_2"
+        game.player_hp = 0
+        game.set_state(GameState.GAME_OVER)
+
+        event = pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN})
+        handle_game_over_events(game, event)
+
+        self.assertEqual(game.state, GameState.GAME)
+        self.assertEqual(game.player_level, 2)
+        self.assertEqual(game.current_level_id, "level_2")
+        self.assertEqual(game.player_hp, 5)
 
     def test_ghost_state_machine_has_known_states(self):
         game = self.new_game()
