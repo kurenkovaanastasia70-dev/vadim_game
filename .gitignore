@@ -19,6 +19,7 @@ save.json
 *.log
 .coverage
 coverage_html/
+.pytest_cache/
 
 # Lesson materials (local only — keep out of git index)
 lesson_activity_checklist.md

@@ -21,6 +21,7 @@ from ghost import GhostState
 from inventory_system import DroppedInventoryItem, ItemType
 from level_config import get_level_file_path, get_next_level_id, get_level_index
 from main_work import Game
+from project_paths import ACHIEVEMENTS_FILE, PROJECT_ROOT, SAVE_FILE
 
 
 class GameBaselineTests(unittest.TestCase):
@@ -48,6 +49,26 @@ class GameBaselineTests(unittest.TestCase):
             self.assertGreater(len(game.walls), 0)
             self.assertGreater(len(game.ghost_manager.ghosts), 0)
             self.assertIsNotNone(game.player_rect)
+
+    def test_runtime_resources_do_not_depend_on_working_directory(self):
+        previous_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                os.chdir(temp_dir)
+                game = self.new_game()
+                game.load_level_by_id("level_1")
+                game.draw()
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertTrue(all(game.pin_images.values()))
+        self.assertIsNotNone(game.cork_board_bg)
+        self.assertIsNotNone(game.bg_level1)
+        self.assertGreater(len(game.ghost_manager.ghosts), 0)
+        fallback = game.progress_manager.achievement_provider.fallback_provider
+        self.assertEqual(os.path.abspath(fallback.csv_path), str(ACHIEVEMENTS_FILE))
+        self.assertEqual(os.path.abspath(game.save_file), str(SAVE_FILE))
+        self.assertEqual(PROJECT_ROOT, ACHIEVEMENTS_FILE.parent.parent)
 
     def test_headless_gameplay_frames_are_stable(self):
         game = self.new_game()

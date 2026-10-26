@@ -34,6 +34,7 @@ from progression import (
     LocalAchievementTableProvider,
     TaskAchievementManager,
 )
+from project_paths import ACHIEVEMENTS_FILE, SAVE_FILE
 
 pygame.init()
 
@@ -130,7 +131,7 @@ class Game:
         self.difficulty_levels = ["Лёгкая","Нормальная","Сложная","ХАРДКОР"]
         self.difficulty_index = 1
         self.difficulty_selected = False
-        self.save_file = "save.json"
+        self.save_file = str(SAVE_FILE)
         self.saves = self.load_saves()
         self.selected_save_slot = None
         
@@ -234,9 +235,7 @@ class Game:
         self.radio_feedback_ok = False
         self.radio_static_sound = None
         self.hit_invincible_until = 0
-        local_ach_provider = LocalAchievementTableProvider(
-            os.path.join("local_lessons", "achievements_catalog.csv")
-        )
+        local_ach_provider = LocalAchievementTableProvider(str(ACHIEVEMENTS_FILE))
         sheets_url = os.getenv("GOOGLE_SHEETS_ACHIEVEMENTS_CSV_URL", "").strip()
         ach_provider = GoogleSheetsAchievementTableProvider(sheets_url, local_ach_provider)
         self.progress_manager = TaskAchievementManager(self, ach_provider)

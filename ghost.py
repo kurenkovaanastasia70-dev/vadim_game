@@ -10,6 +10,7 @@ import os
 from configparser import ConfigParser
 from enum import Enum
 from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
+from project_paths import SPRITE_PARTS_DIR
 import heapq
 
 GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
@@ -417,11 +418,10 @@ class Ghost:
     
     def _load_spawn_animation(self):
         """Загрузка анимации спавна из GIF"""
-        import os
         from PIL import Image
         
         self.spawn_animation = []
-        gif_path = os.path.join("sprite_parts", "spawn.gif")
+        gif_path = SPRITE_PARTS_DIR / "spawn.gif"
         # Извлекаем все кадры GIF внутри контекстного менеджера, чтобы не
         # оставлять файловый дескриптор открытым после создания спрайтов.
         with Image.open(gif_path) as gif:

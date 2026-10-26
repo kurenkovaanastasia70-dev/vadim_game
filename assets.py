@@ -5,13 +5,21 @@
 import pygame
 import os
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE, MAP_SCALE
+from project_paths import (
+    ASSETS_DIR,
+    DEFAULT_LEVEL_BACKGROUND_FILE,
+    MENU_BACKGROUND_FILE,
+    SPRITE_PARTS_DIR,
+)
+
+
 def load_computer_open():
     """
     Загружает изображение компьютера для магазина.
     """
     try:
         # Загружаем PNG с альфа-каналом
-        computer_img = pygame.image.load("assets/comp-2.png")
+        computer_img = pygame.image.load(ASSETS_DIR / "comp-2.png")
         
         # Если изображение имеет альфа-канал, используем convert_alpha()
         if computer_img.get_flags() & pygame.SRCALPHA:
@@ -35,7 +43,7 @@ def load_computer_closed():
     """
     try:
         # Загружаем PNG с альфа-каналом
-        computer_img = pygame.image.load("assets/comp-1.png")
+        computer_img = pygame.image.load(ASSETS_DIR / "comp-1.png")
         
         # Если изображение имеет альфа-канал, используем convert_alpha()
         if computer_img.get_flags() & pygame.SRCALPHA:
@@ -228,7 +236,7 @@ def load_trash_icon():
     Оригинальный код из main.py без изменений.
     """
     try:
-        icon_path = os.path.join(os.getcwd(), "assets/trach.png")
+        icon_path = ASSETS_DIR / "trach.png"
         img = pygame.image.load(icon_path).convert_alpha()
         # Подгоним под размер кнопок с небольшим отступом
         trash_icon = pygame.transform.smoothscale(img, (28, 28))
@@ -269,7 +277,7 @@ def load_level_background(game):
     # Загружаем дефолтный фон
     if not game.bg_level1:
         try:
-            bg_img = pygame.image.load("backgroung_lvl1.jpg").convert()
+            bg_img = pygame.image.load(DEFAULT_LEVEL_BACKGROUND_FILE).convert()
             game.bg_level1 = pygame.transform.scale(bg_img, expected_size)
         except Exception:
             game.bg_level1 = None
@@ -286,7 +294,7 @@ def load_player_sprites():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     search_dirs = [
         os.path.join(script_dir, "sprite_parts"),
-        os.path.join(os.getcwd(), "sprite_parts"),
+        str(SPRITE_PARTS_DIR),
     ]
     px = int(TILE_SIZE * MAP_SCALE)
 
@@ -338,7 +346,7 @@ def load_ghost_sprite():
     Загружает спрайт приведения.
     """
     try:
-        ghost_img = pygame.image.load("assets/ghost.png")
+        ghost_img = pygame.image.load(ASSETS_DIR / "ghost.png")
         
         # Если изображение имеет альфа-канал, используем convert_alpha()
         if ghost_img.get_flags() & pygame.SRCALPHA:
@@ -376,7 +384,7 @@ def load_cork_board(screen_width=None, screen_height=None):
     
     try:
         # Загружаем и сразу растягиваем на весь экран
-        cork_img = pygame.image.load("menu_background.png").convert()
+        cork_img = pygame.image.load(MENU_BACKGROUND_FILE).convert()
         # Принудительно растягиваем на весь экран (без сохранения пропорций)
         result = pygame.transform.scale(cork_img, (w, h))
         print(f"[OK] Фон меню: {w}x{h}")
@@ -397,7 +405,7 @@ def load_pin_images():
     
     for i, pin_file in enumerate(pin_files, 1):
         try:
-            pin_img = pygame.image.load(f"assets/{pin_file}")
+            pin_img = pygame.image.load(ASSETS_DIR / pin_file)
             
             # Если изображение имеет альфа-канал, используем convert_alpha()
             if pin_img.get_flags() & pygame.SRCALPHA:
