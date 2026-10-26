@@ -134,6 +134,27 @@ class GameBaselineTests(unittest.TestCase):
         self.assertTrue(manager.placed_projector.powered)
         self.assertTrue(manager.get_projector_zones())
 
+    def test_reusing_projector_moves_existing_projector_without_losing_charge(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+        manager = game.inventory_manager
+        game.inventory[ItemType.PROJECTOR.value] = True
+        manager.start_placement(ItemType.PROJECTOR)
+        first_cell = manager._get_valid_placement_cells()[0]
+        self.assertTrue(manager.place_item(*first_cell))
+        projector = manager.placed_projector
+        projector.powered = True
+        projector.battery_remaining = 1234
+
+        self.assertTrue(manager.use_item(ItemType.PROJECTOR))
+        self.assertIs(manager.moving_projector, projector)
+        second_cell = manager._get_valid_placement_cells()[0]
+        self.assertTrue(manager.place_item(*second_cell))
+
+        self.assertIs(manager.placed_projector, projector)
+        self.assertTrue(projector.powered)
+        self.assertEqual(projector.battery_remaining, 1234)
+
     def test_save_and_load_round_trip(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             save_path = os.path.join(temp_dir, "save.json")

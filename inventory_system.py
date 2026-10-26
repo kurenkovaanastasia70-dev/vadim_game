@@ -200,7 +200,12 @@ class Projector(Item):
         super().__init__(ItemType.PROJECTOR)
     
     def use(self, game):
-        game.inventory_manager.start_placement(ItemType.PROJECTOR)
+        manager = game.inventory_manager
+        if manager.placed_projector and manager.moving_projector is None:
+            manager.moving_projector = manager.placed_projector
+            manager.placed_projector = None
+            manager.moving_projector.is_moving = True
+        manager.start_placement(ItemType.PROJECTOR)
         return True
 
 
@@ -956,6 +961,8 @@ class InventoryManager:
                 self.placed_projector = self.moving_projector
                 self.moving_projector = None
             else:
+                if self.placed_projector is not None:
+                    return False
                 self.placed_projector = PlacedProjector(x, y, self.projector_sprite)
             if hasattr(self.game, "increase_ghost_activity"):
                 self.game.increase_ghost_activity(7, "projector")
