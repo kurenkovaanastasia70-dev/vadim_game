@@ -78,6 +78,21 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(game.state, GameState.GAME)
         self.assertGreater(len(game.ghost_manager.ghosts), 0)
 
+    def test_player_visibility_overlay_uses_cached_surface_and_keeps_light_hole(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+
+        overlay = game._create_clipped_vignette_overlay()
+        again = game._create_clipped_vignette_overlay()
+        player_screen_center = (
+            game.player_rect.centerx - game.camera_x,
+            game.player_rect.centery - game.camera_y,
+        )
+
+        self.assertIs(overlay, again)
+        self.assertEqual(overlay.get_at(player_screen_center).a, 0)
+        self.assertEqual(overlay.get_at((0, 0)).a, 220)
+
     def test_inventory_items_have_safe_use_paths(self):
         game = self.new_game()
         game.load_level_by_id("level_1")

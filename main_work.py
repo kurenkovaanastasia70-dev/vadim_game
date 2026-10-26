@@ -4,6 +4,7 @@ import math
 import sys
 import os
 import json
+from functools import lru_cache
 
 from constants import (
     SCREEN_WIDTH,
@@ -117,9 +118,34 @@ SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
 SANITY_CANDLE_DURATION_SECONDS = 90
 
+
+@lru_cache(maxsize=4)
+def _get_vignette_mask(visible_radius=120, falloff_radius=200):
+    """Precompute the radial alpha multiplier used by the player visibility mask."""
+    size = falloff_radius * 2
+    center = falloff_radius
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    mask.fill((255, 255, 255, 255))
+    for y in range(size):
+        dy = y - center
+        for x in range(size):
+            dx = x - center
+            distance = math.sqrt(dx * dx + dy * dy)
+            if distance < visible_radius:
+                alpha = 0
+            elif distance < falloff_radius:
+                t = (distance - visible_radius) / (falloff_radius - visible_radius)
+                alpha = int(220 * (t ** 1.5))
+            else:
+                continue
+            mask.set_at((x, y), (255, 255, 255, alpha))
+    return mask
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+        self._darkness_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self._vignette_mask = _get_vignette_mask()
         pygame.display.set_caption("(:")
         self.clock = pygame.time.Clock()
         self.running=True
@@ -1144,32 +1170,19 @@ class Game:
         self.vignette_texture = None
 
     def _create_clipped_vignette_overlay(self):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay = self._darkness_overlay
         fog_r, fog_g, fog_b = 15, 12, 35
         max_alpha = 220
         overlay.fill((fog_r, fog_g, fog_b, max_alpha))
 
         player_cx = self.player_rect.centerx - self.camera_x
         player_cy = self.player_rect.centery - self.camera_y
-        visible_radius = 120
-        falloff_radius = 200
-
-        for y in range(0, SCREEN_HEIGHT, 3):
-            for x in range(0, SCREEN_WIDTH, 3):
-                d = ((x - player_cx) ** 2 + (y - player_cy) ** 2) ** 0.5
-                if d < visible_radius:
-                    alpha = 0
-                elif d < falloff_radius:
-                    t = (d - visible_radius) / (falloff_radius - visible_radius)
-                    alpha = int(max_alpha * (t ** 1.5))
-                else:
-                    continue
-                overlay.fill((fog_r, fog_g, fog_b, alpha), (x, y, 3, 3))
-
+        mask_rect = self._vignette_mask.get_rect(center=(int(player_cx), int(player_cy)))
+        overlay.blit(self._vignette_mask, mask_rect, special_flags=pygame.BLEND_RGBA_MIN)
         return overlay
 
     def _create_room_visibility_overlay(self):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay = self._darkness_overlay
         overlay.fill((15, 12, 35, 210))
 
         player_room = None
