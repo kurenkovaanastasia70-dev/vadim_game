@@ -805,6 +805,10 @@ class InventoryManager:
                 self.game.inventory[item_type.value] = False
         else:
             self.game.inventory[item_type.value] = False
+        if item_type == ItemType.FLASHLIGHT:
+            self.game.flashlight_on = False
+        elif item_type == ItemType.UV_FLASHLIGHT:
+            self.game.uv_mode = False
         if self.active_hand_item == item_type:
             self.active_hand_item = None
         self.dropped_items.append(DroppedInventoryItem(x, y, item_type))

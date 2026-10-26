@@ -200,6 +200,17 @@ class GameBaselineTests(unittest.TestCase):
             self.assertEqual(saved["item_counts"]["SALT"], 1)
             self.assertEqual(saved["inventory_runtime"]["dropped_items"], [])
 
+    def test_dropping_uv_flashlight_disables_uv_mode(self):
+        game = self.new_game()
+        game.inventory[ItemType.UV_FLASHLIGHT.value] = True
+        game.uv_mode = True
+        uv_index = game.inventory_manager.visible_inventory_names().index(ItemType.UV_FLASHLIGHT.value)
+
+        self.assertTrue(game.inventory_manager.drop_item_by_index(uv_index))
+
+        self.assertFalse(game.inventory[ItemType.UV_FLASHLIGHT.value])
+        self.assertFalse(game.uv_mode)
+
     def test_level_transition_keeps_campaign_consistent(self):
         game = self.new_game()
         game.current_level_id = "level_1"
