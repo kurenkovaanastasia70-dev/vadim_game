@@ -653,7 +653,7 @@ class InventoryManager:
             return True
         return self.carried_slots_count() < get_max_carried_items(self.game)
 
-    def receive_item(self, item_type, amount=1):
+    def receive_item(self, item_type, amount=1, autosave=True):
         if not self.can_receive_item(item_type):
             if hasattr(self.game, "_show_game_info"):
                 limit = get_max_carried_items(self.game)
@@ -661,8 +661,8 @@ class InventoryManager:
             return False
         self.game.inventory[item_type.value] = True
         if self.is_consumable(item_type):
-            self.increase_count(item_type, amount)
-        if hasattr(self.game, "autosave_current_slot"):
+            self.increase_count(item_type, amount, autosave=False)
+        if autosave and hasattr(self.game, "autosave_current_slot"):
             self.game.autosave_current_slot()
         return True
 
@@ -738,11 +738,11 @@ class InventoryManager:
         """Получить количество расходного предмета"""
         return self.item_counts.get(item_type, 0)
     
-    def increase_count(self, item_type: ItemType, amount=1):
+    def increase_count(self, item_type: ItemType, amount=1, autosave=True):
         """Увеличить количество предмета"""
         if item_type in self.item_counts:
             self.item_counts[item_type] += amount
-            if hasattr(self.game, "autosave_current_slot"):
+            if autosave and hasattr(self.game, "autosave_current_slot"):
                 self.game.autosave_current_slot()
     
     def decrease_count(self, item_type: ItemType, amount=1):
@@ -821,9 +821,11 @@ class InventoryManager:
             dropped = self.dropped_items[i]
             if not dropped.rect.collidepoint(x, y):
                 continue
-            if not self.receive_item(dropped.item_type):
+            if not self.receive_item(dropped.item_type, autosave=False):
                 return True
             self.dropped_items.pop(i)
+            if hasattr(self.game, "autosave_current_slot"):
+                self.game.autosave_current_slot()
             if hasattr(self.game, "_show_game_info"):
                 self.game._show_game_info("Предмет поднят.", 800)
             return True

@@ -185,6 +185,21 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(manager.dropped_items[0].item_type, ItemType.SALT)
         self.assertEqual(len(game.ghost_manager.ghosts), 1)
 
+    def test_picking_up_item_autosaves_after_removing_floor_copy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game = self.new_game()
+            game.save_file = os.path.join(temp_dir, "save.json")
+            game.saves = {"slot1": None, "slot2": None, "slot3": None}
+            game.selected_save_slot = 1
+            manager = game.inventory_manager
+            manager.dropped_items = [DroppedInventoryItem(120, 140, ItemType.SALT)]
+
+            self.assertTrue(manager.pick_dropped_item_at(120, 140))
+
+            saved = game.load_saves()["slot1"]
+            self.assertEqual(saved["item_counts"]["SALT"], 1)
+            self.assertEqual(saved["inventory_runtime"]["dropped_items"], [])
+
     def test_level_transition_keeps_campaign_consistent(self):
         game = self.new_game()
         game.current_level_id = "level_1"
