@@ -602,6 +602,7 @@ class Game:
         cfg = self.difficulty_config()
         self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
+        self.ghost_manager.begin_hunt(self.player_rect)
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
@@ -623,6 +624,7 @@ class Game:
             if self.hunt_cooldown_ticks <= 0:
                 if self.can_ghost_attempt_hunt():
                     self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
+                    self.ghost_manager.begin_hunt(self.player_rect)
                     self._show_game_info("Охота началась.", 1400)
                 else:
                     self.hunt_cooldown_ticks = max(1, 5 * FPS)
@@ -1625,6 +1627,7 @@ class Game:
                     dropped_items=self.inventory_manager.dropped_items,
                     world_width=self.world_width,
                     world_height=self.world_height,
+                    hunt_active=self.hunt_active_ticks > 0,
                 )
                 self.inventory_manager.update_dropped_items()
                 throw_event = getattr(self.ghost_manager, "last_throw_event", None)
@@ -1637,7 +1640,10 @@ class Game:
                         self.drain_sanity(2.0, reason="item_throw")
                 # Столкновение с приведением — отнимаем HP
                 now = pygame.time.get_ticks()
-                if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
+                if self.ghost_manager.check_player_collision(
+                    self.player_rect,
+                    hunt_active=self.hunt_active_ticks > 0,
+                ) and now >= self.hit_invincible_until:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.increase_ghost_activity(12, "player_hit")

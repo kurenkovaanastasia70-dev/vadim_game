@@ -657,9 +657,12 @@ class Ghost:
         self.y = self.rect.y
         return False
     
-    def update_state(self, player_rect, walls, debug_mode=False):
+    def update_state(self, player_rect, walls, debug_mode=False, hunt_active=False):
         """Обновляет состояние FSM с подробным логированием"""
         previous_state = self.state
+        if self.state == GhostState.CHASE and not hunt_active:
+            self.state = GhostState.PATROL
+            self.state_timer = 0
         self.state_timer += 1
         current_room = self.get_current_room_id()
         distance_to_player = self.get_distance_to_player(player_rect)
@@ -749,7 +752,7 @@ class Ghost:
         
         if self.state == GhostState.IDLE:
             if self.state_timer >= self.idle_duration:
-                if same_room_as_player:
+                if same_room_as_player and hunt_active:
                     self.state = GhostState.CHASE
                     self.state_timer = 0
                     if debug_mode:
@@ -761,7 +764,7 @@ class Ghost:
                         print(f"[FSM] IDLE -> PATROL: Игрок в другой комнате (Ghost={current_room}, Player={self.get_player_room_id(player_rect)}), начинаем патруль")
         
         elif self.state == GhostState.PATROL:
-            if same_room_as_player:
+            if same_room_as_player and hunt_active:
                 self.state = GhostState.CHASE
                 self.state_timer = 0
                 if debug_mode:
@@ -780,7 +783,7 @@ class Ghost:
                         print(f"[FSM] PATROL -> IDLE: Патруль завершен, отдыхаем")
         
         elif self.state == GhostState.WANDER:
-            if same_room_as_player:
+            if same_room_as_player and hunt_active:
                 self.state = GhostState.CHASE
                 self.state_timer = 0
                 if debug_mode:
@@ -825,7 +828,7 @@ class Ghost:
                         print(f"[FSM] CHASE -> PATROL: Игрок слишком далеко ({distance_to_player:.1f}px > 600px), патрулируем")
         
         elif self.state == GhostState.SEARCH:
-            if same_room_as_player:
+            if same_room_as_player and hunt_active:
                 self.state = GhostState.CHASE
                 self.state_timer = 0
                 if debug_mode:
@@ -1011,9 +1014,10 @@ class Ghost:
         projector_zones=None,
         world_width=SCREEN_WIDTH,
         world_height=SCREEN_HEIGHT,
+        hunt_active=False,
     ):
         """Обновляет приведение с FSM"""
-        self.update_state(player_rect, walls, debug_mode)
+        self.update_state(player_rect, walls, debug_mode, hunt_active=hunt_active)
         pz = projector_zones or []
         self.update_movement(
             player_rect,
@@ -1326,6 +1330,7 @@ class GhostManager:
         dropped_items=None,
         world_width=SCREEN_WIDTH,
         world_height=SCREEN_HEIGHT,
+        hunt_active=False,
     ):
         """Обновляет всех приведений с FSM. projector_zones: [(cx, cy, radius), ...] — зоны, куда призраки не заходят."""
         pz = projector_zones or []
@@ -1338,10 +1343,24 @@ class GhostManager:
                 projector_zones=pz,
                 world_width=world_width,
                 world_height=world_height,
+                hunt_active=hunt_active,
             )
             self._update_ghost_abilities_runtime(ghost)
             self._maybe_throw_dropped_items(ghost, dropped_items or [], level_hitboxes)
         self._tick_runtime_effects()
+
+    def begin_hunt(self, player_rect):
+        """Make the ghost visible and enter pursuit when the hunt starts."""
+        for ghost in self.ghosts:
+            ghost.state = GhostState.CHASE
+            ghost.state_timer = 0
+            ghost.invisibility_timer = 0
+            ghost.is_frozen_after_appear = False
+            ghost.is_playing_spawn = False
+            ghost.target_x = player_rect.centerx
+            ghost.target_y = player_rect.centery
+            if ghost.sprite:
+                ghost.sprite.set_alpha(ghost.base_alpha)
 
     def _random_point_for_dropped_item(self, room, dropped_item, level_hitboxes):
         margin = max(getattr(dropped_item, "radius", 24) + 8, int(24 * MAP_SCALE))
@@ -1579,8 +1598,10 @@ class GhostManager:
             # Выводим слой поверх экрана
             screen.blit(debug_surface, (0, 0))
     
-    def check_player_collision(self, player_rect):
-        """Проверяет столкновение с игроком (невидимые и только появившиеся приведения не считаются)"""
+    def check_player_collision(self, player_rect, hunt_active=False):
+        """Only an active hunt can damage the player on ghost contact."""
+        if not hunt_active:
+            return False
         for ghost in self.ghosts:
             # Не считаем коллизию если:
             # - Приведение невидимо
