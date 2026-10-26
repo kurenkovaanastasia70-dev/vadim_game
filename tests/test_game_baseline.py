@@ -325,6 +325,25 @@ class GameBaselineTests(unittest.TestCase):
         self.assertGreater(ghost.sprite.get_alpha() if ghost.sprite else 1, 0)
         self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect, hunt_active=True))
 
+    def test_invisible_ghost_timer_advances_once_per_frame(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+        ghost = game.ghost_manager.ghosts[0]
+        ghost.state = GhostState.INVISIBLE
+        ghost.state_timer = 0
+        ghost.is_first_appearance = False
+        ghost.invisibility_duration = 100
+        if ghost.sprite:
+            ghost.sprite.set_alpha(0)
+
+        for _ in range(99):
+            ghost.update_state(game.player_rect, game.walls)
+        self.assertEqual(ghost.state, GhostState.INVISIBLE)
+        self.assertEqual(ghost.state_timer, 99)
+
+        ghost.update_state(game.player_rect, game.walls)
+        self.assertEqual(ghost.state, GhostState.IDLE)
+
 
 if __name__ == "__main__":
     unittest.main()

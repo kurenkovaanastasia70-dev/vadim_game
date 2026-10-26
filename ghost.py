@@ -704,8 +704,6 @@ class Ghost:
                     self.sprite.set_alpha(0)
         else:
             # Мы в состоянии невидимости
-            self.state_timer += 1
-            
             # Определяем время до появления
             if self.is_first_appearance:
                 # Первое появление: ждём 30-90 секунд
