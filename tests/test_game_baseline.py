@@ -79,6 +79,12 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(game.state, GameState.GAME)
         self.assertGreater(len(game.ghost_manager.ghosts), 0)
 
+    def test_open_task_panel_pauses_gameplay(self):
+        game = self.new_game()
+        game.tasks_panel_open = True
+
+        self.assertTrue(game.is_gameplay_paused())
+
     def test_player_visibility_overlay_uses_cached_surface_and_keeps_light_hole(self):
         game = self.new_game()
         game.load_level_by_id("level_1")

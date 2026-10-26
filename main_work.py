@@ -434,14 +434,6 @@ class Game:
         self.activity_event_cooldown_ticks = 0
         self.activity_flash_until = 0
 
-    def is_gameplay_paused(self):
-        return bool(
-            self.show_save_prompt
-            or self.journal_open
-            or getattr(self, "achievements_panel_open", False)
-            or self.state in (GameState.GAME_OVER, GameState.WIN)
-        )
-
     def update_camera(self):
         """Обновляет смещение камеры, центрируя экран на игроке в пределах мира."""
         target_x = self.player_rect.centerx - SCREEN_WIDTH // 2
@@ -501,6 +493,7 @@ class Game:
             self.show_save_prompt
             or self.journal_open
             or getattr(self, "achievements_panel_open", False)
+            or getattr(self, "tasks_panel_open", False)
             or self.state in (GameState.GAME_OVER, GameState.WIN)
         )
 
