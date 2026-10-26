@@ -12,13 +12,14 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
+import mechanics
 
 pygame.init()
 pygame.display.set_mode((1, 1))
 
 from gamestate import GameState
 from ghost import GhostState
-from handlers import handle_game_over_events
+from handlers import handle_game_events, handle_game_over_events
 from inventory_system import DroppedInventoryItem, ItemType
 from level_config import get_level_file_path, get_next_level_id, get_level_index
 from main_work import Game
@@ -84,6 +85,26 @@ class GameBaselineTests(unittest.TestCase):
         game.tasks_panel_open = True
 
         self.assertTrue(game.is_gameplay_paused())
+
+    def test_inventory_slot_click_takes_priority_over_world_pickup(self):
+        game = self.new_game()
+        manager = game.inventory_manager
+        manager.item_counts[ItemType.RADIO] = 1
+        game.inventory[ItemType.RADIO.value] = True
+        index = manager.visible_inventory_names().index(ItemType.RADIO.value)
+        slot_x, slot_y, _ = mechanics.inventory_slot_screen(index)
+        world_position = (slot_x + game.camera_x, slot_y + game.camera_y)
+        manager.dropped_items = [DroppedInventoryItem(*world_position, ItemType.CROSS)]
+
+        event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"pos": (slot_x, slot_y), "button": 1},
+        )
+        handle_game_events(game, event)
+
+        self.assertEqual(manager.get_count(ItemType.RADIO), 0)
+        self.assertEqual(len(manager.dropped_items), 1)
+        self.assertEqual(manager.dropped_items[0].item_type, ItemType.CROSS)
 
     def test_player_visibility_overlay_uses_cached_surface_and_keeps_light_hole(self):
         game = self.new_game()
