@@ -27,10 +27,6 @@ from project_paths import ACHIEVEMENTS_FILE, PROJECT_ROOT, SAVE_FILE
 
 
 class GameBaselineTests(unittest.TestCase):
-    @classmethod
-    def tearDownClass(cls):
-        pygame.quit()
-
     def new_game(self):
         game = Game()
         game.set_state(GameState.GAME)

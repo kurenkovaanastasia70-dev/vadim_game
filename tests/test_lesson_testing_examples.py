@@ -28,10 +28,6 @@ class LessonTestingExamples(unittest.TestCase):
         pygame.init()
         pygame.display.set_mode((1, 1))
 
-    @classmethod
-    def tearDownClass(cls):
-        pygame.quit()
-
     def new_game(self):
         game = Game()
         game.set_state(GameState.GAME)
