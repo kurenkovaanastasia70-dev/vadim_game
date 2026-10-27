@@ -331,7 +331,7 @@ class GameBaselineTests(unittest.TestCase):
         ghost.update_state(game.player_rect, game.walls)
         self.assertIn(ghost.state, set(GhostState))
 
-    def test_hunt_state_controls_pursuit_visibility_and_contact_damage(self):
+    def test_hunt_state_controls_pursuit_but_visible_contact_always_damages(self):
         game = self.new_game()
         game.load_level_by_id("level_1")
         ghost = game.ghost_manager.ghosts[0]
@@ -340,7 +340,7 @@ class GameBaselineTests(unittest.TestCase):
         ghost.state_timer = ghost.idle_duration
         ghost.update_state(game.player_rect, game.walls, hunt_active=False)
         self.assertNotEqual(ghost.state, GhostState.CHASE)
-        self.assertFalse(game.ghost_manager.check_player_collision(game.player_rect, hunt_active=False))
+        self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect, hunt_active=False))
 
         game.setup_phase_ticks = 0
         game.player_sanity = 40

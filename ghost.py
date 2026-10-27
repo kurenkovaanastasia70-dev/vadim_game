@@ -1597,9 +1597,7 @@ class GhostManager:
             screen.blit(debug_surface, (0, 0))
     
     def check_player_collision(self, player_rect, hunt_active=False):
-        """Only an active hunt can damage the player on ghost contact."""
-        if not hunt_active:
-            return False
+        """Visible ghost contact can damage the player, even outside a hunt."""
         for ghost in self.ghosts:
             # Не считаем коллизию если:
             # - Приведение невидимо
