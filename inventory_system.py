@@ -1106,13 +1106,17 @@ class InventoryManager:
         return False
     
     def update_placed_items(self):
-        """Проверка коллизий призраков с размещёнными предметами. Пыль и соль срабатывают от всех призраков (is_flying не реализован)."""
+        """Mark passage only when the matching flying/walking ghost crosses a marker."""
         from ghost import GhostState
         for item in self.placed_items:
             if item.triggered:
                 continue
             for ghost in getattr(self.game.ghost_manager, 'ghosts', []):
                 if ghost.state == GhostState.INVISIBLE:
+                    continue
+                if item.item_type == ItemType.RED_DUST and not ghost.can_fly:
+                    continue
+                if item.item_type == ItemType.SALT and not ghost.can_walk:
                     continue
                 if ghost.rect.colliderect(item.rect):
                     item.trigger()

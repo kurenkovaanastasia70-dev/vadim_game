@@ -286,6 +286,26 @@ class GameBaselineTests(unittest.TestCase):
             self.assertEqual(saved["item_counts"]["SALT"], 1)
             self.assertEqual(saved["inventory_runtime"]["dropped_items"], [])
 
+    def test_salt_and_red_dust_mark_only_matching_ghost_movement_types(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+        manager = game.inventory_manager
+        ghost = game.ghost_manager.ghosts[0]
+        ghost.state = GhostState.IDLE
+        ghost.rect.center = (400, 400)
+        salt = manager.items[ItemType.SALT].create_placed_instance(400, 400)
+        dust = manager.items[ItemType.RED_DUST].create_placed_instance(400, 400)
+        manager.placed_items = [salt, dust]
+
+        ghost.can_walk, ghost.can_fly = True, False
+        manager.update_placed_items()
+        self.assertTrue(salt.triggered)
+        self.assertFalse(dust.triggered)
+
+        ghost.can_walk, ghost.can_fly = False, True
+        manager.update_placed_items()
+        self.assertTrue(dust.triggered)
+
     def test_dropping_uv_flashlight_disables_uv_mode(self):
         game = self.new_game()
         game.inventory[ItemType.UV_FLASHLIGHT.value] = True
