@@ -4,7 +4,7 @@ omit =
     tests/*
     tools_test_*.py
     level_editor.py
-    local_lessons/*
+    data/*
 
 [report]
 exclude_lines =

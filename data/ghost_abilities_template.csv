@@ -1,0 +1,18 @@
+profile,display_name,speed,patrol_speed,chase_speed,search_speed,activity_gain,can_fly,can_walk,can_phase_walls,can_teleport,amp,ultraviolet,ghostorb,radio,freezing_temperature
+default,,3.0,2.0,2.0,2.0,1.0,false,true,false,false,false,false,false,false,false
+ghost_1,Молчаливый,3.0,2.0,2.0,2.0,0.8,true,false,false,false,true,true,false,false,true
+ghost_2,Притаившийся,3.0,2.0,2.0,2.0,0.9,false,true,false,false,false,true,true,false,false
+ghost_3,Берсерк,4.0,3.0,3.0,3.0,1.45,true,false,false,false,true,false,false,true,true
+ghost_4,Гневный,2.5,2.0,2.0,2.0,1.2,false,true,false,false,true,false,false,true,false
+ghost_5,Ярость,2.0,2.0,2.0,2.0,1.55,true,false,false,false,true,false,false,true,true
+ghost_6,Сглаз,3.0,2.0,2.0,2.0,1.1,false,true,false,false,true,true,false,false,false
+ghost_7,Священник,3.5,2.0,2.0,2.0,0.7,false,false,false,false,true,true,false,false,true
+ghost_8,Тип 8,,,,,,,,,,,,,,
+ghost_9,Тип 9,,,,,,,,,,,,,,
+ghost_10,Тип 10,,,,,,,,,,,,,,
+ghost_11,Тип 11,,,,,,,,,,,,,,
+ghost_12,Тип 12,,,,,,,,,,,,,,
+ghost_13,Тип 13,,,,,,,,,,,,,,
+ghost_14,Тип 14,,,,,,,,,,,,,,
+ghost_15,Тип 15,,,,,,,,,,,,,,
+ghost_16,Тип 16,,,,,,,,,,,,,,

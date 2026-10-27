@@ -386,6 +386,14 @@ def handle_game_events(game, event):
                 return
             game.tasks_panel_open = False
 
+        # HUD slots own their click area even when a world object is behind them.
+        purchased_items = game.inventory_manager.visible_inventory_names()
+        for i, item in enumerate(purchased_items):
+            circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
+            if ((mouse_pos[0] - circle_x) ** 2 + (mouse_pos[1] - inventory_y) ** 2) <= circle_radius ** 2:
+                game.inventory_manager.use_item_by_index(i)
+                return
+
         world_mouse_pos = (mouse_pos[0] + game.camera_x, mouse_pos[1] + game.camera_y)
         
         if game.inventory_manager.placement_mode:
@@ -408,27 +416,17 @@ def handle_game_events(game, event):
                 game.setup_timer_hint_until = 0
                 game.push_state(GameState.SHOP)
         
-        # Обработка кликов по инвентарю (та же сетка, что в draws.draw_game)
-        purchased_items = game.inventory_manager.visible_inventory_names()
-        for i, item in enumerate(purchased_items):
-            circle_x, inventory_y, circle_radius = mechanics.inventory_slot_screen(i)
-            if ((mouse_pos[0] - circle_x) ** 2 + (mouse_pos[1] - inventory_y) ** 2) <= circle_radius ** 2:
-                game.inventory_manager.use_item_by_index(i)
-
-
 def handle_game_over_events(game, event):
     for i, button in enumerate(game.game_over_buttons):
         if button.handle_event(event):
             if i == 0:
-                game.reset_for_new_game()
-                game.set_state(GameState.GAME, reset_stack=True)
+                game.restart_current_level()
             elif i == 1:
                 game.set_state(GameState.MENU, reset_stack=True)
 
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_RETURN:
-            game.reset_for_new_game()
-            game.set_state(GameState.GAME, reset_stack=True)
+            game.restart_current_level()
         elif event.key == pygame.K_ESCAPE:
             game.set_state(GameState.MENU, reset_stack=True)
 

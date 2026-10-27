@@ -4,6 +4,7 @@ import math
 import sys
 import os
 import json
+from functools import lru_cache
 
 from constants import (
     SCREEN_WIDTH,
@@ -34,6 +35,7 @@ from progression import (
     LocalAchievementTableProvider,
     TaskAchievementManager,
 )
+from project_paths import ACHIEVEMENTS_FILE, SAVE_FILE
 
 pygame.init()
 
@@ -116,9 +118,34 @@ SANITY_CANDLE_DRAIN_FACTOR = 0.20
 SANITY_CANDLE_RADIUS = 140
 SANITY_CANDLE_DURATION_SECONDS = 90
 
+
+@lru_cache(maxsize=4)
+def _get_vignette_mask(visible_radius=120, falloff_radius=200):
+    """Precompute the radial alpha multiplier used by the player visibility mask."""
+    size = falloff_radius * 2
+    center = falloff_radius
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    mask.fill((255, 255, 255, 255))
+    for y in range(size):
+        dy = y - center
+        for x in range(size):
+            dx = x - center
+            distance = math.sqrt(dx * dx + dy * dy)
+            if distance < visible_radius:
+                alpha = 0
+            elif distance < falloff_radius:
+                t = (distance - visible_radius) / (falloff_radius - visible_radius)
+                alpha = int(220 * (t ** 1.5))
+            else:
+                continue
+            mask.set_at((x, y), (255, 255, 255, alpha))
+    return mask
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+        self._darkness_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self._vignette_mask = _get_vignette_mask()
         pygame.display.set_caption("(:")
         self.clock = pygame.time.Clock()
         self.running=True
@@ -130,7 +157,7 @@ class Game:
         self.difficulty_levels = ["Лёгкая","Нормальная","Сложная","ХАРДКОР"]
         self.difficulty_index = 1
         self.difficulty_selected = False
-        self.save_file = "save.json"
+        self.save_file = str(SAVE_FILE)
         self.saves = self.load_saves()
         self.selected_save_slot = None
         
@@ -234,9 +261,7 @@ class Game:
         self.radio_feedback_ok = False
         self.radio_static_sound = None
         self.hit_invincible_until = 0
-        local_ach_provider = LocalAchievementTableProvider(
-            os.path.join("local_lessons", "achievements_catalog.csv")
-        )
+        local_ach_provider = LocalAchievementTableProvider(str(ACHIEVEMENTS_FILE))
         sheets_url = os.getenv("GOOGLE_SHEETS_ACHIEVEMENTS_CSV_URL", "").strip()
         ach_provider = GoogleSheetsAchievementTableProvider(sheets_url, local_ach_provider)
         self.progress_manager = TaskAchievementManager(self, ach_provider)
@@ -409,14 +434,6 @@ class Game:
         self.activity_event_cooldown_ticks = 0
         self.activity_flash_until = 0
 
-    def is_gameplay_paused(self):
-        return bool(
-            self.show_save_prompt
-            or self.journal_open
-            or getattr(self, "achievements_panel_open", False)
-            or self.state in (GameState.GAME_OVER, GameState.WIN)
-        )
-
     def update_camera(self):
         """Обновляет смещение камеры, центрируя экран на игроке в пределах мира."""
         target_x = self.player_rect.centerx - SCREEN_WIDTH // 2
@@ -476,6 +493,7 @@ class Game:
             self.show_save_prompt
             or self.journal_open
             or getattr(self, "achievements_panel_open", False)
+            or getattr(self, "tasks_panel_open", False)
             or self.state in (GameState.GAME_OVER, GameState.WIN)
         )
 
@@ -577,6 +595,7 @@ class Game:
         cfg = self.difficulty_config()
         self.hunt_active_ticks = cfg["hunt_duration_seconds"] * FPS
         self.hunt_cooldown_ticks = cfg["hunt_cooldown_seconds"] * FPS
+        self.ghost_manager.begin_hunt(self.player_rect)
         self.ghost_activity = 55.0
         self.activity_event_cooldown_ticks = 12 * FPS
         self.activity_flash_until = pygame.time.get_ticks() + 1200
@@ -598,6 +617,7 @@ class Game:
             if self.hunt_cooldown_ticks <= 0:
                 if self.can_ghost_attempt_hunt():
                     self.hunt_active_ticks = self.difficulty_config()["hunt_duration_seconds"] * FPS
+                    self.ghost_manager.begin_hunt(self.player_rect)
                     self._show_game_info("Охота началась.", 1400)
                 else:
                     self.hunt_cooldown_ticks = max(1, 5 * FPS)
@@ -1145,32 +1165,19 @@ class Game:
         self.vignette_texture = None
 
     def _create_clipped_vignette_overlay(self):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay = self._darkness_overlay
         fog_r, fog_g, fog_b = 15, 12, 35
         max_alpha = 220
         overlay.fill((fog_r, fog_g, fog_b, max_alpha))
 
         player_cx = self.player_rect.centerx - self.camera_x
         player_cy = self.player_rect.centery - self.camera_y
-        visible_radius = 120
-        falloff_radius = 200
-
-        for y in range(0, SCREEN_HEIGHT, 3):
-            for x in range(0, SCREEN_WIDTH, 3):
-                d = ((x - player_cx) ** 2 + (y - player_cy) ** 2) ** 0.5
-                if d < visible_radius:
-                    alpha = 0
-                elif d < falloff_radius:
-                    t = (d - visible_radius) / (falloff_radius - visible_radius)
-                    alpha = int(max_alpha * (t ** 1.5))
-                else:
-                    continue
-                overlay.fill((fog_r, fog_g, fog_b, alpha), (x, y, 3, 3))
-
+        mask_rect = self._vignette_mask.get_rect(center=(int(player_cx), int(player_cy)))
+        overlay.blit(self._vignette_mask, mask_rect, special_flags=pygame.BLEND_RGBA_MIN)
         return overlay
 
     def _create_room_visibility_overlay(self):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay = self._darkness_overlay
         overlay.fill((15, 12, 35, 210))
 
         player_room = None
@@ -1195,9 +1202,13 @@ class Game:
         return overlay
 
     def _after_level_ready(self):
-        # Задания сессии — под уровень; таблицу достижений не трогаем.
+        # Сохраняем восстановленный прогресс, если набор задач соответствует уровню.
         if hasattr(self, "progress_manager"):
-            self.tasks = self.progress_manager.new_tasks_for_level(self.current_level_id)
+            expected_tasks = self.progress_manager.new_tasks_for_level(self.current_level_id)
+            expected_ids = [task["id"] for task in expected_tasks]
+            current_ids = [task.get("id") for task in getattr(self, "tasks", [])]
+            if current_ids != expected_ids:
+                self.tasks = expected_tasks
 
     def load_level_by_id(self, level_id):
         """
@@ -1438,6 +1449,8 @@ class Game:
             if not isinstance(save_data, dict):
                 return False
             self.player_level = int(save_data.get("level", 1) or 1)
+            level_meta = level_config.get_level_by_number(self.player_level)
+            self.current_level_id = level_meta.get("id") if level_meta else None
             self.difficulty_index = int(save_data.get("difficulty", 1) or 1)
             self.difficulty_selected = bool(save_data.get("difficulty_selected", False))
             self.selected_save_slot = slot

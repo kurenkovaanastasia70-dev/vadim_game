@@ -7,9 +7,12 @@ import pygame
 import random
 import math
 import os
+import csv
+from urllib.request import urlopen
 from configparser import ConfigParser
 from enum import Enum
 from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
+from project_paths import SPRITE_PARTS_DIR
 import heapq
 
 GHOST_SIZE = int(TILE_SIZE * MAP_SCALE)
@@ -49,6 +52,7 @@ class GhostAbilitiesConfig:
         "freezing_temperature",
     )
     FLOAT_KEYS = ("speed", "patrol_speed", "chase_speed", "search_speed", "activity_gain")
+    _sheet_cache = {}
 
     DEFAULTS = {
         "display_name": "",
@@ -71,9 +75,49 @@ class GhostAbilitiesConfig:
     def __init__(self, ini_path=None):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.ini_path = ini_path or os.path.join(base_dir, "ghost_abilities.ini")
+        self.csv_url = os.environ.get("GOOGLE_SHEETS_GHOSTS_CSV_URL", "").strip() or (
+            "https://docs.google.com/spreadsheets/d/1h6GmS5lo8OAdio3G6YBksXhG-gwmHDOitfSzZsxWdBA/gviz/tq?tqx=out:csv&gid=0"
+        )
         self.parser = ConfigParser()
         self.profiles = {"default": self.DEFAULTS.copy()}
-        self._load()
+        if not self._load_sheet():
+            self._load()
+
+    def _load_sheet(self):
+        """Load a published Google Sheets CSV (columns: profile + profile fields)."""
+        if not self.csv_url:
+            return False
+        try:
+            if self.csv_url not in self._sheet_cache:
+                with urlopen(self.csv_url, timeout=5) as response:
+                    self._sheet_cache[self.csv_url] = response.read().decode("utf-8-sig")
+            text = self._sheet_cache[self.csv_url]
+            rows = csv.DictReader(text.splitlines())
+            profiles = {"default": self.DEFAULTS.copy()}
+            for row in rows:
+                name = (row.get("profile") or row.get("id") or "").strip()
+                if name.startswith("ghost_"):
+                    name = name[6:]
+                if not name:
+                    continue
+                parsed = self.DEFAULTS.copy()
+                for key in self.BOOL_KEYS:
+                    if row.get(key, "").strip():
+                        parsed[key] = _to_bool(row[key], self.DEFAULTS[key])
+                for key in self.FLOAT_KEYS:
+                    if row.get(key, "").strip():
+                        parsed[key] = _to_float(row[key], self.DEFAULTS[key])
+                parsed["display_name"] = (row.get("display_name") or "").strip()
+                profiles[name] = parsed
+            if len(profiles) <= 1:
+                return False
+            self.profiles = profiles
+            print(f"[GhostConfig] Загружены профили призраков из Google Sheets: {len(profiles) - 1}")
+            return True
+        except Exception as exc:
+            self._sheet_cache[self.csv_url] = ""
+            print(f"[GhostConfig] Google Sheets недоступна ({exc}); использую локальный INI")
+            return False
 
     def _parse_section(self, section):
         profile = self.DEFAULTS.copy()
@@ -417,11 +461,10 @@ class Ghost:
     
     def _load_spawn_animation(self):
         """Загрузка анимации спавна из GIF"""
-        import os
         from PIL import Image
         
         self.spawn_animation = []
-        gif_path = os.path.join("sprite_parts", "spawn.gif")
+        gif_path = SPRITE_PARTS_DIR / "spawn.gif"
         # Извлекаем все кадры GIF внутри контекстного менеджера, чтобы не
         # оставлять файловый дескриптор открытым после создания спрайтов.
         with Image.open(gif_path) as gif:
@@ -701,8 +744,6 @@ class Ghost:
                     self.sprite.set_alpha(0)
         else:
             # Мы в состоянии невидимости
-            self.state_timer += 1
-            
             # Определяем время до появления
             if self.is_first_appearance:
                 # Первое появление: ждём 30-90 секунд
@@ -1343,6 +1384,19 @@ class GhostManager:
             self._maybe_throw_dropped_items(ghost, dropped_items or [], level_hitboxes)
         self._tick_runtime_effects()
 
+    def begin_hunt(self, player_rect):
+        """Make the ghost visible and enter pursuit when the hunt starts."""
+        for ghost in self.ghosts:
+            ghost.state = GhostState.CHASE
+            ghost.state_timer = 0
+            ghost.invisibility_timer = 0
+            ghost.is_frozen_after_appear = False
+            ghost.is_playing_spawn = False
+            ghost.target_x = player_rect.centerx
+            ghost.target_y = player_rect.centery
+            if ghost.sprite:
+                ghost.sprite.set_alpha(ghost.base_alpha)
+
     def _random_point_for_dropped_item(self, room, dropped_item, level_hitboxes):
         margin = max(getattr(dropped_item, "radius", 24) + 8, int(24 * MAP_SCALE))
         if room.width <= margin * 2 or room.height <= margin * 2:
@@ -1580,7 +1634,7 @@ class GhostManager:
             screen.blit(debug_surface, (0, 0))
     
     def check_player_collision(self, player_rect):
-        """Проверяет столкновение с игроком (невидимые и только появившиеся приведения не считаются)"""
+        """Visible ghost contact can damage the player, even outside a hunt."""
         for ghost in self.ghosts:
             # Не считаем коллизию если:
             # - Приведение невидимо
