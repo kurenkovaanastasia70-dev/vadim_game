@@ -7,6 +7,8 @@ import pygame
 import random
 import math
 import os
+import csv
+from urllib.request import urlopen
 from configparser import ConfigParser
 from enum import Enum
 from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
@@ -50,6 +52,7 @@ class GhostAbilitiesConfig:
         "freezing_temperature",
     )
     FLOAT_KEYS = ("speed", "patrol_speed", "chase_speed", "search_speed", "activity_gain")
+    _sheet_cache = {}
 
     DEFAULTS = {
         "display_name": "",
@@ -72,9 +75,49 @@ class GhostAbilitiesConfig:
     def __init__(self, ini_path=None):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.ini_path = ini_path or os.path.join(base_dir, "ghost_abilities.ini")
+        self.csv_url = os.environ.get("GOOGLE_SHEETS_GHOSTS_CSV_URL", "").strip() or (
+            "https://docs.google.com/spreadsheets/d/1h6GmS5lo8OAdio3G6YBksXhG-gwmHDOitfSzZsxWdBA/gviz/tq?tqx=out:csv&gid=0"
+        )
         self.parser = ConfigParser()
         self.profiles = {"default": self.DEFAULTS.copy()}
-        self._load()
+        if not self._load_sheet():
+            self._load()
+
+    def _load_sheet(self):
+        """Load a published Google Sheets CSV (columns: profile + profile fields)."""
+        if not self.csv_url:
+            return False
+        try:
+            if self.csv_url not in self._sheet_cache:
+                with urlopen(self.csv_url, timeout=5) as response:
+                    self._sheet_cache[self.csv_url] = response.read().decode("utf-8-sig")
+            text = self._sheet_cache[self.csv_url]
+            rows = csv.DictReader(text.splitlines())
+            profiles = {"default": self.DEFAULTS.copy()}
+            for row in rows:
+                name = (row.get("profile") or row.get("id") or "").strip()
+                if name.startswith("ghost_"):
+                    name = name[6:]
+                if not name:
+                    continue
+                parsed = self.DEFAULTS.copy()
+                for key in self.BOOL_KEYS:
+                    if row.get(key, "").strip():
+                        parsed[key] = _to_bool(row[key], self.DEFAULTS[key])
+                for key in self.FLOAT_KEYS:
+                    if row.get(key, "").strip():
+                        parsed[key] = _to_float(row[key], self.DEFAULTS[key])
+                parsed["display_name"] = (row.get("display_name") or "").strip()
+                profiles[name] = parsed
+            if len(profiles) <= 1:
+                return False
+            self.profiles = profiles
+            print(f"[GhostConfig] Загружены профили призраков из Google Sheets: {len(profiles) - 1}")
+            return True
+        except Exception as exc:
+            self._sheet_cache[self.csv_url] = ""
+            print(f"[GhostConfig] Google Sheets недоступна ({exc}); использую локальный INI")
+            return False
 
     def _parse_section(self, section):
         profile = self.DEFAULTS.copy()

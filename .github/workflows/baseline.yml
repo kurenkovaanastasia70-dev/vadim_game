@@ -15,7 +15,8 @@ concurrency:
 jobs:
   baseline:
     name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    # Keep SDL/Pygame on a known-compatible runner; ubuntu-latest migrated to 26.04.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
