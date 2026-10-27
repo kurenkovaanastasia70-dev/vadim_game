@@ -1620,7 +1620,6 @@ class Game:
                     dropped_items=self.inventory_manager.dropped_items,
                     world_width=self.world_width,
                     world_height=self.world_height,
-                    hunt_active=self.hunt_active_ticks > 0,
                 )
                 self.inventory_manager.update_dropped_items()
                 throw_event = getattr(self.ghost_manager, "last_throw_event", None)
@@ -1633,10 +1632,7 @@ class Game:
                         self.drain_sanity(2.0, reason="item_throw")
                 # Столкновение с приведением — отнимаем HP
                 now = pygame.time.get_ticks()
-                if self.ghost_manager.check_player_collision(
-                    self.player_rect,
-                    hunt_active=self.hunt_active_ticks > 0,
-                ) and now >= self.hit_invincible_until:
+                if self.ghost_manager.check_player_collision(self.player_rect) and now >= self.hit_invincible_until:
                     self.player_hp = max(0, self.player_hp - 1)
                     self.hit_invincible_until = now + 1500
                     self.increase_ghost_activity(12, "player_hit")

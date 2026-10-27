@@ -351,16 +351,16 @@ class GameBaselineTests(unittest.TestCase):
         ghost.update_state(game.player_rect, game.walls)
         self.assertIn(ghost.state, set(GhostState))
 
-    def test_hunt_state_controls_pursuit_but_visible_contact_always_damages(self):
+    def test_ghost_can_chase_and_damage_on_contact_outside_hunt(self):
         game = self.new_game()
         game.load_level_by_id("level_1")
         ghost = game.ghost_manager.ghosts[0]
         ghost.rect.center = game.player_rect.center
         ghost.state = GhostState.IDLE
         ghost.state_timer = ghost.idle_duration
-        ghost.update_state(game.player_rect, game.walls, hunt_active=False)
-        self.assertNotEqual(ghost.state, GhostState.CHASE)
-        self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect, hunt_active=False))
+        ghost.update_state(game.player_rect, game.walls)
+        self.assertEqual(ghost.state, GhostState.CHASE)
+        self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect))
 
         game.setup_phase_ticks = 0
         game.player_sanity = 40
@@ -370,7 +370,28 @@ class GameBaselineTests(unittest.TestCase):
         self.assertTrue(game.start_activity_hunt())
         self.assertEqual(ghost.state, GhostState.CHASE)
         self.assertGreater(ghost.sprite.get_alpha() if ghost.sprite else 1, 0)
-        self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect, hunt_active=True))
+        self.assertTrue(game.ghost_manager.check_player_collision(game.player_rect))
+
+    def test_ghost_patrol_movement_runs_without_a_hunt(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+        ghost = game.ghost_manager.ghosts[0]
+        ghost.state = GhostState.PATROL
+        ghost.state_timer = 0
+        ghost.target_x = ghost.rect.centerx + 100
+        ghost.target_y = ghost.rect.centery
+        ghost.current_path = []
+        start = ghost.rect.center
+
+        ghost.update_movement(
+            pygame.Rect(game.world_width - 100, game.world_height - 100, 30, 30),
+            walls=[],
+            level_hitboxes=[],
+            world_width=game.world_width,
+            world_height=game.world_height,
+        )
+
+        self.assertNotEqual(ghost.rect.center, start)
 
     def test_invisible_ghost_timer_advances_once_per_frame(self):
         game = self.new_game()
