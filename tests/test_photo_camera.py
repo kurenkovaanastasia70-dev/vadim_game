@@ -74,6 +74,7 @@ class PhotoCameraTests(unittest.TestCase):
         ghost.rect.center = (game.player_rect.right + 45, game.player_rect.centery)
         if ghost.sprite:
             ghost.sprite.set_alpha(255)
+        money_before = game.player_money
 
         handle_game_events(game, pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_c}))
 
@@ -81,6 +82,7 @@ class PhotoCameraTests(unittest.TestCase):
         self.assertIn(game.photo_album[0]["rarity"], (1, 2, 3))
         self.assertTrue(game.photo_album[0]["unique"])
         self.assertEqual(game.photo_album[0]["base_reward"], GHOST_UNIQUE_REWARD)
+        self.assertEqual(game.player_money, money_before + GHOST_UNIQUE_REWARD * 2)
 
     def test_first_ghost_photo_is_unique_and_repeats_are_duplicates(self):
         player = pygame.Rect(100, 100, 40, 40)
@@ -110,6 +112,10 @@ class PhotoCameraTests(unittest.TestCase):
         self.assertEqual(photo_reward["multiplier"], 3)
         self.assertEqual(photo_reward["total"], 54)
         self.assertEqual(level_reward["photo_reward"], 54)
+        self.assertEqual(
+            level_reward["total"],
+            level_reward["base"] + level_reward["difficulty_bonus"] + level_reward["evidence_bonus"],
+        )
 
     def test_only_five_valid_photos_fill_the_journal(self):
         game = Game()
@@ -121,6 +127,7 @@ class PhotoCameraTests(unittest.TestCase):
         ghost.rect.center = (game.player_rect.right + 45, game.player_rect.centery)
         if ghost.sprite:
             ghost.sprite.set_alpha(255)
+        money_before = game.player_money
 
         for _ in range(PHOTO_JOURNAL_LIMIT + 2):
             game.camera_cooldown_until = 0
@@ -128,6 +135,8 @@ class PhotoCameraTests(unittest.TestCase):
 
         self.assertEqual(len(game.photo_album), PHOTO_JOURNAL_LIMIT)
         self.assertEqual(sum(1 for row in game.photo_album if row["unique"]), 1)
+        expected = (GHOST_UNIQUE_REWARD + GHOST_DUPLICATE_REWARD * 4) * 2
+        self.assertEqual(game.player_money, money_before + expected)
 
 
 if __name__ == "__main__":

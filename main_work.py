@@ -518,16 +518,20 @@ class Game:
 
         record = create_media_record(self.last_photo, self.photo_album)
         if record is not None:
+            reward = record["base_reward"] * self.photo_reward_multiplier()
+            record["reward"] = reward
             self.photo_album.append(record)
+            self.player_money += reward
             stars = "★" * record["rarity"] + "☆" * (3 - record["rarity"])
             media_kind = "UNIQUE" if record["unique"] else "DUPLICATE"
-            multiplier = self.photo_reward_multiplier()
             self._show_game_info(
                 f"Фото призрака: {stars}  {media_kind}\n"
-                f"Награда при завершении: {record['base_reward']}$ ×{multiplier}",
+                f"Сразу начислено: +{reward}$",
                 1200,
             )
             self.progress_event("ghost_photo", 1)
+            if self.selected_save_slot:
+                self.autosave_current_slot()
         else:
             self._show_game_info("На снимке ничего необычного.", 750)
         return True
@@ -992,7 +996,7 @@ class Game:
         return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
 
     def get_level_complete_reward_breakdown(self):
-        """Считает награду за победу, включая медиа с коэффициентом сложности."""
+        """Считает награду за победу и добавляет уже оплаченные фото в отчёт."""
         base = 80 + max(0, self.player_level - 1) * 35
         difficulty_bonus = int(self.difficulty_config()["reward_bonus"])
         confirmed_count = sum(
@@ -1000,7 +1004,8 @@ class Game:
         )
         evidence_bonus = confirmed_count * 15
         photo_reward = self.get_photo_reward_breakdown()
-        total = base + difficulty_bonus + evidence_bonus + photo_reward["total"]
+        # Фото оплачиваются сразу во время уровня, поэтому здесь повторно не начисляются.
+        total = base + difficulty_bonus + evidence_bonus
         return {
             "base": base,
             "difficulty_bonus": difficulty_bonus,
