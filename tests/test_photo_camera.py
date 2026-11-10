@@ -13,7 +13,15 @@ from gamestate import GameState
 from ghost import GhostState
 from handlers import handle_game_events
 from main_work import Game
-from photo_camera import capture_ghost_photo, photo_zone
+from photo_camera import (
+    GHOST_DUPLICATE_REWARD,
+    GHOST_UNIQUE_REWARD,
+    PHOTO_JOURNAL_LIMIT,
+    capture_ghost_photo,
+    create_media_record,
+    media_base_reward,
+    photo_zone,
+)
 
 
 class DummyGhost:
@@ -71,6 +79,55 @@ class PhotoCameraTests(unittest.TestCase):
 
         self.assertEqual(len(game.photo_album), 1)
         self.assertIn(game.photo_album[0]["rarity"], (1, 2, 3))
+        self.assertTrue(game.photo_album[0]["unique"])
+        self.assertEqual(game.photo_album[0]["base_reward"], GHOST_UNIQUE_REWARD)
+
+    def test_first_ghost_photo_is_unique_and_repeats_are_duplicates(self):
+        player = pygame.Rect(100, 100, 40, 40)
+        ghost = DummyGhost((145, 110, 20, 20))
+        capture = capture_ghost_photo(player, "right", [ghost], size=140)
+
+        unique = create_media_record(capture, [])
+        duplicate = create_media_record(capture, [unique])
+
+        self.assertTrue(unique["unique"])
+        self.assertEqual(unique["base_reward"], GHOST_UNIQUE_REWARD)
+        self.assertFalse(duplicate["unique"])
+        self.assertEqual(duplicate["base_reward"], GHOST_DUPLICATE_REWARD)
+
+    def test_media_reward_uses_difficulty_multiplier(self):
+        game = Game()
+        game.difficulty_index = 2
+        game.photo_album = [
+            {"subject": "ghost", "rarity": 3, "unique": True, "base_reward": GHOST_UNIQUE_REWARD},
+            {"subject": "ghost", "rarity": 2, "unique": False, "base_reward": GHOST_DUPLICATE_REWARD},
+        ]
+
+        photo_reward = game.get_photo_reward_breakdown()
+        level_reward = game.get_level_complete_reward_breakdown()
+
+        self.assertEqual(media_base_reward(game.photo_album), 18)
+        self.assertEqual(photo_reward["multiplier"], 3)
+        self.assertEqual(photo_reward["total"], 54)
+        self.assertEqual(level_reward["photo_reward"], 54)
+
+    def test_only_five_valid_photos_fill_the_journal(self):
+        game = Game()
+        game.set_state(GameState.GAME)
+        game.load_level_by_id("level_1")
+        game.player_direction = "right"
+        ghost = game.ghost_manager.ghosts[0]
+        ghost.state = GhostState.IDLE
+        ghost.rect.center = (game.player_rect.right + 45, game.player_rect.centery)
+        if ghost.sprite:
+            ghost.sprite.set_alpha(255)
+
+        for _ in range(PHOTO_JOURNAL_LIMIT + 2):
+            game.camera_cooldown_until = 0
+            game.take_photo()
+
+        self.assertEqual(len(game.photo_album), PHOTO_JOURNAL_LIMIT)
+        self.assertEqual(sum(1 for row in game.photo_album if row["unique"]), 1)
 
 
 if __name__ == "__main__":

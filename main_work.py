@@ -30,7 +30,15 @@ import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
 from inventory_system import InventoryManager, SESSION_BOOST_CATALOG, ItemType, get_max_carried_items
 import level_config
-from photo_camera import PHOTO_COOLDOWN_MS, PHOTO_FEEDBACK_MS, capture_ghost_photo
+from photo_camera import (
+    PHOTO_COOLDOWN_MS,
+    PHOTO_FEEDBACK_MS,
+    PHOTO_JOURNAL_LIMIT,
+    capture_ghost_photo,
+    create_media_record,
+    media_base_reward,
+    normalize_media_records,
+)
 from progression import (
     GoogleSheetsAchievementTableProvider,
     LocalAchievementTableProvider,
@@ -504,15 +512,42 @@ class Game:
             self.player_direction,
             getattr(self.ghost_manager, "ghosts", []),
         )
-        record = self.last_photo.album_record()
-        if record:
+        if self.last_photo.captured and len(self.photo_album) >= PHOTO_JOURNAL_LIMIT:
+            self._show_game_info("Фото-журнал заполнен: снимок не принесёт награду.", 1000)
+            return True
+
+        record = create_media_record(self.last_photo, self.photo_album)
+        if record is not None:
             self.photo_album.append(record)
             stars = "★" * record["rarity"] + "☆" * (3 - record["rarity"])
-            self._show_game_info(f"Фото призрака: {stars}", 900)
+            media_kind = "UNIQUE" if record["unique"] else "DUPLICATE"
+            multiplier = self.photo_reward_multiplier()
+            self._show_game_info(
+                f"Фото призрака: {stars}  {media_kind}\n"
+                f"Награда при завершении: {record['base_reward']}$ ×{multiplier}",
+                1200,
+            )
             self.progress_event("ghost_photo", 1)
         else:
             self._show_game_info("На снимке ничего необычного.", 750)
         return True
+
+    def photo_reward_multiplier(self):
+        """Map the four game difficulties to Phasmophobia's x1..x4 rewards."""
+        return max(1, min(4, int(self.difficulty_index) + 1))
+
+    def get_photo_reward_breakdown(self):
+        base = media_base_reward(getattr(self, "photo_album", []))
+        multiplier = self.photo_reward_multiplier()
+        unique_count = sum(1 for row in self.photo_album if row.get("unique"))
+        duplicate_count = len(self.photo_album) - unique_count
+        return {
+            "base": base,
+            "multiplier": multiplier,
+            "unique_count": unique_count,
+            "duplicate_count": duplicate_count,
+            "total": base * multiplier,
+        }
 
     def trigger_radio_feedback(self, ok, announcement=None):
         self.radio_feedback_ok = bool(ok)
@@ -957,19 +992,25 @@ class Game:
         return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
 
     def get_level_complete_reward_breakdown(self):
-        """Считает денежную награду за победу: база + сложность + бонус за подтверждённые улики."""
+        """Считает награду за победу, включая медиа с коэффициентом сложности."""
         base = 80 + max(0, self.player_level - 1) * 35
         difficulty_bonus = int(self.difficulty_config()["reward_bonus"])
         confirmed_count = sum(
             1 for state in self.journal_evidence.values() if state == EVIDENCE_CONFIRMED
         )
         evidence_bonus = confirmed_count * 15
-        total = base + difficulty_bonus + evidence_bonus
+        photo_reward = self.get_photo_reward_breakdown()
+        total = base + difficulty_bonus + evidence_bonus + photo_reward["total"]
         return {
             "base": base,
             "difficulty_bonus": difficulty_bonus,
             "evidence_bonus": evidence_bonus,
             "confirmed_count": confirmed_count,
+            "photo_reward_base": photo_reward["base"],
+            "photo_reward_multiplier": photo_reward["multiplier"],
+            "photo_reward": photo_reward["total"],
+            "photo_unique_count": photo_reward["unique_count"],
+            "photo_duplicate_count": photo_reward["duplicate_count"],
             "total": total,
         }
 
@@ -1399,6 +1440,11 @@ class Game:
             "reward_base": breakdown["base"],
             "reward_difficulty_bonus": breakdown["difficulty_bonus"],
             "reward_evidence_bonus": breakdown["evidence_bonus"],
+            "reward_photos": breakdown["photo_reward"],
+            "photo_reward_base": breakdown["photo_reward_base"],
+            "photo_reward_multiplier": breakdown["photo_reward_multiplier"],
+            "photo_unique_count": breakdown["photo_unique_count"],
+            "photo_duplicate_count": breakdown["photo_duplicate_count"],
             "confirmed_count": breakdown["confirmed_count"],
             "money_after": int(getattr(self, "global_money", 0) or 0),
             "next_level_name": next_meta.get("name") if next_meta else None,
@@ -1516,12 +1562,7 @@ class Game:
                 self.discovered_evidence = self.default_discovered_evidence()
             self._refresh_discovered_evidence()
             self.loaded_journal_evidence = self.journal_evidence.copy()
-            saved_photos = save_data.get("photo_album") or []
-            self.photo_album = [
-                {"subject": "ghost", "rarity": max(1, min(3, int(row.get("rarity", 1))))}
-                for row in saved_photos
-                if isinstance(row, dict) and row.get("subject") == "ghost"
-            ]
+            self.photo_album = normalize_media_records(save_data.get("photo_album"))
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)
             if saved_inventory:

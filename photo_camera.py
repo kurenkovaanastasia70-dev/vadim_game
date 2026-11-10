@@ -9,8 +9,11 @@ from constants import MAP_SCALE, TILE_SIZE
 
 
 PHOTO_ZONE_SIZE = int(TILE_SIZE * MAP_SCALE * 2.4)
-PHOTO_COOLDOWN_MS = 850
+PHOTO_COOLDOWN_MS = 1000
 PHOTO_FEEDBACK_MS = 320
+PHOTO_JOURNAL_LIMIT = 5
+GHOST_UNIQUE_REWARD = 15
+GHOST_DUPLICATE_REWARD = 3
 
 
 @dataclass(frozen=True)
@@ -20,14 +23,6 @@ class PhotoCapture:
     rarity: int = 0
     subject: str = ""
     score: float = 0.0
-
-    def album_record(self):
-        if not self.captured:
-            return None
-        return {
-            "subject": self.subject,
-            "rarity": self.rarity,
-        }
 
 
 def photo_zone(player_rect, direction, size=PHOTO_ZONE_SIZE):
@@ -96,4 +91,54 @@ def capture_ghost_photo(player_rect, direction, ghosts, size=PHOTO_ZONE_SIZE):
         rarity=_rarity_from_score(score),
         subject="ghost",
         score=score,
+    )
+
+
+def create_media_record(capture, previous_records):
+    """Create a Phasmophobia-style Unique/Duplicate media record."""
+    if not capture.captured:
+        return None
+    is_unique = not any(
+        row.get("subject") == capture.subject
+        for row in previous_records
+        if isinstance(row, dict)
+    )
+    return {
+        "subject": capture.subject,
+        "rarity": capture.rarity,
+        "unique": is_unique,
+        "base_reward": GHOST_UNIQUE_REWARD if is_unique else GHOST_DUPLICATE_REWARD,
+    }
+
+
+def normalize_media_records(records):
+    """Load safe photo records while remaining compatible with older saves."""
+    normalized = []
+    seen_subjects = set()
+    for row in records or []:
+        if not isinstance(row, dict) or row.get("subject") != "ghost":
+            continue
+        try:
+            rarity = int(row.get("rarity", 1))
+        except (TypeError, ValueError):
+            rarity = 1
+        subject = "ghost"
+        is_unique = subject not in seen_subjects
+        seen_subjects.add(subject)
+        normalized.append({
+            "subject": subject,
+            "rarity": max(1, min(3, rarity)),
+            "unique": is_unique,
+            "base_reward": GHOST_UNIQUE_REWARD if is_unique else GHOST_DUPLICATE_REWARD,
+        })
+        if len(normalized) >= PHOTO_JOURNAL_LIMIT:
+            break
+    return normalized
+
+
+def media_base_reward(records):
+    return sum(
+        max(0, int(row.get("base_reward", 0)))
+        for row in records
+        if isinstance(row, dict)
     )

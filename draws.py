@@ -18,6 +18,7 @@ import mechanics
 import level_config
 from inventory_system import ItemType, SESSION_BOOST_CATALOG, get_max_carried_items
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
+from photo_camera import PHOTO_JOURNAL_LIMIT, media_base_reward
 
 
 @lru_cache(maxsize=32)
@@ -170,7 +171,12 @@ def _draw_compact_status_hud(game):
     album = getattr(game, "photo_album", [])
     last_rarity = album[-1]["rarity"] if album else 0
     stars = "★" * last_rarity + "☆" * (3 - last_rarity) if last_rarity else "---"
-    camera_text = f"КАМЕРА [C]  фото: {len(album)}  последнее: {stars}"
+    base_reward = media_base_reward(album)
+    multiplier = game.photo_reward_multiplier() if hasattr(game, "photo_reward_multiplier") else 1
+    camera_text = (
+        f"КАМЕРА [C]  {len(album)}/{PHOTO_JOURNAL_LIMIT}  "
+        f"последнее: {stars}  медиа: {base_reward}$×{multiplier}"
+    )
     game.screen.blit(small.render(camera_text, True, (205, 220, 232)), (hud_x + 12, hud_y + 90))
 
     if has_thermometer:
@@ -1204,6 +1210,7 @@ def draw_win(game):
     reward_base = int(report.get("reward_base", reward) or 0)
     reward_diff = int(report.get("reward_difficulty_bonus", 0) or 0)
     reward_evidence = int(report.get("reward_evidence_bonus", 0) or 0)
+    reward_photos = int(report.get("reward_photos", 0) or 0)
     money_after = int(report.get("money_after", getattr(game, "player_money", 0)) or 0)
     report_next_name = report.get("next_level_name") or ("финал кампании" if not has_next else next_name)
 
@@ -1256,7 +1263,7 @@ def draw_win(game):
 
     report_lines = [
         f"Найденные улики: {evidence_text}",
-        f"На счёт: +{shown_reward}$  (база {reward_base} + сложность {reward_diff} + улики {reward_evidence})",
+        f"На счёт: +{shown_reward}$  (дело {reward_base + reward_diff + reward_evidence}$ + медиа {reward_photos}$)",
     ]
     report_lines += [
         f"Баланс: {shown_balance}$",
