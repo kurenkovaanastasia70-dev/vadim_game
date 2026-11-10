@@ -112,7 +112,7 @@ def _draw_crt_atmosphere(game):
 
 def _draw_compact_status_hud(game):
     has_thermometer = game.inventory.get("градусник", False)
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 430, 132 if has_thermometer else 112
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 430, 152 if has_thermometer else 132
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -167,11 +167,37 @@ def _draw_compact_status_hud(game):
         pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
     pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
 
+    album = getattr(game, "photo_album", [])
+    last_rarity = album[-1]["rarity"] if album else 0
+    stars = "★" * last_rarity + "☆" * (3 - last_rarity) if last_rarity else "---"
+    camera_text = f"КАМЕРА [C]  фото: {len(album)}  последнее: {stars}"
+    game.screen.blit(small.render(camera_text, True, (205, 220, 232)), (hud_x + 12, hud_y + 90))
+
     if has_thermometer:
         temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
         temp_value = "-- C" if temperature is None else f"{temperature:.1f} C"
-        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 90))
-        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 88))
+        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 112))
+        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 110))
+
+
+def _draw_photo_camera_feedback(game):
+    now = pygame.time.get_ticks()
+    capture = getattr(game, "last_photo", None)
+    if capture is not None and now < getattr(game, "camera_zone_until", 0):
+        zone = capture.zone.move(-game.camera_x, -game.camera_y)
+        rarity_colors = {1: (205, 155, 95), 2: (185, 205, 220), 3: (250, 220, 105)}
+        color = rarity_colors.get(capture.rarity, (220, 230, 235))
+        shade = pygame.Surface(zone.size, pygame.SRCALPHA)
+        shade.fill((*color, 24))
+        game.screen.blit(shade, zone.topleft)
+        pygame.draw.rect(game.screen, color, zone, 3)
+
+    flash_until = getattr(game, "camera_flash_until", 0)
+    if now < flash_until:
+        flash = pygame.Surface(game.screen.get_size(), pygame.SRCALPHA)
+        alpha = max(0, min(150, int(150 * (flash_until - now) / 120)))
+        flash.fill((255, 255, 245, alpha))
+        game.screen.blit(flash, (0, 0))
 
 
 def _draw_pixel_heart(screen, x, y, scale, color):
@@ -1475,6 +1501,7 @@ def draw_game(game):
         game.screen.blit(clipped_overlay, (0, 0))
 
     _draw_crt_atmosphere(game)
+    _draw_photo_camera_feedback(game)
     game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
 
     # Подпись у компьютера (без таймера — таймер только в магазине).

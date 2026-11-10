@@ -30,6 +30,7 @@ import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
 from inventory_system import InventoryManager, SESSION_BOOST_CATALOG, ItemType, get_max_carried_items
 import level_config
+from photo_camera import PHOTO_COOLDOWN_MS, PHOTO_FEEDBACK_MS, capture_ghost_photo
 from progression import (
     GoogleSheetsAchievementTableProvider,
     LocalAchievementTableProvider,
@@ -322,6 +323,12 @@ class Game:
         self.player_animation_frame = 0
         self.animation_timer = 0
         self.animation_speed = 120  # мс между кадрами
+        # Фотоаппарат — постоянный инструмент, он не занимает слот инвентаря.
+        self.photo_album = []
+        self.last_photo = None
+        self.camera_cooldown_until = 0
+        self.camera_flash_until = 0
+        self.camera_zone_until = 0
 
 
         # Инвентарь игрока (покупается 1 раз, сбрасывается после уровня)
@@ -475,6 +482,37 @@ class Game:
     def _show_game_info(self, text, duration_ms=1800):
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
+
+    def reset_photo_camera(self):
+        self.photo_album = []
+        self.last_photo = None
+        self.camera_cooldown_until = 0
+        self.camera_flash_until = 0
+        self.camera_zone_until = 0
+
+    def take_photo(self):
+        """Take a photo in the square in front of the player."""
+        now = pygame.time.get_ticks()
+        if now < self.camera_cooldown_until:
+            return False
+
+        self.camera_cooldown_until = now + PHOTO_COOLDOWN_MS
+        self.camera_flash_until = now + 120
+        self.camera_zone_until = now + PHOTO_FEEDBACK_MS
+        self.last_photo = capture_ghost_photo(
+            self.player_rect,
+            self.player_direction,
+            getattr(self.ghost_manager, "ghosts", []),
+        )
+        record = self.last_photo.album_record()
+        if record:
+            self.photo_album.append(record)
+            stars = "★" * record["rarity"] + "☆" * (3 - record["rarity"])
+            self._show_game_info(f"Фото призрака: {stars}", 900)
+            self.progress_event("ghost_photo", 1)
+        else:
+            self._show_game_info("На снимке ничего необычного.", 750)
+        return True
 
     def trigger_radio_feedback(self, ok, announcement=None):
         self.radio_feedback_ok = bool(ok)
@@ -1027,6 +1065,7 @@ class Game:
         self.win_next_level_id = None
         self.reset_inventory()
         self.apply_equipped_boost_inventory()
+        self.reset_photo_camera()
         self.reset_journal_evidence()
         self.loaded_journal_evidence = None
         self.loaded_inventory_runtime = None
@@ -1049,6 +1088,7 @@ class Game:
         self.win_report = {}
         self.reset_inventory()
         self.apply_equipped_boost_inventory()
+        self.reset_photo_camera()
         self.reset_player_position()
         self.journal_open = False
         self.journal_reset_confirm = False
@@ -1282,6 +1322,7 @@ class Game:
         self.global_money = 0
         self.reset_inventory()
         self.reset_player_position()
+        self.reset_photo_camera()
         self.journal_open = False
         self.journal_reset_confirm = False
         self.reset_journal_evidence()
@@ -1429,6 +1470,7 @@ class Game:
             "ghost_state": self.ghost_manager.serialize_runtime_state(),
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
+            "photo_album": list(getattr(self, "photo_album", [])),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected,
             "tasks": self.tasks,
@@ -1474,6 +1516,12 @@ class Game:
                 self.discovered_evidence = self.default_discovered_evidence()
             self._refresh_discovered_evidence()
             self.loaded_journal_evidence = self.journal_evidence.copy()
+            saved_photos = save_data.get("photo_album") or []
+            self.photo_album = [
+                {"subject": "ghost", "rarity": max(1, min(3, int(row.get("rarity", 1))))}
+                for row in saved_photos
+                if isinstance(row, dict) and row.get("subject") == "ghost"
+            ]
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)
             if saved_inventory:
