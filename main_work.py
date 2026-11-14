@@ -394,6 +394,12 @@ class Game:
         self.info_message = None
         self.info_until = 0
         self.uv_mode = False
+        self.emf_reader_images = assets.load_emf_reader_images()
+        self.emf_enabled = False
+        self.emf_level = 1
+        self.emf_text = "ЭМП: уровень 1 (фон)."
+        self.emf_level_changed_at = 0
+        self.emf_tutorial_shown = False
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
@@ -827,12 +833,32 @@ class Game:
         return self.inventory_manager.use_item(ItemType.RADIO)
 
     def use_emf(self):
-        """Скан ЭМП рядом с игроком."""
-        if not self.inventory.get("эмп", False):
-            self._show_game_info("ЭМП не куплен.", 900)
+        """Включить или выключить непрерывный ЭМП-ридер."""
+        return self.inventory_manager.use_item(ItemType.EMF)
+
+    def set_emf_reader_enabled(self, enabled):
+        self.emf_enabled = bool(enabled)
+        self.emf_level = 1
+        self.emf_text = "ЭМП: уровень 1 (фон)."
+        self.emf_level_changed_at = pygame.time.get_ticks()
+
+    def update_emf_reader(self):
+        """Continuously refresh the held reader from nearby EMF emissions."""
+        if not self.emf_enabled or not self.inventory.get("эмп", False):
+            if self.emf_enabled:
+                self.set_emf_reader_enabled(False)
             return
-        level, text = self.ghost_manager.scan_emf(self.player_rect)
-        self._show_game_info(text, 1600 if level < 5 else 2200)
+        if self.inventory_manager.active_hand_item != ItemType.EMF:
+            self.set_emf_reader_enabled(False)
+            return
+        level, text = self.ghost_manager.scan_emf(
+            self.player_rect,
+            interference=getattr(self, "hunt_active_ticks", 0) > 0,
+        )
+        if level != self.emf_level:
+            self.emf_level_changed_at = pygame.time.get_ticks()
+        self.emf_level = level
+        self.emf_text = text
 
     def toggle_uv_mode(self):
         """УФ-режим подсветки следов (визуализация улик)."""
@@ -849,6 +875,7 @@ class Game:
             self.inventory[item] = False
         self.inventory_manager.reset_runtime_state(clear_counts=True)
         self.uv_mode = False
+        self.set_emf_reader_enabled(False)
 
     def reset_ghost_activity(self):
         self.ghost_activity = 0.0
@@ -1057,7 +1084,7 @@ class Game:
         return True
 
     def open_boost_pick(self, purpose="next"):
-        """Магазин/экипировка буста: купить за счёт, затем экипировать один купленный."""
+        """Экран постоянных бонусов: купить, выбрать один и начать следующий выезд."""
         if purpose == "next" and not self.has_next_level():
             return False
         self.boost_pick_purpose = purpose
@@ -1091,7 +1118,10 @@ class Game:
         boost_id = getattr(self, "selected_boost_id", None)
         known = {row["id"] for row in SESSION_BOOST_CATALOG}
         if boost_id not in known or not self.owns_boost(boost_id):
-            self._show_game_info("Сначала купи буст за счёт или нажми «Без буста».", 1600)
+            self._show_game_info(
+                "Бонус не выбран. Нажми купленную карточку или выбери «Начать без бонуса».",
+                1800,
+            )
             return False
         return self._commit_boost_and_enter_game(boost_id)
 
@@ -1715,6 +1745,7 @@ class Game:
                     world_width=self.world_width,
                     world_height=self.world_height,
                 )
+                self.update_emf_reader()
                 self.inventory_manager.update_dropped_items()
                 throw_event = getattr(self.ghost_manager, "last_throw_event", None)
                 if throw_event:

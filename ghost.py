@@ -11,7 +11,7 @@ import csv
 from urllib.request import urlopen
 from configparser import ConfigParser
 from enum import Enum
-from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE
+from constants import TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, MAP_SCALE, FPS
 from project_paths import SPRITE_PARTS_DIR
 import heapq
 
@@ -20,6 +20,17 @@ GHOST_SPEED_SCALE = MAP_SCALE
 GHOST_HITBOX_RATIO = 0.55
 ITEM_THROW_MIN_TICKS = 12 * 60
 ITEM_THROW_MAX_TICKS = 28 * 60
+EMF_EMISSION_TICKS = 20 * FPS
+EMF_LEVEL5_CHANCE = 1 / 3
+
+
+def resolve_emf_level(base_level, has_emf_evidence, roll=None):
+    """Upgrade an interaction/throw emission to evidence-level EMF 5."""
+    base_level = max(1, min(4, int(base_level)))
+    if not has_emf_evidence or base_level not in (2, 3):
+        return base_level
+    chance_roll = random.random() if roll is None else float(roll)
+    return 5 if chance_roll < EMF_LEVEL5_CHANCE else base_level
 
 
 def _to_bool(value, default=False):
@@ -1457,12 +1468,12 @@ class GhostManager:
             last_position = (int(x), int(y))
 
         if last_position:
-            event_level = 5 if ghost.amp and random.random() < 0.25 else 3
+            event_level = resolve_emf_level(3, ghost.amp)
             self.emf_hotspot = {
                 "x": last_position[0],
                 "y": last_position[1],
                 "level": event_level,
-                "ttl": random.randint(3 * 60, 6 * 60),
+                "ttl": EMF_EMISSION_TICKS,
             }
             self.last_throw_event = {
                 "room_id": room_id,
@@ -1511,19 +1522,18 @@ class GhostManager:
         if ghost.state in (GhostState.IDLE, GhostState.PATROL) and random.random() < 0.008:
             event_level = 2  # взаимодействие
         elif ghost.state in (GhostState.WANDER, GhostState.SEARCH) and random.random() < 0.010:
-            event_level = 3  # бросок предмета
+            event_level = 2  # взаимодействие; уровень 3 создаёт реальный бросок предмета
         elif ghost.state == GhostState.CHASE and random.random() < 0.012:
             event_level = 4  # проявление
 
         if event_level is not None:
-            # Улика ЭМП-5: 25% шанс заменить уровни 2-4, если у призрака есть amp.
-            if ghost.amp and random.random() < 0.25:
-                event_level = 5
+            # В Phasmophobia только излучения 2 и 3 могут стать уликой ЭМП-5.
+            event_level = resolve_emf_level(event_level, ghost.amp)
             self.emf_hotspot = {
                 "x": int(ghost.rect.centerx),
                 "y": int(ghost.rect.centery),
                 "level": event_level,
-                "ttl": random.randint(3 * 60, 6 * 60),
+                "ttl": EMF_EMISSION_TICKS,
             }
 
     def _tick_runtime_effects(self):
@@ -1563,31 +1573,27 @@ class GhostManager:
         ]
         return True, random.choice(phrases)
 
-    def scan_emf(self, player_rect, radius=220):
+    def scan_emf(self, player_rect, radius=220, interference=False):
         """Скан ЭМП рядом с игроком. Возвращает (level, text)."""
         level = 1
         px, py = player_rect.centerx, player_rect.centery
+        if interference and self.ghosts:
+            ghost = self.ghosts[0]
+            dist = math.hypot(ghost.rect.centerx - px, ghost.rect.centery - py)
+            if ghost.state != GhostState.INVISIBLE and dist <= radius:
+                level = random.randint(1, 4)
+                return level, f"ЭМП: помехи охоты, случайный уровень {level}."
         if self.emf_hotspot:
             dx = self.emf_hotspot["x"] - px
             dy = self.emf_hotspot["y"] - py
             if math.hypot(dx, dy) <= radius:
                 level = max(level, int(self.emf_hotspot["level"]))
-        if self.ghosts:
-            ghost = self.ghosts[0]
-            if ghost.state != GhostState.INVISIBLE:
-                dist = math.hypot(ghost.rect.centerx - px, ghost.rect.centery - py)
-                if dist <= radius:
-                    # Фоновая активность рядом с призраком.
-                    if ghost.state in (GhostState.CHASE, GhostState.SEARCH):
-                        level = max(level, 2)
-                    if ghost.state == GhostState.CHASE:
-                        level = max(level, 3)
         descriptions = {
             1: "ЭМП: уровень 1 (фон).",
             2: "ЭМП: уровень 2 (взаимодействие).",
             3: "ЭМП: уровень 3 (бросок предмета).",
             4: "ЭМП: уровень 4 (проявление).",
-            5: "ЭМП: уровень 5 (улика!).",
+            5: "ЭМП: уровень 5 — улика! Отметь её в журнале.",
         }
         return level, descriptions.get(level, "ЭМП: уровень 1.")
 

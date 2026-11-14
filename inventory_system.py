@@ -100,16 +100,28 @@ class Radio(Item):
 
 
 class EmfDetector(Item):
-    """ЭМП-детектор — показывает уровень 1..5 рядом с игроком."""
+    """ЭМП-детектор — переключаемый непрерывный считыватель уровней 1..5."""
 
     def __init__(self):
         super().__init__(ItemType.EMF)
 
     def use(self, game):
-        level, text = game.ghost_manager.scan_emf(game.player_rect)
-        game._show_game_info(text, 1600 if level < 5 else 2200)
-        if hasattr(game, "increase_ghost_activity"):
-            game.increase_ghost_activity(3 + level, "emf")
+        enabled = not bool(getattr(game, "emf_enabled", False))
+        game.set_emf_reader_enabled(enabled)
+        if enabled:
+            game.inventory_manager.active_hand_item = self.item_type
+            game.update_emf_reader()
+            if not getattr(game, "emf_tutorial_shown", False):
+                game.emf_tutorial_shown = True
+                game._show_game_info(
+                    "ЭМП включён. Подойди к месту активности и следи за шкалой.\n"
+                    "Уровни 2–4 — события; красный уровень 5 — улика.\n"
+                    "E — убрать. ПКМ по слоту ЭМП — бросить на пол.",
+                    3800,
+                )
+        else:
+            if game.inventory_manager.active_hand_item == self.item_type:
+                game.inventory_manager.active_hand_item = None
         return True
 
 
@@ -222,20 +234,20 @@ MAX_CARRIED_ITEMS = 3
 SESSION_BOOST_CATALOG = (
     {
         "id": "extra_slot",
-        "title": "Карман +1",
-        "desc": "На выезде можно нести на 1 предмет больше.",
+        "title": "4-й слот инвентаря",
+        "desc": "На этом уровне можно нести 4 предмета вместо 3.",
         "cost": 120,
     },
     {
         "id": "budget_boost",
-        "title": "Бюджет +25$",
-        "desc": "Сразу +25$ сессии на этот выезд.",
+        "title": "Стартовые +25$",
+        "desc": "В начале уровня добавляет 25$ к деньгам для магазина.",
         "cost": 90,
     },
     {
         "id": "starter_candle",
-        "title": "Стартовая свеча",
-        "desc": "Выезд начинается с одной свечой.",
+        "title": "Свеча в начале",
+        "desc": "В начале уровня сразу выдаёт одну свечу.",
         "cost": 70,
     },
 )
@@ -814,6 +826,8 @@ class InventoryManager:
             self.game.flashlight_on = False
         elif item_type == ItemType.UV_FLASHLIGHT:
             self.game.uv_mode = False
+        elif item_type == ItemType.EMF:
+            self.game.set_emf_reader_enabled(False)
         if self.active_hand_item == item_type:
             self.active_hand_item = None
         self.dropped_items.append(DroppedInventoryItem(x, y, item_type))
