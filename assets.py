@@ -137,7 +137,10 @@ def load_inventory_images():
         inventory_images["крест"] = load_or_placeholder(["New Piskel.png", "New_Piskel.png", "cross.png"], (180, 160, 80))
         inventory_images["кровь"] = load_or_placeholder(["blood-1.png", "blood.png"], (150, 30, 30))
         inventory_images["радио"] = load_or_placeholder(["radio.png", "record.png"], (80, 140, 180))
-        inventory_images["эмп"] = load_or_placeholder(["amp.png", "amp1.png", "emf.png", "emp.png"], (100, 220, 120))
+        inventory_images["эмп"] = load_or_placeholder(
+            ["New Piskel (1).png", "amp.png", "amp1.png", "emf.png", "emp.png"],
+            (100, 220, 120),
+        )
         inventory_images["уф фонарь"] = load_or_placeholder(["yltrafiolet.png", "uv.png", "uv_flashlight.png"], (130, 90, 220))
         inventory_images["градусник"] = load_or_placeholder(["thermometer.png", "gradusnik.png"], (105, 185, 210))
         inventory_images["свеча"] = load_or_placeholder(["candle.png", "svecha.png"], (220, 160, 70))
@@ -146,6 +149,29 @@ def load_inventory_images():
         inventory_images = {}
 
     return inventory_images
+
+
+def load_emf_reader_images():
+    """Load the five player-authored EMF reader states without smoothing pixel art."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    search_paths = [
+        os.path.join(script_dir, "assets"),
+        os.path.join(script_dir, "..", "assets"),
+        "assets",
+    ]
+    images = {}
+    for level in range(1, 6):
+        filename = f"New Piskel ({level}).png"
+        for base in search_paths:
+            path = os.path.join(base, filename)
+            if not os.path.isfile(path):
+                continue
+            try:
+                images[level] = pygame.image.load(path).convert_alpha()
+            except (OSError, pygame.error):
+                pass
+            break
+    return images
 
 
 def load_footprint_sprites():

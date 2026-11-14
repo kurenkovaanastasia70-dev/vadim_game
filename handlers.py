@@ -337,6 +337,8 @@ def handle_game_events(game, event):
         elif event.key == pygame.K_t:
             from inventory_system import ItemType
             game.inventory_manager.use_item(ItemType.UV_FLASHLIGHT)
+        elif event.key == pygame.K_c:
+            game.take_photo()
         # ESC для отмены размещения
         elif event.key == pygame.K_ESCAPE:
             game.inventory_manager.cancel_placement()

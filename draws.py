@@ -18,6 +18,7 @@ import mechanics
 import level_config
 from inventory_system import ItemType, SESSION_BOOST_CATALOG, get_max_carried_items
 from ghost import EVIDENCE_PROFILE_KEYS, filter_journal_suspects, JOURNAL_LIST_PROFILE_IDS
+from photo_camera import PHOTO_JOURNAL_LIMIT, media_base_reward
 
 
 @lru_cache(maxsize=32)
@@ -46,7 +47,7 @@ JOURNAL_EVIDENCE_HELP = [
     (
         "amp",
         "ЭМП-метр  [E]",
-        "Пики шкалы 2–4 — отметь, если поймал. Снизу останутся типы, у которых в данных предусмотрен сильный ЭМП.",
+        "Нажми E, подойди к месту активности и следи за шкалой. Только красный уровень 5 считается уликой.",
     ),
     (
         "ultraviolet",
@@ -112,7 +113,7 @@ def _draw_crt_atmosphere(game):
 
 def _draw_compact_status_hud(game):
     has_thermometer = game.inventory.get("градусник", False)
-    hud_x, hud_y, hud_w, hud_h = 22, 16, 430, 132 if has_thermometer else 112
+    hud_x, hud_y, hud_w, hud_h = 22, 16, 430, 152 if has_thermometer else 132
     hud_bg = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
     hud_bg.fill((19, 25, 24, 218))
     game.screen.blit(hud_bg, (hud_x, hud_y))
@@ -167,11 +168,89 @@ def _draw_compact_status_hud(game):
         pygame.draw.rect(game.screen, (180, 46, 54), (bar.x, bar.y, fill_w, bar.h), border_radius=4)
     pygame.draw.rect(game.screen, (92, 118, 108), bar, 1, border_radius=4)
 
+    album = getattr(game, "photo_album", [])
+    base_reward = media_base_reward(album)
+    multiplier = game.photo_reward_multiplier() if hasattr(game, "photo_reward_multiplier") else 1
+    earned = base_reward * multiplier
+    camera_text = f"КАМЕРА [C]  |  Фото: {len(album)}/{PHOTO_JOURNAL_LIMIT}  |  Заработано: {earned}$"
+    game.screen.blit(small.render(camera_text, True, (205, 220, 232)), (hud_x + 12, hud_y + 90))
+
     if has_thermometer:
         temperature = game.get_current_temperature_c() if hasattr(game, "get_current_temperature_c") else None
         temp_value = "-- C" if temperature is None else f"{temperature:.1f} C"
-        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 90))
-        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 88))
+        game.screen.blit(small.render("TEMP", True, (145, 170, 160)), (hud_x + 12, hud_y + 112))
+        game.screen.blit(font.render(temp_value, True, (116, 207, 226)), (hud_x + 64, hud_y + 110))
+
+
+def _draw_photo_camera_feedback(game):
+    now = pygame.time.get_ticks()
+    capture = getattr(game, "last_photo", None)
+    if capture is not None and now < getattr(game, "camera_zone_until", 0):
+        zone = capture.zone.move(-game.camera_x, -game.camera_y)
+        rarity_colors = {1: (205, 155, 95), 2: (185, 205, 220), 3: (250, 220, 105)}
+        color = rarity_colors.get(capture.rarity, (220, 230, 235))
+        shade = pygame.Surface(zone.size, pygame.SRCALPHA)
+        shade.fill((*color, 24))
+        game.screen.blit(shade, zone.topleft)
+        pygame.draw.rect(game.screen, color, zone, 3)
+
+    flash_until = getattr(game, "camera_flash_until", 0)
+    if now < flash_until:
+        flash = pygame.Surface(game.screen.get_size(), pygame.SRCALPHA)
+        alpha = max(0, min(150, int(150 * (flash_until - now) / 120)))
+        flash.fill((255, 255, 245, alpha))
+        game.screen.blit(flash, (0, 0))
+
+
+def _draw_emf_reader(game):
+    """Draw an always-readable HUD for the switched-on handheld EMF reader."""
+    if not getattr(game, "emf_enabled", False):
+        return
+
+    level = max(1, min(5, int(getattr(game, "emf_level", 1))))
+    colors = {
+        1: (90, 205, 105),
+        2: (155, 220, 90),
+        3: (238, 220, 80),
+        4: (245, 145, 65),
+        5: (245, 65, 65),
+    }
+    labels = {
+        1: "ФОН",
+        2: "ВЗАИМОДЕЙСТВИЕ",
+        3: "БРОСОК ПРЕДМЕТА",
+        4: "ПРОЯВЛЕНИЕ",
+        5: "УЛИКА ЭМП-5",
+    }
+    sw, sh = _screen_wh(game)
+    panel = pygame.Rect(sw - 258, max(116, sh // 2 - 90), 236, 172)
+    surface = pygame.Surface(panel.size, pygame.SRCALPHA)
+    surface.fill((15, 20, 19, 232))
+    game.screen.blit(surface, panel.topleft)
+
+    now = pygame.time.get_ticks()
+    pulse = now - int(getattr(game, "emf_level_changed_at", 0)) < 500
+    border = colors[level] if pulse or level == 5 else (105, 135, 118)
+    pygame.draw.rect(game.screen, border, panel, 3 if pulse or level == 5 else 2, border_radius=8)
+
+    sprite = getattr(game, "emf_reader_images", {}).get(level)
+    sprite_box = pygame.Rect(panel.x + 10, panel.y + 12, 88, 112)
+    if sprite is not None:
+        scaled = pygame.transform.scale(sprite, (96, 96))
+        game.screen.blit(scaled, scaled.get_rect(center=sprite_box.center))
+
+    title_font = _font(24)
+    level_font = _font(38)
+    small = _font(18)
+    game.screen.blit(title_font.render("ЭМП [E]", True, (225, 235, 228)), (panel.x + 104, panel.y + 14))
+    game.screen.blit(level_font.render(str(level), True, colors[level]), (panel.x + 104, panel.y + 42))
+    for index in range(5):
+        dot_color = colors[index + 1] if index < level else (55, 66, 61)
+        pygame.draw.circle(game.screen, dot_color, (panel.x + 111 + index * 18, panel.y + 91), 6)
+    label = small.render(labels[level], True, colors[level])
+    game.screen.blit(label, label.get_rect(center=(panel.centerx, panel.y + 126)))
+    hint = small.render("E — убрать  |  ПКМ по слоту — бросить", True, (180, 194, 186))
+    game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.bottom - 15)))
 
 
 def _draw_pixel_heart(screen, x, y, scale, color):
@@ -593,7 +672,7 @@ def draw_howto(game):
     y += 30
     rows = [
         ("R", "Радио — вопрос духу (нужен предмет в магазине)"),
-        ("E", "ЭМП — шкала активности рядом: пики — признак, отмечаешь в журнале"),
+        ("E", "ЭМП — включить прибор; только красный уровень 5 является уликой"),
         ("T", "Ультрафиолет — подсветка следов, отмечаешь, если поймал"),
         ("J", "Журнал — что уже видел; игра сравнивает с известными типами призраков"),
         ("1 — 7", "Слоты инвентаря внизу: выбрать купленный предмет"),
@@ -1262,13 +1341,28 @@ def draw_boost_pick(game):
     title_font = pygame.font.Font(None, 46)
     body_font = pygame.font.Font(None, 24)
     small_font = pygame.font.Font(None, 20)
-    heading = "Бусты за счёт" if getattr(game, "boost_pick_purpose", "next") == "start" else "Буст на следующий выезд"
+    purpose = getattr(game, "boost_pick_purpose", "next")
+    heading = "ПОДГОТОВКА К ВЫЕЗДУ" if purpose == "start" else "БОНУС НА СЛЕДУЮЩИЙ УРОВЕНЬ"
     title = title_font.render(heading, True, (172, 255, 194))
     game.screen.blit(title, title.get_rect(center=(sw // 2, 42)))
-    wallet = body_font.render(f"счёт ${getattr(game, 'global_money', 0)}", True, (200, 220, 210))
+    wallet = body_font.render(
+        f"Постоянный счёт: {getattr(game, 'global_money', 0)}$",
+        True,
+        (238, 214, 130),
+    )
     game.screen.blit(wallet, wallet.get_rect(center=(sw // 2, 78)))
-    hint = small_font.render("Купи за глобальные $, потом экипируй один. Или иди без буста.", True, (160, 180, 175))
+    hint = small_font.render(
+        "1. Купи бонус   2. Нажми купленную карточку   3. Начни уровень",
+        True,
+        (190, 212, 202),
+    )
     game.screen.blit(hint, hint.get_rect(center=(sw // 2, 104)))
+    note = small_font.render(
+        "Покупка сохраняется навсегда. Перед выездом действует только один выбранный бонус.",
+        True,
+        (145, 170, 162),
+    )
+    game.screen.blit(note, note.get_rect(center=(sw // 2, 126)))
 
     selected = getattr(game, "selected_boost_id", None)
     cards = []
@@ -1281,7 +1375,7 @@ def draw_boost_pick(game):
     start_x = max(16, (sw - total_w) // 2)
     mouse = pygame.mouse.get_pos()
     for i, row in enumerate(catalog):
-        rect = pygame.Rect(start_x + i * (card_w + gap), 126, card_w, card_h)
+        rect = pygame.Rect(start_x + i * (card_w + gap), 150, card_w, card_h)
         cards.append((rect, row["id"]))
         owned = game.owns_boost(row["id"])
         hovered = rect.collidepoint(mouse)
@@ -1293,7 +1387,7 @@ def draw_boost_pick(game):
         name = body_font.render(_fit_text(body_font, row["title"], card_w - 20), True, (230, 245, 235))
         game.screen.blit(name, name.get_rect(center=(rect.centerx, rect.y + 28)))
         cost = int(row.get("cost", 0) or 0)
-        cost_s = small_font.render(f"{cost}$ со счёта", True, (238, 214, 130))
+        cost_s = small_font.render(f"Цена: {cost}$ со счёта", True, (238, 214, 130))
         game.screen.blit(cost_s, cost_s.get_rect(center=(rect.centerx, rect.y + 54)))
         y = rect.y + 78
         for wrapped in _wrap_lines(small_font, row["desc"], card_w - 28):
@@ -1302,9 +1396,11 @@ def draw_boost_pick(game):
             y += 20
         buy = pygame.Rect(rect.x + 16, rect.bottom - 70, rect.w - 32, 32)
         if owned:
-            mark = "выбрано" if is_sel else "куплено · клик"
+            mark = "ВЫБРАНО" if is_sel else "Куплено — нажми, чтобы выбрать"
             mark_color = (172, 255, 194) if is_sel else (170, 210, 190)
             m = small_font.render(mark, True, mark_color)
+            if m.get_width() > buy.w:
+                m = small_font.render("Куплено — выбрать", True, mark_color)
             game.screen.blit(m, m.get_rect(center=buy.center))
         else:
             buy_rects.append((buy, row["id"]))
@@ -1312,7 +1408,7 @@ def draw_boost_pick(game):
             can_buy = int(getattr(game, "global_money", 0) or 0) >= cost
             pygame.draw.rect(game.screen, (52, 126, 82) if can_buy and hover_buy else ((46, 90, 70) if can_buy else (50, 50, 56)), buy, border_radius=7)
             pygame.draw.rect(game.screen, (178, 190, 206), buy, 1, border_radius=7)
-            bl = small_font.render("Купить" if can_buy else "Мало $", True, (246, 248, 250))
+            bl = small_font.render("Купить" if can_buy else "Не хватает денег", True, (246, 248, 250))
             game.screen.blit(bl, bl.get_rect(center=buy.center))
     game.boost_card_rects = cards
     game.boost_buy_rects = buy_rects
@@ -1320,6 +1416,13 @@ def draw_boost_pick(game):
     equip = game.boost_equip_button
     skip = game.boost_skip_button
     back = game.boost_back_button
+    back.text = "Назад"
+    if purpose == "start":
+        skip.text = "Начать без бонуса"
+        equip.text = "Начать с выбранным"
+    else:
+        skip.text = "Дальше без бонуса"
+        equip.text = "Дальше с выбранным"
     btn_w = min(240, max(160, (sw - 48) // 3))
     gap_b = 12
     total_b = btn_w * 3 + gap_b * 2
@@ -1331,6 +1434,17 @@ def draw_boost_pick(game):
     back.rect.topleft = (bx, by)
     skip.rect.topleft = (bx + btn_w + gap_b, by)
     equip.rect.topleft = (bx + 2 * (btn_w + gap_b), by)
+
+    selected_meta = next((row for row in catalog if row["id"] == selected), None)
+    if selected_meta and game.owns_boost(selected):
+        status_text = f"Выбрано: {selected_meta['title']}"
+        status_color = (172, 255, 194)
+    else:
+        status_text = "Бонус не выбран — можно начать без него"
+        status_color = (190, 200, 196)
+    status = small_font.render(status_text, True, status_color)
+    game.screen.blit(status, status.get_rect(center=(sw // 2, by - 18)))
+
     back.draw(game.screen)
     skip.draw(game.screen)
     can_equip = bool(selected) and game.owns_boost(selected)
@@ -1339,7 +1453,7 @@ def draw_boost_pick(game):
     else:
         pygame.draw.rect(game.screen, (28, 34, 32), equip.rect, border_radius=7)
         pygame.draw.rect(game.screen, (70, 80, 76), equip.rect, 2, border_radius=7)
-        label = pygame.font.Font(None, 28).render("Экипировать", True, (120, 128, 122))
+        label = pygame.font.Font(None, 25).render(equip.text, True, (120, 128, 122))
         game.screen.blit(label, label.get_rect(center=equip.rect.center))
 
 
@@ -1452,6 +1566,25 @@ def draw_game(game):
             # Fallback, если иконка не загружена: жёлтый квадратик-фонарик.
             pygame.draw.rect(game.screen, (245, 220, 90), hand_rect)
             pygame.draw.rect(game.screen, (80, 65, 20), hand_rect, 1)
+    elif active_item == ItemType.EMF and getattr(game, "emf_enabled", False):
+        ps = player_visual_size
+        sz = max(42, int(ps * 0.55))
+        cx, cy = player_draw_rect.center
+        off = int(ps * 0.43)
+        hand_rect = pygame.Rect(0, 0, sz, sz)
+        if game.player_direction == "left":
+            hand_rect.center = (cx - off, cy)
+        elif game.player_direction == "right":
+            hand_rect.center = (cx + off, cy)
+        elif game.player_direction == "up":
+            hand_rect.center = (cx, cy - off)
+        else:
+            hand_rect.center = (cx, cy + off)
+        level = max(1, min(5, int(getattr(game, "emf_level", 1))))
+        emf_img = getattr(game, "emf_reader_images", {}).get(level)
+        if emf_img is not None:
+            scaled = pygame.transform.scale(emf_img, hand_rect.size)
+            game.screen.blit(scaled, hand_rect.topleft)
 
 
     # Отрисовка компьютера
@@ -1475,6 +1608,8 @@ def draw_game(game):
         game.screen.blit(clipped_overlay, (0, 0))
 
     _draw_crt_atmosphere(game)
+    _draw_photo_camera_feedback(game)
+    _draw_emf_reader(game)
     game.inventory_manager.draw_dropped_items(game.screen, game.camera_x, game.camera_y)
 
     # Подпись у компьютера (без таймера — таймер только в магазине).

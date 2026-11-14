@@ -30,6 +30,15 @@ import assets
 from ghost import GhostManager, EVIDENCE_PROFILE_KEYS
 from inventory_system import InventoryManager, SESSION_BOOST_CATALOG, ItemType, get_max_carried_items
 import level_config
+from photo_camera import (
+    PHOTO_COOLDOWN_MS,
+    PHOTO_FEEDBACK_MS,
+    PHOTO_JOURNAL_LIMIT,
+    capture_ghost_photo,
+    create_media_record,
+    media_base_reward,
+    normalize_media_records,
+)
 from progression import (
     GoogleSheetsAchievementTableProvider,
     LocalAchievementTableProvider,
@@ -322,6 +331,12 @@ class Game:
         self.player_animation_frame = 0
         self.animation_timer = 0
         self.animation_speed = 120  # мс между кадрами
+        # Фотоаппарат — постоянный инструмент, он не занимает слот инвентаря.
+        self.photo_album = []
+        self.last_photo = None
+        self.camera_cooldown_until = 0
+        self.camera_flash_until = 0
+        self.camera_zone_until = 0
 
 
         # Инвентарь игрока (покупается 1 раз, сбрасывается после уровня)
@@ -379,6 +394,12 @@ class Game:
         self.info_message = None
         self.info_until = 0
         self.uv_mode = False
+        self.emf_reader_images = assets.load_emf_reader_images()
+        self.emf_enabled = False
+        self.emf_level = 1
+        self.emf_text = "ЭМП: уровень 1 (фон)."
+        self.emf_level_changed_at = 0
+        self.emf_tutorial_shown = False
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
@@ -475,6 +496,68 @@ class Game:
     def _show_game_info(self, text, duration_ms=1800):
         self.info_message = text
         self.info_until = pygame.time.get_ticks() + duration_ms
+
+    def reset_photo_camera(self):
+        self.photo_album = []
+        self.last_photo = None
+        self.camera_cooldown_until = 0
+        self.camera_flash_until = 0
+        self.camera_zone_until = 0
+
+    def take_photo(self):
+        """Take a photo in the square in front of the player."""
+        now = pygame.time.get_ticks()
+        if now < self.camera_cooldown_until:
+            return False
+
+        self.camera_cooldown_until = now + PHOTO_COOLDOWN_MS
+        self.camera_flash_until = now + 120
+        self.camera_zone_until = now + PHOTO_FEEDBACK_MS
+        self.last_photo = capture_ghost_photo(
+            self.player_rect,
+            self.player_direction,
+            getattr(self.ghost_manager, "ghosts", []),
+        )
+        if self.last_photo.captured and len(self.photo_album) >= PHOTO_JOURNAL_LIMIT:
+            self._show_game_info("Фото-журнал заполнен: снимок не принесёт награду.", 1000)
+            return True
+
+        record = create_media_record(self.last_photo, self.photo_album)
+        if record is not None:
+            reward = record["base_reward"] * self.photo_reward_multiplier()
+            record["reward"] = reward
+            self.photo_album.append(record)
+            self.player_money += reward
+            stars = "★" * record["rarity"] + "☆" * (3 - record["rarity"])
+            media_kind = "UNIQUE" if record["unique"] else "DUPLICATE"
+            self._show_game_info(
+                f"Фото призрака: {stars}  {media_kind}\n"
+                f"Сразу начислено: +{reward}$",
+                1200,
+            )
+            self.progress_event("ghost_photo", 1)
+            if self.selected_save_slot:
+                self.autosave_current_slot()
+        else:
+            self._show_game_info("На снимке ничего необычного.", 750)
+        return True
+
+    def photo_reward_multiplier(self):
+        """Map the four game difficulties to Phasmophobia's x1..x4 rewards."""
+        return max(1, min(4, int(self.difficulty_index) + 1))
+
+    def get_photo_reward_breakdown(self):
+        base = media_base_reward(getattr(self, "photo_album", []))
+        multiplier = self.photo_reward_multiplier()
+        unique_count = sum(1 for row in self.photo_album if row.get("unique"))
+        duplicate_count = len(self.photo_album) - unique_count
+        return {
+            "base": base,
+            "multiplier": multiplier,
+            "unique_count": unique_count,
+            "duplicate_count": duplicate_count,
+            "total": base * multiplier,
+        }
 
     def trigger_radio_feedback(self, ok, announcement=None):
         self.radio_feedback_ok = bool(ok)
@@ -750,12 +833,32 @@ class Game:
         return self.inventory_manager.use_item(ItemType.RADIO)
 
     def use_emf(self):
-        """Скан ЭМП рядом с игроком."""
-        if not self.inventory.get("эмп", False):
-            self._show_game_info("ЭМП не куплен.", 900)
+        """Включить или выключить непрерывный ЭМП-ридер."""
+        return self.inventory_manager.use_item(ItemType.EMF)
+
+    def set_emf_reader_enabled(self, enabled):
+        self.emf_enabled = bool(enabled)
+        self.emf_level = 1
+        self.emf_text = "ЭМП: уровень 1 (фон)."
+        self.emf_level_changed_at = pygame.time.get_ticks()
+
+    def update_emf_reader(self):
+        """Continuously refresh the held reader from nearby EMF emissions."""
+        if not self.emf_enabled or not self.inventory.get("эмп", False):
+            if self.emf_enabled:
+                self.set_emf_reader_enabled(False)
             return
-        level, text = self.ghost_manager.scan_emf(self.player_rect)
-        self._show_game_info(text, 1600 if level < 5 else 2200)
+        if self.inventory_manager.active_hand_item != ItemType.EMF:
+            self.set_emf_reader_enabled(False)
+            return
+        level, text = self.ghost_manager.scan_emf(
+            self.player_rect,
+            interference=getattr(self, "hunt_active_ticks", 0) > 0,
+        )
+        if level != self.emf_level:
+            self.emf_level_changed_at = pygame.time.get_ticks()
+        self.emf_level = level
+        self.emf_text = text
 
     def toggle_uv_mode(self):
         """УФ-режим подсветки следов (визуализация улик)."""
@@ -772,6 +875,7 @@ class Game:
             self.inventory[item] = False
         self.inventory_manager.reset_runtime_state(clear_counts=True)
         self.uv_mode = False
+        self.set_emf_reader_enabled(False)
 
     def reset_ghost_activity(self):
         self.ghost_activity = 0.0
@@ -919,19 +1023,26 @@ class Game:
         return meta.get("name", f"Уровень {self.player_level}") if meta else f"Уровень {self.player_level}"
 
     def get_level_complete_reward_breakdown(self):
-        """Считает денежную награду за победу: база + сложность + бонус за подтверждённые улики."""
+        """Считает награду за победу и добавляет уже оплаченные фото в отчёт."""
         base = 80 + max(0, self.player_level - 1) * 35
         difficulty_bonus = int(self.difficulty_config()["reward_bonus"])
         confirmed_count = sum(
             1 for state in self.journal_evidence.values() if state == EVIDENCE_CONFIRMED
         )
         evidence_bonus = confirmed_count * 15
+        photo_reward = self.get_photo_reward_breakdown()
+        # Фото оплачиваются сразу во время уровня, поэтому здесь повторно не начисляются.
         total = base + difficulty_bonus + evidence_bonus
         return {
             "base": base,
             "difficulty_bonus": difficulty_bonus,
             "evidence_bonus": evidence_bonus,
             "confirmed_count": confirmed_count,
+            "photo_reward_base": photo_reward["base"],
+            "photo_reward_multiplier": photo_reward["multiplier"],
+            "photo_reward": photo_reward["total"],
+            "photo_unique_count": photo_reward["unique_count"],
+            "photo_duplicate_count": photo_reward["duplicate_count"],
             "total": total,
         }
 
@@ -973,7 +1084,7 @@ class Game:
         return True
 
     def open_boost_pick(self, purpose="next"):
-        """Магазин/экипировка буста: купить за счёт, затем экипировать один купленный."""
+        """Экран постоянных бонусов: купить, выбрать один и начать следующий выезд."""
         if purpose == "next" and not self.has_next_level():
             return False
         self.boost_pick_purpose = purpose
@@ -1007,7 +1118,10 @@ class Game:
         boost_id = getattr(self, "selected_boost_id", None)
         known = {row["id"] for row in SESSION_BOOST_CATALOG}
         if boost_id not in known or not self.owns_boost(boost_id):
-            self._show_game_info("Сначала купи буст за счёт или нажми «Без буста».", 1600)
+            self._show_game_info(
+                "Бонус не выбран. Нажми купленную карточку или выбери «Начать без бонуса».",
+                1800,
+            )
             return False
         return self._commit_boost_and_enter_game(boost_id)
 
@@ -1027,6 +1141,7 @@ class Game:
         self.win_next_level_id = None
         self.reset_inventory()
         self.apply_equipped_boost_inventory()
+        self.reset_photo_camera()
         self.reset_journal_evidence()
         self.loaded_journal_evidence = None
         self.loaded_inventory_runtime = None
@@ -1049,6 +1164,7 @@ class Game:
         self.win_report = {}
         self.reset_inventory()
         self.apply_equipped_boost_inventory()
+        self.reset_photo_camera()
         self.reset_player_position()
         self.journal_open = False
         self.journal_reset_confirm = False
@@ -1282,6 +1398,7 @@ class Game:
         self.global_money = 0
         self.reset_inventory()
         self.reset_player_position()
+        self.reset_photo_camera()
         self.journal_open = False
         self.journal_reset_confirm = False
         self.reset_journal_evidence()
@@ -1358,6 +1475,11 @@ class Game:
             "reward_base": breakdown["base"],
             "reward_difficulty_bonus": breakdown["difficulty_bonus"],
             "reward_evidence_bonus": breakdown["evidence_bonus"],
+            "reward_photos": breakdown["photo_reward"],
+            "photo_reward_base": breakdown["photo_reward_base"],
+            "photo_reward_multiplier": breakdown["photo_reward_multiplier"],
+            "photo_unique_count": breakdown["photo_unique_count"],
+            "photo_duplicate_count": breakdown["photo_duplicate_count"],
             "confirmed_count": breakdown["confirmed_count"],
             "money_after": int(getattr(self, "global_money", 0) or 0),
             "next_level_name": next_meta.get("name") if next_meta else None,
@@ -1429,6 +1551,7 @@ class Game:
             "ghost_state": self.ghost_manager.serialize_runtime_state(),
             "journal_evidence": self.normalize_journal_evidence(self.journal_evidence),
             "discovered_evidence": sorted(self.discovered_evidence),
+            "photo_album": list(getattr(self, "photo_album", [])),
             "difficulty": self.difficulty_index,
             "difficulty_selected": self.difficulty_selected,
             "tasks": self.tasks,
@@ -1474,6 +1597,7 @@ class Game:
                 self.discovered_evidence = self.default_discovered_evidence()
             self._refresh_discovered_evidence()
             self.loaded_journal_evidence = self.journal_evidence.copy()
+            self.photo_album = normalize_media_records(save_data.get("photo_album"))
             # Загружаем инвентарь (с fallback для старых сохранений)
             saved_inventory = save_data.get("inventory", None)
             if saved_inventory:
@@ -1621,6 +1745,7 @@ class Game:
                     world_width=self.world_width,
                     world_height=self.world_height,
                 )
+                self.update_emf_reader()
                 self.inventory_manager.update_dropped_items()
                 throw_event = getattr(self.ghost_manager, "last_throw_event", None)
                 if throw_event:
