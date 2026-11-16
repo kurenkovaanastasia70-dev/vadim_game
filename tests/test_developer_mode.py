@@ -6,7 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import pygame
 
-from devtools.developer_mode import DebugOverlay, DeveloperMode
+from devtools.developer_mode import DebugOverlay, DeveloperMode, state_label
 from ghost import GhostState
 
 
@@ -116,6 +116,11 @@ class DeveloperModeTests(unittest.TestCase):
         )
         self.assertFalse(mode.handle_event(outside_click, screen))
 
+    def test_state_names_are_translated_for_the_overlay(self):
+        self.assertEqual(state_label("CHASE"), "ПОГОНЯ")
+        self.assertEqual(state_label("INVISIBLE"), "НЕВИДИМ")
+        self.assertEqual(state_label(None), "--")
+
     def test_missing_enemy_is_reported(self):
         game = SimpleNamespace(
             clock=ClockStub(),
@@ -127,7 +132,7 @@ class DeveloperModeTests(unittest.TestCase):
         snapshot = DeveloperMode().snapshot(game)
         self.assertEqual(snapshot.enemy_state, "NONE")
         self.assertIsNone(snapshot.enemy_position)
-        self.assertIn("waiting for a ghost", snapshot.detail_lines[1])
+        self.assertIn("ожидаем появления призрака", snapshot.detail_lines[1])
 
 
 if __name__ == "__main__":

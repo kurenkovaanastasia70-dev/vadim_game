@@ -8,6 +8,25 @@ import pygame
 from constants import FPS
 
 
+STATE_LABELS = {
+    "NONE": "НЕТ",
+    "UNKNOWN": "НЕИЗВЕСТНО",
+    "IDLE": "ОЖИДАНИЕ",
+    "PATROL": "ПАТРУЛЬ",
+    "WANDER": "БЛУЖДАНИЕ",
+    "SEARCH": "ПОИСК",
+    "CHASE": "ПОГОНЯ",
+    "RETURN": "ВОЗВРАЩЕНИЕ",
+    "INVISIBLE": "НЕВИДИМ",
+}
+
+
+def state_label(state: Optional[str]) -> str:
+    if state is None:
+        return "--"
+    return STATE_LABELS.get(state, state)
+
+
 @dataclass(frozen=True)
 class DebugSnapshot:
     """Values displayed by the overlay for the current frame."""
@@ -43,8 +62,8 @@ class DebugOverlay:
 
     def _ensure_fonts(self) -> None:
         if self._font is None:
-            self._font = pygame.font.Font(None, 25)
-            self._title_font = pygame.font.Font(None, 27)
+            self._font = pygame.font.Font(None, 23)
+            self._title_font = pygame.font.Font(None, 25)
 
     @classmethod
     def panel_size(cls, expanded: bool = False) -> tuple[int, int]:
@@ -81,25 +100,26 @@ class DebugOverlay:
         panel.fill(self.BACKGROUND)
         pygame.draw.rect(panel, self.BORDER, panel.get_rect(), 2, border_radius=6)
 
-        title = self._title_font.render("DEVELOPER MODE [F3]", True, self.TITLE)
+        title = self._title_font.render("РЕЖИМ РАЗРАБОТЧИКА [F3]", True, self.TITLE)
         panel.blit(title, (14, 11))
 
         player_x, player_y = snapshot.player_position
-        previous_state = snapshot.enemy_previous_state or "--"
+        previous_state = state_label(snapshot.enemy_previous_state)
+        current_state = state_label(snapshot.enemy_state)
         if snapshot.enemy_position is None:
-            enemy_line = "Ghost: not spawned"
+            enemy_line = "Призрак: ещё не появился"
         else:
             enemy_x, enemy_y = snapshot.enemy_position
             enemy_line = (
-                f"Ghost: ({enemy_x}, {enemy_y})  "
-                f"distance: {snapshot.enemy_distance:.0f} px"
+                f"Призрак: ({enemy_x}, {enemy_y})  "
+                f"расстояние: {snapshot.enemy_distance:.0f} пкс"
             )
         lines = (
-            f"FPS: {snapshot.fps:.1f}  |  Active objects: {snapshot.active_objects}",
-            f"Player: ({player_x}, {player_y})",
+            f"FPS: {snapshot.fps:.1f}  |  Активные объекты: {snapshot.active_objects}",
+            f"Игрок: ({player_x}, {player_y})",
             enemy_line,
-            f"State: {previous_state} -> {snapshot.enemy_state}",
-            f"Time in state: {snapshot.enemy_state_seconds:.1f} s",
+            f"Состояние: {previous_state} -> {current_state}",
+            f"В текущем состоянии: {snapshot.enemy_state_seconds:.1f} с",
         )
         for index, line in enumerate(lines):
             text = self._font.render(line, True, self.TEXT)
@@ -114,7 +134,7 @@ class DebugOverlay:
         pygame.draw.rect(panel, (35, 65, 58, 230), button_rect, border_radius=4)
         marker = "[-]" if expanded else "[+]"
         button_text = self._font.render(
-            f"{marker} Ghost state details (click)", True, self.TITLE
+            f"{marker} Сведения о состоянии (нажать)", True, self.TITLE
         )
         panel.blit(button_text, (16, self.DETAILS_BUTTON_Y + 2))
 
@@ -137,7 +157,7 @@ class DeveloperMode:
         self._observed_enemy_state: Optional[str] = None
         self._previous_enemy_state: Optional[str] = None
         self._state_changed_at_ms = pygame.time.get_ticks()
-        self._last_transition_reason = "Waiting for a state transition"
+        self._last_transition_reason = "ожидаем смену состояния"
 
     def handle_event(
         self, event: pygame.event.Event, screen: Optional[pygame.Surface] = None
@@ -197,35 +217,35 @@ class DeveloperMode:
     def _transition_reason(self, previous: str, current: str, game) -> str:
         ghost = self._first_ghost(game)
         if ghost is None:
-            return "Ghost was removed from the scene"
+            return "призрак удалён со сцены"
         player_rect = getattr(game, "player_rect", pygame.Rect(0, 0, 0, 0))
         same_room = self._same_room(ghost, player_rect)
         distance = pygame.Vector2(player_rect.center).distance_to(ghost.rect.center)
 
         if current == "INVISIBLE":
-            return "visibility timer expired"
+            return "истёк таймер видимости"
         if previous == "INVISIBLE" and current == "IDLE":
-            return "appearance timer expired"
+            return "истёк таймер появления"
         if current == "CHASE":
             if getattr(game, "hunt_active_ticks", 0) > 0:
-                return "hunt started"
+                return "началась охота"
             if same_room:
-                return "player detected in the same room"
+                return "игрок обнаружен в той же комнате"
         if previous == "CHASE" and current == "SEARCH":
-            return "player left the ghost's room"
+            return "игрок покинул комнату призрака"
         if previous == "CHASE" and current == "PATROL":
-            return f"player distance exceeded 600 px ({distance:.0f})"
+            return f"расстояние до игрока больше 600 пкс ({distance:.0f})"
         if previous == "SEARCH" and current == "PATROL":
-            return "3-second search timer expired"
+            return "истёк трёхсекундный таймер поиска"
         if previous == "WANDER" and current == "PATROL":
-            return "5-second wander timer expired"
+            return "истёк пятисекундный таймер блуждания"
         if previous == "RETURN" and current == "PATROL":
-            return "home reached or 5-second return timer expired"
+            return "достигнут дом или истёк таймер возврата"
         if previous == "IDLE" and current == "PATROL":
-            return "idle timer expired; player is in another room"
+            return "истёк таймер ожидания; игрок в другой комнате"
         if previous == "PATROL" and current in ("IDLE", "WANDER"):
-            return "patrol timer expired; random branch selected"
-        return "state changed by game logic"
+            return "истёк таймер патруля; выбран случайный переход"
+        return "состояние изменено игровой логикой"
 
     def _observe_enemy_state(self, game) -> tuple[str, Optional[str], float]:
         current_state = self._enemy_state(game)
@@ -253,9 +273,9 @@ class DeveloperMode:
         ghost = self._first_ghost(game)
         if ghost is None:
             return (
-                f"Reason: {self._last_transition_reason}",
-                "Next: waiting for a ghost to spawn",
-                "Visibility: no timer available",
+                f"Причина: {self._last_transition_reason}",
+                "Далее: ожидаем появления призрака",
+                "Видимость: таймер недоступен",
             )
 
         if state == "INVISIBLE":
@@ -265,37 +285,37 @@ class DeveloperMode:
                 else getattr(ghost, "invisibility_duration", 0)
             )
             seconds = max(0, duration - getattr(ghost, "state_timer", 0)) / FPS
-            next_hint = f"Next: IDLE in ~{seconds:.1f} s (appearance)"
-            visibility_hint = "Visibility: hidden"
+            next_hint = f"Далее: ОЖИДАНИЕ примерно через {seconds:.1f} с"
+            visibility_hint = "Видимость: призрак скрыт"
         elif state == "IDLE":
             seconds = self._frames_left(ghost, "idle_duration", 60)
-            next_hint = f"Next: CHASE/PATROL in ~{seconds:.1f} s"
+            next_hint = f"Далее: ПОГОНЯ/ПАТРУЛЬ примерно через {seconds:.1f} с"
             visibility_hint = self._visible_timer_hint(ghost)
         elif state == "PATROL":
             seconds = self._frames_left(ghost, "patrol_duration", 270)
-            next_hint = f"Next: CHASE on detection; otherwise ~{seconds:.1f} s"
+            next_hint = f"Далее: ПОГОНЯ при обнаружении; иначе через {seconds:.1f} с"
             visibility_hint = self._visible_timer_hint(ghost)
         elif state == "WANDER":
             seconds = self._frames_left(ghost, "unused", 300)
-            next_hint = f"Next: CHASE on detection; PATROL in ~{seconds:.1f} s"
+            next_hint = f"Далее: ПОГОНЯ или ПАТРУЛЬ через {seconds:.1f} с"
             visibility_hint = self._visible_timer_hint(ghost)
         elif state == "CHASE":
-            next_hint = "Next: SEARCH if room changes; PATROL beyond 600 px"
+            next_hint = "Далее: ПОИСК при смене комнаты; ПАТРУЛЬ после 600 пкс"
             visibility_hint = self._visible_timer_hint(ghost)
         elif state == "SEARCH":
             seconds = self._frames_left(ghost, "unused", 180)
-            next_hint = f"Next: CHASE on detection; PATROL in ~{seconds:.1f} s"
+            next_hint = f"Далее: ПОГОНЯ или ПАТРУЛЬ через {seconds:.1f} с"
             visibility_hint = self._visible_timer_hint(ghost)
         elif state == "RETURN":
             seconds = self._frames_left(ghost, "unused", 300)
-            next_hint = f"Next: PATROL at home or in ~{seconds:.1f} s"
+            next_hint = f"Далее: ПАТРУЛЬ дома или через {seconds:.1f} с"
             visibility_hint = self._visible_timer_hint(ghost)
         else:
-            next_hint = "Next: no transition rule available"
-            visibility_hint = "Visibility: no timer available"
+            next_hint = "Далее: правило перехода недоступно"
+            visibility_hint = "Видимость: таймер недоступен"
 
         return (
-            f"Reason: {self._last_transition_reason}",
+            f"Причина: {self._last_transition_reason}",
             next_hint,
             visibility_hint,
         )
@@ -307,7 +327,7 @@ class DeveloperMode:
             int(getattr(ghost, "time_until_invisible", 0))
             - int(getattr(ghost, "invisibility_timer", 0)),
         )
-        return f"Visibility: disappears in ~{remaining / FPS:.1f} s"
+        return f"Видимость: исчезнет примерно через {remaining / FPS:.1f} с"
 
     @staticmethod
     def _active_object_count(game) -> int:
