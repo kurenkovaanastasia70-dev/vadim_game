@@ -45,6 +45,7 @@ from progression import (
     TaskAchievementManager,
 )
 from project_paths import ACHIEVEMENTS_FILE, SAVE_FILE
+from devtools import DeveloperMode
 
 pygame.init()
 
@@ -157,6 +158,7 @@ class Game:
         self._vignette_mask = _get_vignette_mask()
         pygame.display.set_caption("(:")
         self.clock = pygame.time.Clock()
+        self.developer_mode = DeveloperMode()
         self.running=True
         self.state = GameState.MENU
         self.state_stack = []
@@ -1798,6 +1800,8 @@ class Game:
         elif self.state == GameState.BOOST_PICK:
             self.moving = False
             draws.draw_boost_pick(self)
+        if self.state == GameState.GAME:
+            self.developer_mode.draw(self.screen, self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:
             # Полупрозрачный фон
