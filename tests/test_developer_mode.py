@@ -6,7 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import pygame
 
-from devtools.developer_mode import DeveloperMode
+from devtools.developer_mode import DebugOverlay, DeveloperMode
 from ghost import GhostState
 
 
@@ -38,7 +38,12 @@ class DeveloperModeTests(unittest.TestCase):
             clock=ClockStub(),
             player_rect=pygame.Rect(100, 200, 40, 60),
             ghost_manager=SimpleNamespace(
-                ghosts=[SimpleNamespace(state=GhostState.CHASE)]
+                ghosts=[
+                    SimpleNamespace(
+                        state=GhostState.CHASE,
+                        rect=pygame.Rect(200, 300, 20, 20),
+                    )
+                ]
             ),
             inventory_manager=SimpleNamespace(
                 placed_items=[object(), object()],
@@ -52,6 +57,35 @@ class DeveloperModeTests(unittest.TestCase):
         self.assertEqual(snapshot.player_position, (120, 230))
         self.assertEqual(snapshot.active_objects, 4)
         self.assertEqual(snapshot.enemy_state, "CHASE")
+        self.assertIsNone(snapshot.enemy_previous_state)
+        self.assertEqual(snapshot.enemy_position, (210, 310))
+        self.assertGreater(snapshot.enemy_distance, 0)
+
+    def test_snapshot_remembers_state_transition(self):
+        ghost = SimpleNamespace(
+            state=GhostState.PATROL,
+            rect=pygame.Rect(200, 300, 20, 20),
+        )
+        game = SimpleNamespace(
+            clock=ClockStub(),
+            player_rect=pygame.Rect(100, 200, 40, 60),
+            ghost_manager=SimpleNamespace(ghosts=[ghost]),
+            inventory_manager=SimpleNamespace(placed_items=[], dropped_items=[]),
+        )
+        mode = DeveloperMode()
+
+        mode.snapshot(game)
+        ghost.state = GhostState.CHASE
+        snapshot = mode.snapshot(game)
+
+        self.assertEqual(snapshot.enemy_previous_state, "PATROL")
+        self.assertEqual(snapshot.enemy_state, "CHASE")
+        self.assertGreaterEqual(snapshot.enemy_state_seconds, 0.0)
+
+    def test_overlay_is_anchored_to_bottom_right(self):
+        screen = pygame.Surface((1024, 768))
+
+        self.assertEqual(DebugOverlay.panel_position(screen), (618, 574))
 
     def test_missing_enemy_is_reported(self):
         game = SimpleNamespace(
@@ -61,7 +95,9 @@ class DeveloperModeTests(unittest.TestCase):
             inventory_manager=SimpleNamespace(placed_items=[], dropped_items=[]),
         )
 
-        self.assertEqual(DeveloperMode().snapshot(game).enemy_state, "NONE")
+        snapshot = DeveloperMode().snapshot(game)
+        self.assertEqual(snapshot.enemy_state, "NONE")
+        self.assertIsNone(snapshot.enemy_position)
 
 
 if __name__ == "__main__":
