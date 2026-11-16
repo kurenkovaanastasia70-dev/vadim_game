@@ -85,7 +85,36 @@ class DeveloperModeTests(unittest.TestCase):
     def test_overlay_is_anchored_to_bottom_right(self):
         screen = pygame.Surface((1024, 768))
 
-        self.assertEqual(DebugOverlay.panel_position(screen), (618, 574))
+        self.assertEqual(DebugOverlay.panel_position(screen), (598, 547))
+        self.assertEqual(DebugOverlay.panel_position(screen, expanded=True), (598, 467))
+
+    def test_details_are_hidden_by_default_and_toggle_on_click(self):
+        screen = pygame.Surface((1024, 768))
+        mode = DeveloperMode()
+        mode.enabled = True
+        button = DebugOverlay.details_button_rect(screen)
+        click = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": button.center},
+        )
+
+        self.assertFalse(mode.details_expanded)
+        self.assertTrue(mode.handle_event(click, screen))
+        self.assertTrue(mode.details_expanded)
+
+        expanded_button = DebugOverlay.details_button_rect(screen, expanded=True)
+        second_click = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": expanded_button.center},
+        )
+        self.assertTrue(mode.handle_event(second_click, screen))
+        self.assertFalse(mode.details_expanded)
+
+        outside_click = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": (10, 10)},
+        )
+        self.assertFalse(mode.handle_event(outside_click, screen))
 
     def test_missing_enemy_is_reported(self):
         game = SimpleNamespace(
@@ -98,6 +127,7 @@ class DeveloperModeTests(unittest.TestCase):
         snapshot = DeveloperMode().snapshot(game)
         self.assertEqual(snapshot.enemy_state, "NONE")
         self.assertIsNone(snapshot.enemy_position)
+        self.assertIn("waiting for a ghost", snapshot.detail_lines[1])
 
 
 if __name__ == "__main__":

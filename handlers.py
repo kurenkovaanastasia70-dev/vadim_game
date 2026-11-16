@@ -504,8 +504,9 @@ def handle_event(game):
         if event.type == pygame.QUIT:
             game.running = False
 
-        # Developer Mode does not consume events, so regular controls keep working.
-        game.developer_mode.handle_event(event)
+        # Only explicit interaction with Developer Mode consumes an event.
+        if game.developer_mode.handle_event(event, game.screen):
+            continue
         
         if game.state == GameState.MENU:
             handle_menu_events(game, event)
