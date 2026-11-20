@@ -161,11 +161,14 @@ class GhostAbilitiesConfig:
         base.update(specific)
         return base
 
-    def random_profile_name(self):
+    def random_profile_name(self, exclude=None):
         """Случайный профиль из INI; секция ghost_default только база для merge и не выбирается."""
         names = [k for k in self.profiles.keys() if k in JOURNAL_LIST_PROFILE_IDS]
         if not names:
             names = [k for k in self.profiles.keys() if k != "default"]
+        alternatives = [name for name in names if name != exclude]
+        if alternatives:
+            names = alternatives
         return random.choice(names) if names else "default"
 
 
@@ -1227,7 +1230,14 @@ class GhostManager:
             print("Комнаты не найдены в уровне, создана одна большая комната по умолчанию")
         
     
-    def spawn_ghosts_from_level(self, ghost_spawns, walls, level_hitboxes, level_data=None):
+    def spawn_ghosts_from_level(
+        self,
+        ghost_spawns,
+        walls,
+        level_hitboxes,
+        level_data=None,
+        excluded_ghost_kind=None,
+    ):
         """Спавнит одно приведение из данных уровня с FSM. Тип призрака — случайный профиль из ghost_abilities.ini."""
         self.ghosts.clear()
         self.footprints.clear()
@@ -1255,7 +1265,7 @@ class GhostManager:
                 home_room_id = i
                 break
         
-        ghost_kind = self.abilities_config.random_profile_name()
+        ghost_kind = self.abilities_config.random_profile_name(exclude=excluded_ghost_kind)
         abilities = self.abilities_config.get_profile(ghost_kind)
         ghost = Ghost(
             spawn_x,

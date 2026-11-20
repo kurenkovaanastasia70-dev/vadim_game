@@ -85,7 +85,6 @@ class GameBaselineTests(unittest.TestCase):
     def test_inventory_slot_click_takes_priority_over_world_pickup(self):
         game = self.new_game()
         manager = game.inventory_manager
-        manager.item_counts[ItemType.RADIO] = 1
         game.inventory[ItemType.RADIO.value] = True
         index = manager.visible_inventory_names().index(ItemType.RADIO.value)
         slot_x, slot_y, _ = mechanics.inventory_slot_screen(index)
@@ -98,7 +97,7 @@ class GameBaselineTests(unittest.TestCase):
         )
         handle_game_events(game, event)
 
-        self.assertEqual(manager.get_count(ItemType.RADIO), 0)
+        self.assertTrue(game.inventory[ItemType.RADIO.value])
         self.assertEqual(len(manager.dropped_items), 1)
         self.assertEqual(manager.dropped_items[0].item_type, ItemType.CROSS)
 
@@ -148,14 +147,27 @@ class GameBaselineTests(unittest.TestCase):
         self.assertTrue(manager.use_item(ItemType.BLOOD))
         self.assertGreater(game.player_hp, 2)
 
-        manager.item_counts[ItemType.RADIO] = 1
-        radio_before = manager.get_count(ItemType.RADIO)
+        game.inventory[ItemType.RADIO.value] = True
         self.assertTrue(manager.use_item(ItemType.RADIO))
-        self.assertEqual(manager.get_count(ItemType.RADIO), radio_before - 1)
+        self.assertTrue(game.inventory[ItemType.RADIO.value])
+        self.assertFalse(manager.is_consumable(ItemType.RADIO))
 
         manager.item_counts[ItemType.PROJECTOR] = 1
         self.assertTrue(manager.use_item(ItemType.PROJECTOR))
         self.assertEqual(manager.active_hand_item, ItemType.PROJECTOR)
+
+    def test_radio_only_plays_static_during_hunt(self):
+        game = self.new_game()
+        game.inventory[ItemType.RADIO.value] = True
+        game.hunt_active_ticks = 60
+        calls = []
+        game.ghost_manager.ask_radio = lambda _player: calls.append(True) or (True, "ответ")
+
+        self.assertTrue(game.inventory_manager.use_item(ItemType.RADIO))
+
+        self.assertEqual(calls, [])
+        self.assertFalse(game.radio_feedback_ok)
+        self.assertIn("помехи", game.info_message.lower())
 
     def test_projector_can_be_placed_and_powered(self):
         game = self.new_game()
@@ -324,20 +336,43 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(game.state, GameState.GAME)
         self.assertEqual(game.setup_phase_ticks, game.difficulty_config()["setup_phase_seconds"] * 60)
 
-    def test_game_over_retry_restarts_the_current_level(self):
+    def test_game_over_starts_fresh_session_but_keeps_boosts(self):
         game = self.new_game()
+        game.load_level_by_id("level_2")
+        previous_ghost_kind = game.ghost_manager.ghosts[0].ghost_kind
         game.player_level = 2
         game.current_level_id = "level_2"
         game.player_hp = 0
+        game.player_money = 7
+        game.global_money = 300
+        game.inventory[ItemType.FLASHLIGHT.value] = True
+        game.owned_boosts = {"extra_slot": True}
+        game.equipped_boost = "extra_slot"
         game.set_state(GameState.GAME_OVER)
 
         event = pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN})
         handle_game_over_events(game, event)
 
         self.assertEqual(game.state, GameState.GAME)
-        self.assertEqual(game.player_level, 2)
-        self.assertEqual(game.current_level_id, "level_2")
+        self.assertEqual(game.player_level, 1)
+        self.assertEqual(game.current_level_id, "level_1")
         self.assertEqual(game.player_hp, 5)
+        self.assertEqual(game.player_money, 100)
+        self.assertEqual(game.global_money, 0)
+        self.assertFalse(game.inventory[ItemType.FLASHLIGHT.value])
+        self.assertEqual(game.owned_boosts, {"extra_slot": True})
+        self.assertEqual(game.equipped_boost, "extra_slot")
+        self.assertNotEqual(game.ghost_manager.ghosts[0].ghost_kind, previous_ghost_kind)
+
+    def test_e_opens_shop_only_inside_computer_interaction_radius(self):
+        game = self.new_game()
+        game.load_level_by_id("level_1")
+        game.player_rect.right = game.computer_rect.left - 1
+        game.player_rect.centery = game.computer_rect.centery
+
+        handle_game_events(game, pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_e}))
+
+        self.assertEqual(game.state, GameState.SHOP)
 
     def test_ghost_state_machine_has_known_states(self):
         game = self.new_game()

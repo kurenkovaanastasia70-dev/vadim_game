@@ -42,12 +42,12 @@ def _get_crt_overlay(threat_bucket):
     pygame.draw.rect(overlay, (0, 0, 0, edge), (SCREEN_WIDTH - 28, 0, 28, SCREEN_HEIGHT))
     return overlay
 
-# Только признаки из ghost_abilities.ini: приборы плюс уже существующие can_walk/can_fly.
+# Улики названы по наблюдаемому результату, а не по внутренним флагам призрака.
 JOURNAL_EVIDENCE_HELP = [
     (
         "amp",
-        "ЭМП-метр  [E]",
-        "Нажми E, подойди к месту активности и следи за шкалой. Только красный уровень 5 считается уликой.",
+        "ЭМП-5",
+        "Возьми ЭМП-метр из инвентаря и следи за шкалой. Только красный уровень 5 считается уликой.",
     ),
     (
         "ultraviolet",
@@ -61,18 +61,18 @@ JOURNAL_EVIDENCE_HELP = [
     ),
     (
         "freezing_temperature",
-        "Низкая температура",
+        "Минусовая температура",
         "Градусник показывает холод в любимой комнате: отметь, если температура резко ниже обычной.",
     ),
     (
         "can_walk",
-        "Ходит по полу",
-        "Отмечай, если призрак явно перемещается пешком: следы, обход стен, движение по комнатам без полёта.",
+        "След на соли",
+        "Положи соль на полу. Галка ставится, если призрак оставил на ней след.",
     ),
     (
         "can_fly",
-        "Летает",
-        "Отмечай, если призрак держится над полом или проходит путь как летающий тип. Это уже есть в конфиге.",
+        "След в красной пыли",
+        "Положи красную пыль. Галка ставится, если летающий призрак её потревожил.",
     ),
 ]
 
@@ -242,14 +242,14 @@ def _draw_emf_reader(game):
     title_font = _font(24)
     level_font = _font(38)
     small = _font(18)
-    game.screen.blit(title_font.render("ЭМП [E]", True, (225, 235, 228)), (panel.x + 104, panel.y + 14))
+    game.screen.blit(title_font.render("ЭМП", True, (225, 235, 228)), (panel.x + 104, panel.y + 14))
     game.screen.blit(level_font.render(str(level), True, colors[level]), (panel.x + 104, panel.y + 42))
     for index in range(5):
         dot_color = colors[index + 1] if index < level else (55, 66, 61)
         pygame.draw.circle(game.screen, dot_color, (panel.x + 111 + index * 18, panel.y + 91), 6)
     label = small.render(labels[level], True, colors[level])
     game.screen.blit(label, label.get_rect(center=(panel.centerx, panel.y + 126)))
-    hint = small.render("E — убрать  |  ПКМ по слоту — бросить", True, (180, 194, 186))
+    hint = small.render("Слот — убрать  |  ПКМ по слоту — бросить", True, (180, 194, 186))
     game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.bottom - 15)))
 
 
@@ -371,7 +371,7 @@ def _draw_computer_interact_tip(game, computer_screen_rect):
     """Подсказка над компьютером на карте (без таймера)."""
     if not getattr(game, "near_computer", False):
         return
-    tip_text = "Клик: открыть компьютер"
+    tip_text = "E: открыть компьютер"
     font = pygame.font.Font(None, 24)
     text_surface = font.render(tip_text, True, WHITE)
     padding = 10
@@ -672,7 +672,7 @@ def draw_howto(game):
     y += 30
     rows = [
         ("R", "Радио — вопрос духу (нужен предмет в магазине)"),
-        ("E", "ЭМП — включить прибор; только красный уровень 5 является уликой"),
+        ("E", "Взаимодействие с объектом рядом (сейчас — компьютер и магазин)"),
         ("T", "Ультрафиолет — подсветка следов, отмечаешь, если поймал"),
         ("J", "Журнал — что уже видел; игра сравнивает с известными типами призраков"),
         ("1 — 7", "Слоты инвентаря внизу: выбрать купленный предмет"),
@@ -1042,13 +1042,13 @@ def draw_shop(game):
 
     shop_items = [
         (1, "Фонарик", "фонарик", 50, "Свет в тёмных комнатах.", None),
-        (2, "Красная пыль", "красная пыль", 30, "Расходник для ловушек.", ItemType.RED_DUST),
-        (3, "Соль", "соль", 20, "Защитная зона на полу.", ItemType.SALT),
+        (2, "Красная пыль", "красная пыль", 30, "Показывает след летающего призрака.", ItemType.RED_DUST),
+        (3, "Соль", "соль", 20, "Показывает след ходящего призрака.", ItemType.SALT),
         (4, "Проектор", "проектор", 80, "Зона, куда призрак не заходит.", None),
         (5, "Аккумулятор", "аккумулятор", 40, "Питание проектора.", ItemType.BATTERY),
         (6, "Крест", "крест", 60, "Короткая защита.", ItemType.CROSS),
         (7, "Кровь", "кровь", 35, "Восстанавливает HP.", ItemType.BLOOD),
-        (8, "Радио", "радио", 65, "Ответы по призраку.", ItemType.RADIO),
+        (8, "Радио", "радио", 65, "Многоразовое; во время охоты только помехи.", ItemType.RADIO),
         (9, "ЭМП", "эмп", 70, "Скан активности.", None),
         (10, "УФ фонарь", "уф фонарь", 60, "Следы на полу.", None),
         (11, "Градусник", "градусник", 55, "Температура комнаты.", None),
@@ -1568,7 +1568,7 @@ def draw_game(game):
             pygame.draw.rect(game.screen, (80, 65, 20), hand_rect, 1)
     elif active_item == ItemType.EMF and getattr(game, "emf_enabled", False):
         ps = player_visual_size
-        sz = max(42, int(ps * 0.55))
+        sz = max(28, int(ps * 0.38))
         cx, cy = player_draw_rect.center
         off = int(ps * 0.43)
         hand_rect = pygame.Rect(0, 0, sz, sz)

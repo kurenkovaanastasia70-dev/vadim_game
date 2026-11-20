@@ -332,8 +332,7 @@ def handle_game_events(game, event):
             from inventory_system import ItemType
             game.inventory_manager.use_item(ItemType.RADIO)
         elif event.key == pygame.K_e:
-            from inventory_system import ItemType
-            game.inventory_manager.use_item(ItemType.EMF)
+            game.interact_nearby()
         elif event.key == pygame.K_t:
             from inventory_system import ItemType
             game.inventory_manager.use_item(ItemType.UV_FLASHLIGHT)

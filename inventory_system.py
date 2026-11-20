@@ -73,9 +73,15 @@ class Radio(Item):
         super().__init__(ItemType.RADIO)
 
     def use(self, game):
-        if game.inventory_manager.get_count(self.item_type) <= 0:
+        if not game.inventory.get(self.item_type.value, False):
             return False
         now = pygame.time.get_ticks()
+        if getattr(game, "hunt_active_ticks", 0) > 0:
+            game.radio_cooldown_until = now + getattr(game, "radio_cooldown_ms", 3000)
+            if hasattr(game, "trigger_radio_feedback"):
+                game.trigger_radio_feedback(False)
+            game._show_game_info("Радио: только громкие помехи — идёт охота.", 1700)
+            return True
         cooldown_until = getattr(game, "radio_cooldown_until", 0)
         if now < cooldown_until:
             game._show_game_info("Радио: помехи, подожди настройки.", 900)
@@ -95,7 +101,6 @@ class Radio(Item):
         if hasattr(game, "drain_sanity"):
             # Контакт через spirit box / радио в Phasmophobia тоже бьёт по sanity.
             game.drain_sanity(5.0 if ok else 2.0, reason="radio")
-        game.inventory_manager.decrease_count(self.item_type)
         return True
 
 
@@ -611,7 +616,6 @@ class InventoryManager:
             ItemType.CROSS: 0,
             ItemType.RED_DUST: 0,
             ItemType.SALT: 0,
-            ItemType.RADIO: 0
         }
         
         # Размещённые предметы на карте

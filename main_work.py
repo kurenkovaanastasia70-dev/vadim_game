@@ -405,6 +405,7 @@ class Game:
         self.loaded_inventory_runtime = None
         self.loaded_hunt_state = None
         self.loaded_ghost_state = None
+        self.excluded_ghost_kind_once = None
         self.loaded_activity_state = None
         self.ghost_activity = 0.0
         self.activity_event_cooldown_ticks = 0
@@ -519,6 +520,7 @@ class Game:
             self.player_rect,
             self.player_direction,
             getattr(self.ghost_manager, "ghosts", []),
+            obstacles=[*getattr(self, "walls", []), *getattr(self, "level_hitboxes", [])],
         )
         if self.last_photo.captured and len(self.photo_album) >= PHOTO_JOURNAL_LIMIT:
             self._show_game_info("Фото-журнал заполнен: снимок не принесёт награду.", 1000)
@@ -837,6 +839,22 @@ class Game:
     def use_emf(self):
         """Включить или выключить непрерывный ЭМП-ридер."""
         return self.inventory_manager.use_item(ItemType.EMF)
+
+    def interact_nearby(self):
+        """Выполнить доступное контекстное действие рядом с игроком."""
+        computer_in_range = False
+        if self.computer_rect:
+            pad = int(48 * MAP_SCALE)
+            computer_in_range = self.computer_rect.inflate(pad * 2, pad * 2).colliderect(self.player_rect)
+        if computer_in_range:
+            self.near_computer = True
+            self.setup_timer_shop_seen = True
+            self.setup_timer_hint_until = 0
+            self.push_state(GameState.SHOP)
+            return True
+        # TODO: добавить сюда остальные механики взаимодействия в радиусе.
+        self._show_game_info("Рядом нет предметов для взаимодействия.", 900)
+        return False
 
     def set_emf_reader_enabled(self, enabled):
         self.emf_enabled = bool(enabled)
@@ -1159,7 +1177,19 @@ class Game:
         return True
 
     def restart_current_level(self):
-        """Перезапускает текущий уровень, не сбрасывая кампанию на первый уровень."""
+        """Начать заново после поражения или повторить уровень после победы."""
+        previous_ghost_kind = None
+        if self.ghost_manager.ghosts:
+            previous_ghost_kind = self.ghost_manager.ghosts[0].ghost_kind
+
+        if self.state == GameState.GAME_OVER:
+            # Поражение сбрасывает сессию, но уже купленные и выбранный буст сохраняются.
+            self.player_money = 100
+            self.player_level = 1
+            first_level = level_config.get_level_by_number(1)
+            self.current_level_id = first_level.get("id") if first_level else "level_1"
+            self.global_money = 0
+            self.tasks, self.achievements_table = self.progress_manager.new_state()
         self.game_over_reason = "hp"
         self.player_hp = 5
         self.win_next_level_id = None
@@ -1181,7 +1211,9 @@ class Game:
         self.reset_hunt_timer()
         self.reset_ghost_activity()
         self.reset_sanity(start_setup=True)
+        self.excluded_ghost_kind_once = previous_ghost_kind
         self.set_state(GameState.GAME, reset_stack=True)
+        self.autosave_current_slot()
 
     def load_level(self, level_file_path):
         """
@@ -1209,7 +1241,9 @@ class Game:
                 self.walls,
                 self.level_hitboxes,
                 self.level_data,
+                excluded_ghost_kind=self.excluded_ghost_kind_once,
             )
+            self.excluded_ghost_kind_once = None
             # Загружаем компьютер
             computer_rect = mechanics.get_computer_from_level(self.level_data)
             if computer_rect:
@@ -1533,7 +1567,6 @@ class Game:
             "CROSS": self.inventory_manager.item_counts.get(ItemType.CROSS, 0),
             "RED_DUST": self.inventory_manager.item_counts.get(ItemType.RED_DUST, 0),
             "SALT": self.inventory_manager.item_counts.get(ItemType.SALT, 0),
-            "RADIO": self.inventory_manager.item_counts.get(ItemType.RADIO, 0),
             "CANDLE": self.inventory_manager.item_counts.get(ItemType.CANDLE, 0),
         }
         save_data = {
@@ -1618,7 +1651,6 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.CROSS] = saved_counts.get("CROSS", 0)
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = saved_counts.get("RED_DUST", 0)
                 self.inventory_manager.item_counts[ItemType.SALT] = saved_counts.get("SALT", 0)
-                self.inventory_manager.item_counts[ItemType.RADIO] = saved_counts.get("RADIO", int(self.inventory.get("радио", False)))
                 self.inventory_manager.item_counts[ItemType.CANDLE] = saved_counts.get("CANDLE", int(self.inventory.get("свеча", False)))
             else:
                 from inventory_system import ItemType
@@ -1627,7 +1659,6 @@ class Game:
                 self.inventory_manager.item_counts[ItemType.CROSS] = 0
                 self.inventory_manager.item_counts[ItemType.RED_DUST] = 0
                 self.inventory_manager.item_counts[ItemType.SALT] = 0
-                self.inventory_manager.item_counts[ItemType.RADIO] = int(self.inventory.get("радио", False))
                 self.inventory_manager.item_counts[ItemType.CANDLE] = int(self.inventory.get("свеча", False))
             self.tasks, self.achievements_table = self.progress_manager.normalize_state(
                 save_data.get("tasks"),
