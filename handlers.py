@@ -332,8 +332,7 @@ def handle_game_events(game, event):
             from inventory_system import ItemType
             game.inventory_manager.use_item(ItemType.RADIO)
         elif event.key == pygame.K_e:
-            from inventory_system import ItemType
-            game.inventory_manager.use_item(ItemType.EMF)
+            game.interact_nearby()
         elif event.key == pygame.K_t:
             from inventory_system import ItemType
             game.inventory_manager.use_item(ItemType.UV_FLASHLIGHT)
@@ -503,6 +502,10 @@ def handle_event(game):
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             game.running = False
+
+        # Only explicit interaction with Developer Mode consumes an event.
+        if game.developer_mode.handle_event(event, game.screen):
+            continue
         
         if game.state == GameState.MENU:
             handle_menu_events(game, event)

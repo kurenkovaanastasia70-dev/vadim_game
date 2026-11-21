@@ -71,12 +71,29 @@ def _rarity_from_score(score):
     return 1
 
 
-def capture_ghost_photo(player_rect, direction, ghosts, size=PHOTO_ZONE_SIZE):
-    """Capture the best visible ghost inside the square and rate it 1..3."""
+def _line_is_blocked(start, end, obstacles):
+    """Return True when a wall or solid hitbox crosses the camera ray."""
+    for obstacle in obstacles or ():
+        rect = obstacle[0] if isinstance(obstacle, (tuple, list)) else obstacle
+        if isinstance(rect, pygame.Rect) and rect.clipline(start, end):
+            return True
+    return False
+
+
+def capture_ghost_photo(
+    player_rect,
+    direction,
+    ghosts,
+    size=PHOTO_ZONE_SIZE,
+    obstacles=None,
+):
+    """Capture the best visible ghost that is inside the square and line of sight."""
     zone = photo_zone(player_rect, direction, size=size)
     candidates = []
     for ghost in ghosts:
         if not _ghost_is_visible(ghost) or not zone.colliderect(ghost.rect):
+            continue
+        if _line_is_blocked(player_rect.center, ghost.rect.center, obstacles):
             continue
         score = _subject_score(player_rect, zone, direction, ghost.rect.center)
         candidates.append((score, ghost))

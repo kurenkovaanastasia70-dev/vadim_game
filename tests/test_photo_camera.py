@@ -64,6 +64,21 @@ class PhotoCameraTests(unittest.TestCase):
         self.assertFalse(photo.captured)
         self.assertEqual(photo.rarity, 0)
 
+    def test_wall_blocks_ghost_photo(self):
+        player = pygame.Rect(100, 100, 40, 40)
+        ghost = DummyGhost((210, 110, 20, 20))
+        wall = pygame.Rect(165, 80, 20, 100)
+
+        photo = capture_ghost_photo(
+            player,
+            "right",
+            [ghost],
+            size=160,
+            obstacles=[(wall, None)],
+        )
+
+        self.assertFalse(photo.captured)
+
     def test_camera_is_always_available_on_c_key(self):
         game = Game()
         game.set_state(GameState.GAME)
