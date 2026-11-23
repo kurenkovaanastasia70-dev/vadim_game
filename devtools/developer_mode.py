@@ -45,18 +45,17 @@ class DebugSnapshot:
 
 
 class DebugOverlay:
-    """Render diagnostics with a small clickable details control."""
+    """A single compact panel for diagnostics and scenario controls."""
 
-    PANEL_MARGIN = 16
-    PANEL_WIDTH = 410
-    COLLAPSED_HEIGHT = 205
-    EXPANDED_HEIGHT = 285
-    DETAILS_BUTTON_Y = 171
-    DETAILS_BUTTON_HEIGHT = 24
-    BACKGROUND = (10, 14, 20, 205)
-    BORDER = (80, 220, 150, 255)
-    TEXT = (235, 245, 240)
-    TITLE = (110, 245, 175)
+    PANEL_MARGIN = 12
+    PANEL_WIDTH = 370
+    COLLAPSED_HEIGHT = 278
+    EXPANDED_HEIGHT = 350
+    BACKGROUND = (12, 18, 24, 225)
+    BORDER = (80, 105, 110)
+    TEXT = (225, 232, 230)
+    MUTED = (155, 173, 175)
+    ACCENT = (125, 220, 183)
 
     def __init__(self) -> None:
         self._font: Optional[pygame.font.Font] = None
@@ -64,8 +63,8 @@ class DebugOverlay:
 
     def _ensure_fonts(self) -> None:
         if self._font is None:
-            self._font = pygame.font.Font(None, 23)
-            self._title_font = pygame.font.Font(None, 25)
+            self._font = pygame.font.Font(None, 21)
+            self._title_font = pygame.font.Font(None, 23)
 
     @classmethod
     def panel_size(cls, expanded: bool = False) -> tuple[int, int]:
@@ -86,65 +85,83 @@ class DebugOverlay:
     def details_button_rect(
         cls, screen: pygame.Surface, expanded: bool = False
     ) -> pygame.Rect:
-        panel_x, panel_y = cls.panel_position(screen, expanded)
-        return pygame.Rect(
-            panel_x + 10,
-            panel_y + cls.DETAILS_BUTTON_Y,
-            cls.PANEL_WIDTH - 20,
-            cls.DETAILS_BUTTON_HEIGHT,
-        )
+        return cls.button_rects(screen, expanded)["details"]
+
+    @classmethod
+    def button_rects(cls, screen: pygame.Surface, expanded: bool = False) -> dict[str, pygame.Rect]:
+        x, y = cls.panel_position(screen, expanded)
+        keys = ("hitboxes", "zones", "selection")
+        buttons = {
+            key: pygame.Rect(x + 12 + i * 116, y + 158, 110, 26)
+            for i, key in enumerate(keys)
+        }
+        buttons.update({
+            key: pygame.Rect(x + 12 + i * 116, y + 216, 110, 26)
+            for i, key in enumerate(("next", "reset", "exit"))
+        })
+        buttons["details"] = pygame.Rect(x + 12, y + 249, cls.PANEL_WIDTH - 24, 22)
+        return buttons
+
+    def _button(self, panel, rect, label, active=False, disabled=False):
+        color = (37, 87, 74) if active else (38, 51, 58)
+        if disabled:
+            color = (26, 34, 40)
+        pygame.draw.rect(panel, color, rect, border_radius=4)
+        text_color = self.ACCENT if active else (105, 120, 125) if disabled else self.TEXT
+        label_surface = self._font.render(label, True, text_color)
+        panel.blit(label_surface, label_surface.get_rect(center=rect.center))
 
     def draw(
-        self, screen: pygame.Surface, snapshot: DebugSnapshot, expanded: bool = False
+        self, screen: pygame.Surface, snapshot: DebugSnapshot, expanded: bool = False,
+        renderer=None, scenario=None,
     ) -> None:
         self._ensure_fonts()
         panel = pygame.Surface(self.panel_size(expanded), pygame.SRCALPHA)
         panel.fill(self.BACKGROUND)
-        pygame.draw.rect(panel, self.BORDER, panel.get_rect(), 2, border_radius=6)
-
-        title = self._title_font.render("РЕЖИМ РАЗРАБОТЧИКА [F3]", True, self.TITLE)
-        panel.blit(title, (14, 11))
+        pygame.draw.rect(panel, self.BORDER, panel.get_rect(), 1, border_radius=7)
+        panel.blit(self._title_font.render("РЕЖИМ РАЗРАБОТЧИКА", True, self.ACCENT), (14, 10))
+        panel.blit(self._font.render("F3 · закрыть", True, self.MUTED), (263, 12))
+        pygame.draw.line(panel, self.BORDER, (12, 37), (358, 37))
 
         player_x, player_y = snapshot.player_position
         previous_state = state_label(snapshot.enemy_previous_state)
         current_state = state_label(snapshot.enemy_state)
         if snapshot.enemy_position is None:
-            enemy_line = "Призрак: ещё не появился"
+            enemy_line = "Призрак  —"
         else:
             enemy_x, enemy_y = snapshot.enemy_position
-            enemy_line = (
-                f"Призрак: ({enemy_x}, {enemy_y})  "
-                f"расстояние: {snapshot.enemy_distance:.0f} пкс"
-            )
+            enemy_line = f"Призрак  {enemy_x}, {enemy_y}   ·   {snapshot.enemy_distance:.0f} пкс"
         lines = (
-            f"FPS: {snapshot.fps:.1f}  |  Активные объекты: {snapshot.active_objects}",
-            f"Игрок: ({player_x}, {player_y})",
+            f"FPS  {snapshot.fps:.1f}     ·     Объекты  {snapshot.active_objects}",
+            f"Игрок  {player_x}, {player_y}",
             enemy_line,
-            f"Состояние: {previous_state} -> {current_state}",
-            f"В текущем состоянии: {snapshot.enemy_state_seconds:.1f} с",
+            f"{previous_state}  →  {current_state}     ·     {snapshot.enemy_state_seconds:.1f} с",
         )
         for index, line in enumerate(lines):
             text = self._font.render(line, True, self.TEXT)
-            panel.blit(text, (14, 43 + index * 25))
+            panel.blit(text, (14, 48 + index * 23))
 
-        button_rect = pygame.Rect(
-            10,
-            self.DETAILS_BUTTON_Y,
-            self.PANEL_WIDTH - 20,
-            self.DETAILS_BUTTON_HEIGHT,
-        )
-        pygame.draw.rect(panel, (35, 65, 58, 230), button_rect, border_radius=4)
-        marker = "[-]" if expanded else "[+]"
-        button_text = self._font.render(
-            f"{marker} Сведения о состоянии (нажать)", True, self.TITLE
-        )
-        panel.blit(button_text, (16, self.DETAILS_BUTTON_Y + 2))
+        pygame.draw.line(panel, self.BORDER, (12, 146), (358, 146))
+        for index, (key, label) in enumerate((
+            ("hitboxes", "Контуры · F6"), ("zones", "Зоны · F7"), ("selection", "Выбор · F8")
+        )):
+            self._button(panel, pygame.Rect(12 + index * 116, 158, 110, 26), label, getattr(renderer, key, False))
+
+        scenario_name = scenario[1] if scenario else "не выбран"
+        panel.blit(self._font.render(f"Сценарий: {scenario_name}", True, self.MUTED), (14, 192))
+        for index, (label, disabled) in enumerate((
+            ("Далее · F4", False), ("Сброс · F5", scenario is None), ("Выход · F9", scenario is None)
+        )):
+            self._button(panel, pygame.Rect(12 + index * 116, 216, 110, 26), label, disabled=disabled)
+
+        pygame.draw.line(panel, self.BORDER, (12, 247), (358, 247))
+        marker = "−" if expanded else "+"
+        panel.blit(self._font.render(f"{marker}  Состояние призрака", True, self.ACCENT), (14, 251))
 
         if expanded:
-            pygame.draw.line(panel, self.BORDER, (12, 203), (398, 203), 1)
             for index, line in enumerate(snapshot.detail_lines):
                 text = self._font.render(line, True, self.TEXT)
-                panel.blit(text, (14, 211 + index * 23))
+                panel.blit(text, (14, 278 + index * 22))
 
         screen.blit(panel, self.panel_position(screen, expanded))
 
@@ -181,8 +198,8 @@ class DeveloperMode:
             if event.key in actions:
                 actions[event.key]()
                 return True
-        if self.enabled and game is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            for key, rect in self._button_rects().items():
+        if self.enabled and game is not None and screen is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for key, rect in self.overlay.button_rects(screen, self.details_expanded).items():
                 if rect.collidepoint(event.pos):
                     if key == "next":
                         self.scenarios.next(game)
@@ -190,6 +207,8 @@ class DeveloperMode:
                         self.scenarios.reset(game)
                     elif key == "exit":
                         self.scenarios.exit(game)
+                    elif key == "details":
+                        self.details_expanded = not self.details_expanded
                     else:
                         self._toggle(key)
                     return True
@@ -208,30 +227,6 @@ class DeveloperMode:
 
     def _toggle(self, layer):
         setattr(self.renderer, layer, not getattr(self.renderer, layer))
-
-    @staticmethod
-    def _button_rects():
-        return {
-            key: pygame.Rect(12 + index * 103, 54, 99, 26)
-            for index, key in enumerate(("hitboxes", "zones", "selection", "next", "reset", "exit"))
-        }
-
-    def _draw_controls(self, screen):
-        font = pygame.font.Font(None, 22)
-        current = self.scenarios.current
-        lines = ["F6 Хитбоксы | F7 Зоны | F8 Выбор | F4 Сценарий | F5 Сброс | F9 Выход"]
-        if current:
-            lines.append(f"{current[0]}: {current[1]}")
-        panel = pygame.Surface((min(screen.get_width() - 16, 650), 95 if current else 70), pygame.SRCALPHA)
-        panel.fill((10, 14, 20, 205))
-        screen.blit(panel, (8, 8))
-        for index, line in enumerate(lines):
-            screen.blit(font.render(line, True, (235, 245, 240)), (14, 12 + index * 20))
-        labels = {"hitboxes": "Хитбоксы", "zones": "Зоны", "selection": "Выбор", "next": "Сценарий", "reset": "Сброс", "exit": "Выход"}
-        for key, rect in self._button_rects().items():
-            active = getattr(self.renderer, key, False)
-            pygame.draw.rect(screen, (35, 105, 70) if active else (45, 55, 65), rect)
-            screen.blit(font.render(labels[key], True, (255, 255, 255)), (rect.x + 5, rect.y + 4))
 
     @staticmethod
     def _enemy_state(game) -> str:
@@ -419,7 +414,7 @@ class DeveloperMode:
     def draw(self, screen: pygame.Surface, game) -> None:
         if self.enabled:
             self.renderer.draw(screen, game)
-            self._draw_controls(screen)
             self.overlay.draw(
-                screen, self.snapshot(game), expanded=self.details_expanded
+                screen, self.snapshot(game), expanded=self.details_expanded,
+                renderer=self.renderer, scenario=self.scenarios.current,
             )

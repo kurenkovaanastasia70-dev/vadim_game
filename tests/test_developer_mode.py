@@ -85,8 +85,8 @@ class DeveloperModeTests(unittest.TestCase):
     def test_overlay_is_anchored_to_bottom_right(self):
         screen = pygame.Surface((1024, 768))
 
-        self.assertEqual(DebugOverlay.panel_position(screen), (598, 547))
-        self.assertEqual(DebugOverlay.panel_position(screen, expanded=True), (598, 467))
+        self.assertEqual(DebugOverlay.panel_position(screen), (642, 478))
+        self.assertEqual(DebugOverlay.panel_position(screen, expanded=True), (642, 406))
 
     def test_details_are_hidden_by_default_and_toggle_on_click(self):
         screen = pygame.Surface((1024, 768))

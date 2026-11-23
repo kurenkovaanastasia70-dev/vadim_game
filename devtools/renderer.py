@@ -7,9 +7,9 @@ from constants import MAP_SCALE
 
 class DebugRenderer:
     def __init__(self):
-        self.hitboxes = True
-        self.zones = True
-        self.selection = True
+        self.hitboxes = False
+        self.zones = False
+        self.selection = False
 
     def draw(self, screen, game):
         offset = (-game.camera_x, -game.camera_y)

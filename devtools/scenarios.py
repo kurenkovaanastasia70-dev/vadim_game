@@ -11,11 +11,11 @@ from inventory_system import DroppedInventoryItem, ItemType
 
 
 SCENARIOS = (
-    ("collision_wall", "Стена: попробуйте пройти сквозь красный контур"),
-    ("interaction_edge", "Граница: нажмите E у фиолетовой зоны компьютера"),
-    ("two_objects", "Два предмета: кликните по перекрытию контуров"),
-    ("ghost_detection", "Обнаружение: призрак в комнате игрока"),
-    ("event_completion", "Событие: угадайте вид призрака в журнале"),
+    ("collision_wall", "Стена · попробуйте пройти"),
+    ("interaction_edge", "Граница · нажмите E"),
+    ("two_objects", "Два предмета · кликните"),
+    ("ghost_detection", "Обнаружение · ждите погоню"),
+    ("event_completion", "Событие · угадайте вид в журнале"),
 )
 
 
