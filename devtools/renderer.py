@@ -1,4 +1,4 @@
-"""World-space outlines of geometry actually used by gameplay."""
+"""Quiet outlines of the geometry used by game rules."""
 
 import pygame
 
@@ -12,49 +12,64 @@ class DebugRenderer:
         self.selection = False
 
     def draw(self, screen, game):
-        offset = (-game.camera_x, -game.camera_y)
+        scenario = game.developer_mode.scenarios
+        scenario_id = scenario.current[0] if scenario.current else None
+        if not (self.hitboxes or self.zones or self.selection or scenario.current):
+            return
+
+        layer = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        focus = game.player_rect.inflate(520, 420)
         inventory = game.inventory_manager
+        camera_x, camera_y = game.camera_x, game.camera_y
+
+        def outline(rect, color, width=1):
+            if rect and rect.colliderect(focus):
+                view = rect.move(-camera_x, -camera_y)
+                if view.colliderect(screen.get_rect()):
+                    pygame.draw.rect(layer, color, view, width)
+
         if self.hitboxes:
-            pygame.draw.rect(screen, (70, 240, 100), game.player_rect.move(offset), 2)
-            for wall, _ in game.walls:
-                pygame.draw.rect(screen, (245, 95, 80), wall.move(offset), 2)
-            for rect in game.level_hitboxes:
-                pygame.draw.rect(screen, (245, 150, 70), rect.move(offset), 2)
-            for ghost in game.ghost_manager.ghosts:
-                pygame.draw.rect(screen, (255, 215, 65), ghost.rect.move(offset), 2)
-            for item in [*inventory.placed_items, *inventory.dropped_items]:
-                pygame.draw.rect(screen, (90, 210, 245), item.rect.move(offset), 2)
-            projector = inventory.placed_projector
-            if projector:
-                pygame.draw.rect(screen, (90, 210, 245), projector.rect.move(offset), 2)
-            if game.computer_rect:
-                pygame.draw.rect(screen, (90, 210, 245), game.computer_rect.move(offset), 2)
+            if scenario_id is None:
+                for wall, _ in game.walls:
+                    outline(wall, (245, 125, 125, 100))
+                for rect in game.level_hitboxes:
+                    outline(rect, (245, 165, 110, 100))
+                for item in [*inventory.placed_items, *inventory.dropped_items]:
+                    outline(item.rect, (120, 195, 235, 160))
+            elif scenario_id == "two_objects":
+                for item in inventory.dropped_items:
+                    outline(item.rect, (120, 195, 235, 180), 2)
+            elif scenario_id == "ghost_detection":
+                for ghost in game.ghost_manager.ghosts:
+                    outline(ghost.rect, (245, 210, 125, 190), 2)
 
         if self.zones:
             if game.computer_rect:
                 pad = int(48 * MAP_SCALE)
-                zone = game.computer_rect.inflate(pad * 2, pad * 2)
-                pygame.draw.rect(screen, (170, 100, 245), zone.move(offset), 2)
+                outline(game.computer_rect.inflate(pad * 2, pad * 2), (160, 145, 235, 155))
             for x, y, radius in inventory.get_projector_zones():
-                pygame.draw.circle(screen, (170, 100, 245), (int(x + offset[0]), int(y + offset[1])), int(radius), 2)
-            # Ghost detection uses room membership, not a distance threshold.
-            for ghost in game.ghost_manager.ghosts:
+                if focus.collidepoint(x, y):
+                    pygame.draw.circle(layer, (160, 145, 235, 155), (int(x - camera_x), int(y - camera_y)), int(radius), 1)
+            if scenario_id == "ghost_detection":
+                ghost = game.ghost_manager.ghosts[0]
                 room_id = ghost.get_current_room_id()
                 if 0 <= room_id < len(ghost.rooms):
-                    room = ghost.rooms[room_id]
-                    pygame.draw.rect(screen, (255, 215, 65), pygame.Rect(room.x, room.y, room.width, room.height).move(offset), 1)
+                    outline(ghost.rooms[room_id].rect, (245, 210, 125, 125))
 
         if self.selection:
-            mouse_x, mouse_y = pygame.mouse.get_pos()
-            world = (mouse_x - offset[0], mouse_y - offset[1])
+            mouse = pygame.mouse.get_pos()
+            world = (mouse[0] + camera_x, mouse[1] + camera_y)
             candidates = [item for item in reversed(inventory.dropped_items) if item.rect.collidepoint(world)]
             if inventory.placed_projector and inventory.placed_projector.rect.collidepoint(world):
                 candidates.append(inventory.placed_projector)
             candidates += [item for item in reversed(inventory.placed_items) if item.rect.collidepoint(world)]
             for item in candidates:
-                pygame.draw.rect(screen, (255, 225, 100), item.rect.move(offset), 2)
+                outline(item.rect, (245, 210, 125, 210), 2)
             if candidates:
-                pygame.draw.rect(screen, (255, 255, 255), candidates[0].rect.move(offset), 3)
-                font = pygame.font.Font(None, 22)
-                label = font.render("Выбор: 1-й по порядку клика; score отсутствует", True, (255, 255, 255))
-                screen.blit(label, (max(0, mouse_x - label.get_width()), max(0, mouse_y - 25)))
+                outline(candidates[0].rect, (125, 235, 190, 235), 3)
+
+        if scenario.current or self.hitboxes:
+            outline(game.player_rect, (125, 235, 190, 220), 2)
+        if scenario.current and scenario.target_rect:
+            outline(scenario.target_rect, (255, 245, 180, 220), 2)
+        screen.blit(layer, (0, 0))

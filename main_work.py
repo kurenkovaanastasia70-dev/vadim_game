@@ -577,7 +577,8 @@ class Game:
 
     def is_gameplay_paused(self):
         return bool(
-            self.show_save_prompt
+            self.developer_mode.scenario_picker_open
+            or self.show_save_prompt
             or self.journal_open
             or getattr(self, "achievements_panel_open", False)
             or getattr(self, "tasks_panel_open", False)
@@ -1834,7 +1835,7 @@ class Game:
         elif self.state == GameState.BOOST_PICK:
             self.moving = False
             draws.draw_boost_pick(self)
-        if self.state == GameState.GAME:
+        if self.state == GameState.GAME or self.developer_mode.scenarios.current:
             self.developer_mode.draw(self.screen, self)
         # Отображаем информационное сообщение поверх всех экранов
         if self.info_message and pygame.time.get_ticks() < self.info_until:

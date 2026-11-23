@@ -28,7 +28,7 @@ class DeveloperScenarioTests(unittest.TestCase):
             self.game.save_file = save_file
             self.game.selected_save_slot = 1
             for index in range(5):
-                self.assertTrue(self.mode.scenarios.next(self.game))
+                self.assertTrue(self.mode.scenarios.select(self.game, index))
                 self.assertEqual(self.mode.scenarios.index, index)
                 first = (
                     self.game.player_rect.copy(),
@@ -49,7 +49,7 @@ class DeveloperScenarioTests(unittest.TestCase):
             self.assertFalse(os.path.exists(save_file))
 
     def test_layers_draw_from_live_geometry(self):
-        self.mode.scenarios.next(self.game)
+        self.mode.scenarios.select(self.game, 0)
         screen = pygame.Surface((1024, 768))
         self.mode.draw(screen, self.game)
         self.mode.renderer.hitboxes = False
@@ -58,6 +58,23 @@ class DeveloperScenarioTests(unittest.TestCase):
         self.mode.draw(screen, self.game)
         self.assertTrue(self.mode.scenarios.exit(self.game))
         self.assertEqual(self.game.state, GameState.MENU)
+
+    def test_scenarios_check_real_game_rules(self):
+        for index in range(5):
+            with self.subTest(scenario=index):
+                self.assertTrue(self.mode.scenarios.select(self.game, index))
+                result = self.mode.scenarios.check(self.game)
+                self.assertTrue(result[0], result[1])
+                self.assertEqual(self.game.state, GameState.GAME)
+
+    def test_picker_supports_direct_choice(self):
+        screen = pygame.Surface((1024, 768))
+        self.assertTrue(self.mode.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_F4}), screen, self.game))
+        self.assertTrue(self.mode.scenario_picker_open)
+        self.assertTrue(self.game.is_gameplay_paused())
+        self.assertTrue(self.mode.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_3}), screen, self.game))
+        self.assertEqual(self.mode.scenarios.current[0], "two_objects")
+        self.assertFalse(self.mode.scenario_picker_open)
 
 
 if __name__ == "__main__":
