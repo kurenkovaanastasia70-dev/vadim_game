@@ -6,6 +6,8 @@ from typing import Optional
 import pygame
 
 from constants import FPS
+from devtools.renderer import DebugRenderer
+from devtools.scenarios import ScenarioManager
 
 
 STATE_LABELS = {
@@ -154,17 +156,43 @@ class DeveloperMode:
         self.enabled = False
         self.details_expanded = False
         self.overlay = DebugOverlay()
+        self.renderer = DebugRenderer()
+        self.scenarios = ScenarioManager()
         self._observed_enemy_state: Optional[str] = None
         self._previous_enemy_state: Optional[str] = None
         self._state_changed_at_ms = pygame.time.get_ticks()
         self._last_transition_reason = "ожидаем смену состояния"
 
     def handle_event(
-        self, event: pygame.event.Event, screen: Optional[pygame.Surface] = None
+        self, event: pygame.event.Event, screen: Optional[pygame.Surface] = None, game=None
     ) -> bool:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
             self.enabled = not self.enabled
             return True
+        if self.enabled and game is not None and event.type == pygame.KEYDOWN:
+            actions = {
+                pygame.K_F4: lambda: self.scenarios.next(game),
+                pygame.K_F5: lambda: self.scenarios.reset(game),
+                pygame.K_F6: lambda: self._toggle("hitboxes"),
+                pygame.K_F7: lambda: self._toggle("zones"),
+                pygame.K_F8: lambda: self._toggle("selection"),
+                pygame.K_F9: lambda: self.scenarios.exit(game),
+            }
+            if event.key in actions:
+                actions[event.key]()
+                return True
+        if self.enabled and game is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for key, rect in self._button_rects().items():
+                if rect.collidepoint(event.pos):
+                    if key == "next":
+                        self.scenarios.next(game)
+                    elif key == "reset":
+                        self.scenarios.reset(game)
+                    elif key == "exit":
+                        self.scenarios.exit(game)
+                    else:
+                        self._toggle(key)
+                    return True
         if (
             self.enabled
             and screen is not None
@@ -177,6 +205,33 @@ class DeveloperMode:
             self.details_expanded = not self.details_expanded
             return True
         return False
+
+    def _toggle(self, layer):
+        setattr(self.renderer, layer, not getattr(self.renderer, layer))
+
+    @staticmethod
+    def _button_rects():
+        return {
+            key: pygame.Rect(12 + index * 103, 54, 99, 26)
+            for index, key in enumerate(("hitboxes", "zones", "selection", "next", "reset", "exit"))
+        }
+
+    def _draw_controls(self, screen):
+        font = pygame.font.Font(None, 22)
+        current = self.scenarios.current
+        lines = ["F6 Хитбоксы | F7 Зоны | F8 Выбор | F4 Сценарий | F5 Сброс | F9 Выход"]
+        if current:
+            lines.append(f"{current[0]}: {current[1]}")
+        panel = pygame.Surface((min(screen.get_width() - 16, 650), 95 if current else 70), pygame.SRCALPHA)
+        panel.fill((10, 14, 20, 205))
+        screen.blit(panel, (8, 8))
+        for index, line in enumerate(lines):
+            screen.blit(font.render(line, True, (235, 245, 240)), (14, 12 + index * 20))
+        labels = {"hitboxes": "Хитбоксы", "zones": "Зоны", "selection": "Выбор", "next": "Сценарий", "reset": "Сброс", "exit": "Выход"}
+        for key, rect in self._button_rects().items():
+            active = getattr(self.renderer, key, False)
+            pygame.draw.rect(screen, (35, 105, 70) if active else (45, 55, 65), rect)
+            screen.blit(font.render(labels[key], True, (255, 255, 255)), (rect.x + 5, rect.y + 4))
 
     @staticmethod
     def _enemy_state(game) -> str:
@@ -363,6 +418,8 @@ class DeveloperMode:
 
     def draw(self, screen: pygame.Surface, game) -> None:
         if self.enabled:
+            self.renderer.draw(screen, game)
+            self._draw_controls(screen)
             self.overlay.draw(
                 screen, self.snapshot(game), expanded=self.details_expanded
             )

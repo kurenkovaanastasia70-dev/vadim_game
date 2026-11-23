@@ -1560,6 +1560,9 @@ class Game:
         return {slot: data.get(slot) for slot in empty_saves}
 
     def save_game(self, slot):
+        # Diagnostic scenarios are temporary and must never overwrite a real slot.
+        if self.developer_mode.scenarios.current:
+            return
         from inventory_system import ItemType
         item_counts_serial = {
             "BATTERY": self.inventory_manager.item_counts.get(ItemType.BATTERY, 0),
