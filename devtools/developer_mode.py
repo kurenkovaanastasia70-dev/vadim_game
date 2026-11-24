@@ -50,10 +50,10 @@ class DebugOverlay:
 
     PANEL_MARGIN = 12
     PANEL_WIDTH = 370
-    COLLAPSED_HEIGHT = 278
-    EXPANDED_HEIGHT = 350
+    COLLAPSED_HEIGHT = 302
+    EXPANDED_HEIGHT = 374
     SCENARIO_EXTRA_HEIGHT = 76
-    BACKGROUND = (12, 18, 24, 225)
+    BACKGROUND = (12, 18, 24, 245)
     BORDER = (80, 105, 110)
     TEXT = (225, 232, 230)
     MUTED = (155, 173, 175)
@@ -101,7 +101,7 @@ class DebugOverlay:
             key: pygame.Rect(x + 12 + i * 116, y + 158, 110, 26)
             for i, key in enumerate(keys)
         }
-        action_y = 292 if scenario_active else 216
+        action_y = 316 if scenario_active else 240
         buttons.update({
             key: pygame.Rect(x + 12 + i * 87, y + action_y, 82, 26)
             for i, key in enumerate(("choose", "check", "reset", "exit"))
@@ -173,20 +173,23 @@ class DebugOverlay:
 
         pygame.draw.line(panel, self.BORDER, (12, 146), (358, 146))
         for index, (key, label) in enumerate((
-            ("hitboxes", "Контуры · F6"), ("zones", "Зоны · F7"), ("selection", "Выбор · F8")
+            ("hitboxes", "Стены · F6"), ("zones", "Зоны · F7"), ("selection", "Цель · F8")
         )):
             self._button(panel, pygame.Rect(12 + index * 116, 158, 110, 26), label, getattr(renderer, key, False))
 
+        hint = getattr(renderer, "hint", "F6: стены  ·  F7: зоны  ·  F8: цель клика")
+        panel.blit(self._font.render(hint, True, self.MUTED), (14, 191))
+
         if active:
-            panel.blit(self._font.render(scenario[1], True, self.ACCENT), (14, 192))
-            panel.blit(self._font.render(f"Действие: {scenario[2]}", True, self.TEXT), (14, 216))
-            panel.blit(self._font.render(f"Ожидаемо: {scenario[3]}", True, self.TEXT), (14, 240))
+            panel.blit(self._font.render(scenario[1], True, self.ACCENT), (14, 216))
+            panel.blit(self._font.render(f"Действие: {scenario[2]}", True, self.TEXT), (14, 240))
+            panel.blit(self._font.render(f"Ожидаемо: {scenario[3]}", True, self.TEXT), (14, 264))
             status = ("PASS · " if result[0] else "FAIL · ") + result[1] if result else "Проверка ещё не запущена"
             color = self.ACCENT if result and result[0] else (245, 130, 125) if result else self.MUTED
-            panel.blit(self._font.render(status, True, color), (14, 264))
+            panel.blit(self._font.render(status, True, color), (14, 288))
         else:
-            panel.blit(self._font.render("Сценарий не выбран", True, self.MUTED), (14, 192))
-        action_y = 292 if active else 216
+            panel.blit(self._font.render("Сценарий не выбран", True, self.MUTED), (14, 216))
+        action_y = 316 if active else 240
         for index, (label, disabled) in enumerate((
             ("Выбрать", False), ("Тест", not active),
             ("Сброс", not active), ("Выход", not active)

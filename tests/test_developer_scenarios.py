@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -75,6 +76,26 @@ class DeveloperScenarioTests(unittest.TestCase):
         self.assertTrue(self.mode.handle_event(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_3}), screen, self.game))
         self.assertEqual(self.mode.scenarios.current[0], "two_objects")
         self.assertFalse(self.mode.scenario_picker_open)
+
+    def test_wall_and_zone_layers_remain_visible_in_scenarios(self):
+        screen = pygame.Surface((1024, 768))
+        self.mode._select_scenario(self.game, 0)
+        self.mode.renderer.draw(screen, self.game)
+        self.assertIn("препятствий в кадре", self.mode.renderer.hint)
+        self.assertNotIn("нет", self.mode.renderer.hint)
+
+        self.mode._select_scenario(self.game, 1)
+        self.mode.renderer.draw(screen, self.game)
+        self.assertIn("зон в кадре", self.mode.renderer.hint)
+
+    def test_f8_names_the_item_selected_at_overlap(self):
+        self.mode._select_scenario(self.game, 2)
+        items = self.game.inventory_manager.dropped_items
+        overlap = items[0].rect.clip(items[1].rect)
+        screen_pos = (overlap.centerx - self.game.camera_x, overlap.centery - self.game.camera_y)
+        with patch("pygame.mouse.get_pos", return_value=screen_pos):
+            self.mode.renderer.draw(pygame.Surface((1024, 768)), self.game)
+        self.assertIn("радио", self.mode.renderer.hint)
 
 
 if __name__ == "__main__":
