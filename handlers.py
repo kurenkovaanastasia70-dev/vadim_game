@@ -504,7 +504,7 @@ def handle_event(game):
             game.running = False
 
         # Only explicit interaction with Developer Mode consumes an event.
-        if game.developer_mode.handle_event(event, game.screen):
+        if game.developer_mode.handle_event(event, game.screen, game):
             continue
         
         if game.state == GameState.MENU:

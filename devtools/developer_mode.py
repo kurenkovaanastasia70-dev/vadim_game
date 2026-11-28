@@ -6,6 +6,9 @@ from typing import Optional
 import pygame
 
 from constants import FPS
+from devtools.renderer import DebugRenderer
+from devtools.scenarios import SCENARIOS, ScenarioManager
+from gamestate import GameState
 
 
 STATE_LABELS = {
@@ -43,18 +46,18 @@ class DebugSnapshot:
 
 
 class DebugOverlay:
-    """Render diagnostics with a small clickable details control."""
+    """A single compact panel for diagnostics and scenario controls."""
 
-    PANEL_MARGIN = 16
-    PANEL_WIDTH = 410
-    COLLAPSED_HEIGHT = 205
-    EXPANDED_HEIGHT = 285
-    DETAILS_BUTTON_Y = 171
-    DETAILS_BUTTON_HEIGHT = 24
-    BACKGROUND = (10, 14, 20, 205)
-    BORDER = (80, 220, 150, 255)
-    TEXT = (235, 245, 240)
-    TITLE = (110, 245, 175)
+    PANEL_MARGIN = 12
+    PANEL_WIDTH = 370
+    COLLAPSED_HEIGHT = 302
+    EXPANDED_HEIGHT = 374
+    SCENARIO_EXTRA_HEIGHT = 76
+    BACKGROUND = (12, 18, 24, 245)
+    BORDER = (80, 105, 110)
+    TEXT = (225, 232, 230)
+    MUTED = (155, 173, 175)
+    ACCENT = (125, 220, 183)
 
     def __init__(self) -> None:
         self._font: Optional[pygame.font.Font] = None
@@ -62,19 +65,21 @@ class DebugOverlay:
 
     def _ensure_fonts(self) -> None:
         if self._font is None:
-            self._font = pygame.font.Font(None, 23)
-            self._title_font = pygame.font.Font(None, 25)
+            self._font = pygame.font.Font(None, 21)
+            self._title_font = pygame.font.Font(None, 23)
 
     @classmethod
-    def panel_size(cls, expanded: bool = False) -> tuple[int, int]:
+    def panel_size(cls, expanded: bool = False, scenario_active: bool = False) -> tuple[int, int]:
         height = cls.EXPANDED_HEIGHT if expanded else cls.COLLAPSED_HEIGHT
+        if scenario_active:
+            height += cls.SCENARIO_EXTRA_HEIGHT
         return cls.PANEL_WIDTH, height
 
     @classmethod
     def panel_position(
-        cls, screen: pygame.Surface, expanded: bool = False
+        cls, screen: pygame.Surface, expanded: bool = False, scenario_active: bool = False
     ) -> tuple[int, int]:
-        panel_width, panel_height = cls.panel_size(expanded)
+        panel_width, panel_height = cls.panel_size(expanded, scenario_active)
         return (
             max(0, screen.get_width() - panel_width - cls.PANEL_MARGIN),
             max(0, screen.get_height() - panel_height - cls.PANEL_MARGIN),
@@ -82,69 +87,125 @@ class DebugOverlay:
 
     @classmethod
     def details_button_rect(
-        cls, screen: pygame.Surface, expanded: bool = False
+        cls, screen: pygame.Surface, expanded: bool = False, scenario_active: bool = False
     ) -> pygame.Rect:
-        panel_x, panel_y = cls.panel_position(screen, expanded)
-        return pygame.Rect(
-            panel_x + 10,
-            panel_y + cls.DETAILS_BUTTON_Y,
-            cls.PANEL_WIDTH - 20,
-            cls.DETAILS_BUTTON_HEIGHT,
-        )
+        return cls.button_rects(screen, expanded, scenario_active)["details"]
+
+    @classmethod
+    def button_rects(
+        cls, screen: pygame.Surface, expanded: bool = False, scenario_active: bool = False
+    ) -> dict[str, pygame.Rect]:
+        x, y = cls.panel_position(screen, expanded, scenario_active)
+        keys = ("hitboxes", "zones", "selection")
+        buttons = {
+            key: pygame.Rect(x + 12 + i * 116, y + 158, 110, 26)
+            for i, key in enumerate(keys)
+        }
+        action_y = 316 if scenario_active else 240
+        buttons.update({
+            key: pygame.Rect(x + 12 + i * 87, y + action_y, 82, 26)
+            for i, key in enumerate(("choose", "check", "reset", "exit"))
+        })
+        buttons["details"] = pygame.Rect(x + 12, y + action_y + 33, cls.PANEL_WIDTH - 24, 22)
+        return buttons
+
+    @staticmethod
+    def picker_rows(screen):
+        x = (screen.get_width() - 550) // 2
+        y = (screen.get_height() - 430) // 2
+        return [pygame.Rect(x + 18, y + 69 + i * 66, 514, 58) for i in range(len(SCENARIOS))]
+
+    def draw_picker(self, screen):
+        self._ensure_fonts()
+        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        veil.fill((4, 8, 12, 175))
+        screen.blit(veil, (0, 0))
+        x = (screen.get_width() - 550) // 2
+        y = (screen.get_height() - 430) // 2
+        pygame.draw.rect(screen, (16, 23, 30), (x, y, 550, 430), border_radius=9)
+        pygame.draw.rect(screen, self.BORDER, (x, y, 550, 430), 1, border_radius=9)
+        screen.blit(self._title_font.render("ВЫБЕРИТЕ ПРОВЕРКУ", True, self.ACCENT), (x + 20, y + 16))
+        screen.blit(self._font.render("Выберите мышью или нажмите 1–5  ·  Esc — закрыть", True, self.MUTED), (x + 20, y + 42))
+        for index, (rect, scenario) in enumerate(zip(self.picker_rows(screen), SCENARIOS)):
+            pygame.draw.rect(screen, (32, 44, 50), rect, border_radius=5)
+            screen.blit(self._title_font.render(f"{index + 1}. {scenario[1]}", True, self.TEXT), (rect.x + 12, rect.y + 6))
+            screen.blit(self._font.render(f"Проверка: {scenario[3]}", True, self.MUTED), (rect.x + 12, rect.y + 31))
+
+    def _button(self, panel, rect, label, active=False, disabled=False):
+        color = (37, 87, 74) if active else (38, 51, 58)
+        if disabled:
+            color = (26, 34, 40)
+        pygame.draw.rect(panel, color, rect, border_radius=4)
+        text_color = self.ACCENT if active else (105, 120, 125) if disabled else self.TEXT
+        label_surface = self._font.render(label, True, text_color)
+        panel.blit(label_surface, label_surface.get_rect(center=rect.center))
 
     def draw(
-        self, screen: pygame.Surface, snapshot: DebugSnapshot, expanded: bool = False
+        self, screen: pygame.Surface, snapshot: DebugSnapshot, expanded: bool = False,
+        renderer=None, scenario=None, result=None,
     ) -> None:
         self._ensure_fonts()
-        panel = pygame.Surface(self.panel_size(expanded), pygame.SRCALPHA)
+        active = scenario is not None
+        panel = pygame.Surface(self.panel_size(expanded, active), pygame.SRCALPHA)
         panel.fill(self.BACKGROUND)
-        pygame.draw.rect(panel, self.BORDER, panel.get_rect(), 2, border_radius=6)
-
-        title = self._title_font.render("РЕЖИМ РАЗРАБОТЧИКА [F3]", True, self.TITLE)
-        panel.blit(title, (14, 11))
+        pygame.draw.rect(panel, self.BORDER, panel.get_rect(), 1, border_radius=7)
+        panel.blit(self._title_font.render("РЕЖИМ РАЗРАБОТЧИКА", True, self.ACCENT), (14, 10))
+        panel.blit(self._font.render("F3 · закрыть", True, self.MUTED), (263, 12))
+        pygame.draw.line(panel, self.BORDER, (12, 37), (358, 37))
 
         player_x, player_y = snapshot.player_position
         previous_state = state_label(snapshot.enemy_previous_state)
         current_state = state_label(snapshot.enemy_state)
         if snapshot.enemy_position is None:
-            enemy_line = "Призрак: ещё не появился"
+            enemy_line = "Призрак  —"
         else:
             enemy_x, enemy_y = snapshot.enemy_position
-            enemy_line = (
-                f"Призрак: ({enemy_x}, {enemy_y})  "
-                f"расстояние: {snapshot.enemy_distance:.0f} пкс"
-            )
+            enemy_line = f"Призрак  {enemy_x}, {enemy_y}   ·   {snapshot.enemy_distance:.0f} пкс"
         lines = (
-            f"FPS: {snapshot.fps:.1f}  |  Активные объекты: {snapshot.active_objects}",
-            f"Игрок: ({player_x}, {player_y})",
+            f"FPS  {snapshot.fps:.1f}     ·     Объекты  {snapshot.active_objects}",
+            f"Игрок  {player_x}, {player_y}",
             enemy_line,
-            f"Состояние: {previous_state} -> {current_state}",
-            f"В текущем состоянии: {snapshot.enemy_state_seconds:.1f} с",
+            f"{previous_state}  >  {current_state}     ·     {snapshot.enemy_state_seconds:.1f} с",
         )
         for index, line in enumerate(lines):
             text = self._font.render(line, True, self.TEXT)
-            panel.blit(text, (14, 43 + index * 25))
+            panel.blit(text, (14, 48 + index * 23))
 
-        button_rect = pygame.Rect(
-            10,
-            self.DETAILS_BUTTON_Y,
-            self.PANEL_WIDTH - 20,
-            self.DETAILS_BUTTON_HEIGHT,
-        )
-        pygame.draw.rect(panel, (35, 65, 58, 230), button_rect, border_radius=4)
-        marker = "[-]" if expanded else "[+]"
-        button_text = self._font.render(
-            f"{marker} Сведения о состоянии (нажать)", True, self.TITLE
-        )
-        panel.blit(button_text, (16, self.DETAILS_BUTTON_Y + 2))
+        pygame.draw.line(panel, self.BORDER, (12, 146), (358, 146))
+        for index, (key, label) in enumerate((
+            ("hitboxes", "Стены · F6"), ("zones", "Зоны · F7"), ("selection", "Цель · F8")
+        )):
+            self._button(panel, pygame.Rect(12 + index * 116, 158, 110, 26), label, getattr(renderer, key, False))
+
+        hint = getattr(renderer, "hint", "F6: стены  ·  F7: зоны  ·  F8: цель клика")
+        panel.blit(self._font.render(hint, True, self.MUTED), (14, 191))
+
+        if active:
+            panel.blit(self._font.render(scenario[1], True, self.ACCENT), (14, 216))
+            panel.blit(self._font.render(f"Действие: {scenario[2]}", True, self.TEXT), (14, 240))
+            panel.blit(self._font.render(f"Ожидаемо: {scenario[3]}", True, self.TEXT), (14, 264))
+            status = ("PASS · " if result[0] else "FAIL · ") + result[1] if result else "Проверка ещё не запущена"
+            color = self.ACCENT if result and result[0] else (245, 130, 125) if result else self.MUTED
+            panel.blit(self._font.render(status, True, color), (14, 288))
+        else:
+            panel.blit(self._font.render("Сценарий не выбран", True, self.MUTED), (14, 216))
+        action_y = 316 if active else 240
+        for index, (label, disabled) in enumerate((
+            ("Выбрать", False), ("Тест", not active),
+            ("Сброс", not active), ("Выход", not active)
+        )):
+            self._button(panel, pygame.Rect(12 + index * 87, action_y, 82, 26), label, disabled=disabled)
+
+        pygame.draw.line(panel, self.BORDER, (12, action_y + 31), (358, action_y + 31))
+        marker = "−" if expanded else "+"
+        panel.blit(self._font.render(f"{marker}  Состояние призрака", True, self.ACCENT), (14, action_y + 35))
 
         if expanded:
-            pygame.draw.line(panel, self.BORDER, (12, 203), (398, 203), 1)
             for index, line in enumerate(snapshot.detail_lines):
                 text = self._font.render(line, True, self.TEXT)
-                panel.blit(text, (14, 211 + index * 23))
+                panel.blit(text, (14, action_y + 62 + index * 22))
 
-        screen.blit(panel, self.panel_position(screen, expanded))
+        screen.blit(panel, self.panel_position(screen, expanded, active))
 
 
 class DeveloperMode:
@@ -154,29 +215,86 @@ class DeveloperMode:
         self.enabled = False
         self.details_expanded = False
         self.overlay = DebugOverlay()
+        self.renderer = DebugRenderer()
+        self.scenarios = ScenarioManager()
+        self.scenario_picker_open = False
         self._observed_enemy_state: Optional[str] = None
         self._previous_enemy_state: Optional[str] = None
         self._state_changed_at_ms = pygame.time.get_ticks()
         self._last_transition_reason = "ожидаем смену состояния"
 
     def handle_event(
-        self, event: pygame.event.Event, screen: Optional[pygame.Surface] = None
+        self, event: pygame.event.Event, screen: Optional[pygame.Surface] = None, game=None
     ) -> bool:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
             self.enabled = not self.enabled
+            if not self.enabled:
+                self.scenario_picker_open = False
             return True
-        if (
-            self.enabled
-            and screen is not None
-            and event.type == pygame.MOUSEBUTTONDOWN
-            and event.button == 1
-            and self.overlay.details_button_rect(
-                screen, self.details_expanded
-            ).collidepoint(event.pos)
-        ):
-            self.details_expanded = not self.details_expanded
+        if self.enabled and self.scenario_picker_open:
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_F4):
+                    self.scenario_picker_open = False
+                elif pygame.K_1 <= event.key <= pygame.K_5 and game is not None:
+                    self._select_scenario(game, event.key - pygame.K_1)
+                return True
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and screen is not None and game is not None:
+                for index, rect in enumerate(self.overlay.picker_rows(screen)):
+                    if rect.collidepoint(event.pos):
+                        self._select_scenario(game, index)
+                        break
+                return True
             return True
+        if self.enabled and game is not None and event.type == pygame.KEYDOWN:
+            actions = {
+                pygame.K_F4: lambda: self._open_picker(game),
+                pygame.K_F5: lambda: self.scenarios.reset(game),
+                pygame.K_F6: lambda: self._toggle("hitboxes"),
+                pygame.K_F7: lambda: self._toggle("zones"),
+                pygame.K_F8: lambda: self._toggle("selection"),
+                pygame.K_F9: lambda: self.scenarios.exit(game),
+            }
+            if event.key in actions:
+                actions[event.key]()
+                return True
+        if self.enabled and game is not None and screen is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for key, rect in self.overlay.button_rects(screen, self.details_expanded, bool(self.scenarios.current)).items():
+                if rect.collidepoint(event.pos):
+                    if key == "choose":
+                        self._open_picker(game)
+                    elif key == "check":
+                        self.scenarios.check(game)
+                    elif key == "reset":
+                        self.scenarios.reset(game)
+                    elif key == "exit":
+                        self.scenarios.exit(game)
+                    elif key == "details":
+                        self.details_expanded = not self.details_expanded
+                    else:
+                        self._toggle(key)
+                    return True
+        if self.enabled and game is None and screen is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.overlay.details_button_rect(screen, self.details_expanded).collidepoint(event.pos):
+                self.details_expanded = not self.details_expanded
+                return True
         return False
+
+    def _open_picker(self, game):
+        if game.state == GameState.GAME or self.scenarios.current:
+            self.scenario_picker_open = True
+            for key in game.keys_pressed:
+                game.keys_pressed[key] = False
+
+    def _select_scenario(self, game, index):
+        if self.scenarios.select(game, index):
+            self.scenario_picker_open = False
+            scenario_id = self.scenarios.current[0]
+            self.renderer.hitboxes = scenario_id in ("collision_wall", "two_objects", "ghost_detection")
+            self.renderer.zones = scenario_id in ("interaction_edge", "ghost_detection")
+            self.renderer.selection = scenario_id == "two_objects"
+
+    def _toggle(self, layer):
+        setattr(self.renderer, layer, not getattr(self.renderer, layer))
 
     @staticmethod
     def _enemy_state(game) -> str:
@@ -363,6 +481,12 @@ class DeveloperMode:
 
     def draw(self, screen: pygame.Surface, game) -> None:
         if self.enabled:
+            if game.state == GameState.GAME:
+                self.renderer.draw(screen, game)
             self.overlay.draw(
-                screen, self.snapshot(game), expanded=self.details_expanded
+                screen, self.snapshot(game), expanded=self.details_expanded,
+                renderer=self.renderer, scenario=self.scenarios.current,
+                result=self.scenarios.result,
             )
+            if self.scenario_picker_open:
+                self.overlay.draw_picker(screen)
