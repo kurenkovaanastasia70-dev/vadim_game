@@ -18,6 +18,7 @@ from ghost import (
     resolve_emf_level,
 )
 from inventory_system import ItemType
+from handlers import handle_game_events
 from main_work import Game
 
 
@@ -47,7 +48,7 @@ class EmfReaderTests(unittest.TestCase):
         self.assertEqual(near_level, 4)
         self.assertEqual(far_level, 1)
 
-    def test_e_key_behavior_is_a_clear_on_off_toggle(self):
+    def test_reader_use_toggles_on_and_off(self):
         game = Game()
         game.set_state(GameState.GAME)
         game.inventory[ItemType.EMF.value] = True
@@ -87,6 +88,22 @@ class EmfReaderTests(unittest.TestCase):
         self.assertTrue(game.inventory_manager.use_item(ItemType.EMF))
         self.assertTrue(game.emf_enabled)
         self.assertIsNone(game.info_message)
+
+    def test_e_interacts_without_toggling_emf(self):
+        game = Game()
+        game.set_state(GameState.GAME)
+        game.inventory[ItemType.EMF.value] = True
+        game.inventory_manager.item_counts[ItemType.EMF] = 1
+        handle_game_events(game, pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_1}))
+        self.assertTrue(game.emf_enabled)
+        self.assertIn("цифру слота", game.info_message)
+
+        handle_game_events(game, pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_e}))
+        self.assertTrue(game.emf_enabled)
+        self.assertEqual(game.inventory_manager.active_hand_item, ItemType.EMF)
+
+        handle_game_events(game, pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_1}))
+        self.assertFalse(game.emf_enabled)
 
 
 if __name__ == "__main__":

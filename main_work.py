@@ -169,6 +169,7 @@ class Game:
         self.difficulty_index = 1
         self.difficulty_selected = False
         self.save_file = str(SAVE_FILE)
+        self.global_money = 0
         self.saves = self.load_saves()
         self.selected_save_slot = None
         
@@ -252,7 +253,7 @@ class Game:
         self.win_report = {}
 
         self.player_money = 100
-        self.global_money = 0  # счёт: победы; тратится на бусты
+        # Общий счёт загружен из файла до создания остального состояния игры.
         self.tasks_panel_open = False
         self.player_level = 1
         self.player_hp = 5
@@ -1101,6 +1102,8 @@ class Game:
         self.owned_boosts[boost_id] = True
         self.selected_boost_id = boost_id
         self.autosave_current_slot()
+        if not self.selected_save_slot:
+            self._write_saves()
         self._show_game_info(f"Куплено: {meta['title']} (−{cost}$ со счёта)", 1400)
         return True
 
@@ -1189,7 +1192,6 @@ class Game:
             self.player_level = 1
             first_level = level_config.get_level_by_number(1)
             self.current_level_id = first_level.get("id") if first_level else "level_1"
-            self.global_money = 0
             self.tasks, self.achievements_table = self.progress_manager.new_state()
         self.game_over_reason = "hp"
         self.player_hp = 5
@@ -1432,7 +1434,6 @@ class Game:
         self.equipped_boost = None
         self.selected_boost_id = None
         self.boost_pick_purpose = "start"
-        self.global_money = 0
         self.reset_inventory()
         self.reset_player_position()
         self.reset_photo_camera()
@@ -1500,6 +1501,8 @@ class Game:
         breakdown = self.get_level_complete_reward_breakdown()
         reward = int(breakdown["total"])
         self.global_money = int(getattr(self, "global_money", 0) or 0) + reward
+        if not self.selected_save_slot and not self.developer_mode.scenarios.current:
+            self._write_saves()
         next_meta = level_config.get_level_index().get(self.win_next_level_id, {}) if self.win_next_level_id else {}
         found_evidence = [
             key for key, state in self.journal_evidence.items()
@@ -1551,6 +1554,7 @@ class Game:
 
     def load_saves(self):
         empty_saves = {"slot1": None, "slot2": None, "slot3": None}
+        self.global_money = 0
         try:
             with open(self.save_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -1558,7 +1562,30 @@ class Game:
             return empty_saves
         if not isinstance(data, dict):
             return empty_saves
+        def saved_money(value):
+            try:
+                return max(0, int(value or 0))
+            except (TypeError, ValueError):
+                return 0
+        if "global_money" in data:
+            self.global_money = saved_money(data.get("global_money"))
+        else:
+            # Старые сохранения хранили общий счёт внутри каждого слота.
+            self.global_money = max(
+                [0] + [saved_money(value.get("global_money"))
+                       for value in (data.get(slot) for slot in empty_saves)
+                       if isinstance(value, dict)]
+            )
         return {slot: data.get(slot) for slot in empty_saves}
+
+    def _write_saves(self):
+        if self.developer_mode.scenarios.current:
+            return
+        data = {"global_money": int(self.global_money), **self.saves}
+        temporary_save_file = f"{self.save_file}.tmp"
+        with open(temporary_save_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temporary_save_file, self.save_file)
 
     def save_game(self, slot):
         # Diagnostic scenarios are temporary and must never overwrite a real slot.
@@ -1599,10 +1626,7 @@ class Game:
             "owned_boosts": [key for key, owned in (getattr(self, "owned_boosts", {}) or {}).items() if owned],
         }
         self.saves[f"slot{slot}"] = save_data
-        temporary_save_file = f"{self.save_file}.tmp"
-        with open(temporary_save_file, "w", encoding="utf-8") as f:
-            json.dump(self.saves, f, ensure_ascii=False, indent=2)
-        os.replace(temporary_save_file, self.save_file)
+        self._write_saves()
         self.selected_save_slot = slot
 
     def load_game(self, slot):
@@ -1619,7 +1643,6 @@ class Game:
             # Загружаем HP и деньги (с fallback для старых сохранений)
             self.player_hp = save_data.get("hp", 5)
             self.player_money = save_data.get("money", 100)
-            self.global_money = int(save_data.get("global_money", 0) or 0)
             saved_inventory = save_data.get("inventory") or {}
             default_light = bool(saved_inventory.get("фонарик", False))
             self.loaded_sanity_state = {
@@ -1687,10 +1710,7 @@ class Game:
         key = f"slot{slot}"
         if key in self.saves:
             self.saves[key] = None
-            temporary_save_file = f"{self.save_file}.tmp"
-            with open(temporary_save_file, "w", encoding="utf-8") as f:
-                json.dump(self.saves, f, ensure_ascii=False, indent=2)
-            os.replace(temporary_save_file, self.save_file)
+            self._write_saves()
         if self.selected_save_slot == slot:
             self.selected_save_slot = None
     
@@ -1883,6 +1903,7 @@ class Game:
             self.clock.tick(FPS)
         pygame.quit()
         sys.exit()
+
 if __name__ == "__main__":
     game = Game()
     game.run()

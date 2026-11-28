@@ -5,6 +5,7 @@
 """
 
 import os
+import json
 import tempfile
 import unittest
 
@@ -229,6 +230,71 @@ class GameBaselineTests(unittest.TestCase):
             self.assertEqual(restored.player_money, 77)
             self.assertEqual(restored.inventory_manager.get_count(ItemType.BATTERY), 2)
 
+    def test_global_balance_survives_restart_and_slot_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_path = os.path.join(temp_dir, "save.json")
+            game = self.new_game()
+            game.save_file = save_path
+            game.saves = game.load_saves()
+            game.global_money = 180
+            game.save_game(1)
+            game.global_money = 240
+            game.save_game(2)
+
+            restarted = self.new_game()
+            restarted.save_file = save_path
+            restarted.saves = restarted.load_saves()
+            self.assertEqual(restarted.global_money, 240)
+            self.assertTrue(restarted.load_game(1))
+            self.assertEqual(restarted.global_money, 240)
+            restarted.reset_for_new_game()
+            self.assertEqual(restarted.global_money, 240)
+            restarted.delete_save(2)
+
+            again = self.new_game()
+            again.save_file = save_path
+            again.saves = again.load_saves()
+            self.assertEqual(again.global_money, 240)
+
+    def test_legacy_slot_balance_migrates_to_shared_account(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_path = os.path.join(temp_dir, "save.json")
+            with open(save_path, "w", encoding="utf-8") as save_file:
+                json.dump({"slot1": {"global_money": 60}, "slot2": {"global_money": 90}}, save_file)
+            game = self.new_game()
+            game.save_file = save_path
+            game.saves = game.load_saves()
+            self.assertEqual(game.global_money, 90)
+            self.assertTrue(game.load_game(1))
+            self.assertEqual(game.global_money, 90)
+            game.save_game(1)
+            with open(save_path, "r", encoding="utf-8") as save_file:
+                self.assertEqual(json.load(save_file)["global_money"], 90)
+
+    def test_win_and_boost_persist_balance_without_selected_slot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_path = os.path.join(temp_dir, "save.json")
+            game = self.new_game()
+            game.save_file = save_path
+            game.saves = game.load_saves()
+            game.load_level_by_id("level_1")
+            game.enter_win()
+            earned = game.global_money
+            self.assertGreater(earned, 0)
+
+            restarted = self.new_game()
+            restarted.save_file = save_path
+            restarted.saves = restarted.load_saves()
+            self.assertEqual(restarted.global_money, earned)
+            restarted.global_money = 300
+            restarted._write_saves()
+            self.assertTrue(restarted.buy_session_boost("extra_slot"))
+
+            again = self.new_game()
+            again.save_file = save_path
+            again.saves = again.load_saves()
+            self.assertEqual(again.global_money, 180)
+
     def test_level_task_progress_survives_loading_into_game(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             save_path = os.path.join(temp_dir, "save.json")
@@ -358,7 +424,7 @@ class GameBaselineTests(unittest.TestCase):
         self.assertEqual(game.current_level_id, "level_1")
         self.assertEqual(game.player_hp, 5)
         self.assertEqual(game.player_money, 100)
-        self.assertEqual(game.global_money, 0)
+        self.assertEqual(game.global_money, 300)
         self.assertFalse(game.inventory[ItemType.FLASHLIGHT.value])
         self.assertEqual(game.owned_boosts, {"extra_slot": True})
         self.assertEqual(game.equipped_boost, "extra_slot")
